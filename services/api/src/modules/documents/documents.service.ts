@@ -103,10 +103,18 @@ export class DocumentsService {
     // actually given. This is a legitimate OCR substitute for MVP volumes; a dedicated OCR engine is worth
     // adding once usage/cost data justifies it (see docs/ROADMAP.md).
     if (mimeType === "application/pdf") {
-      // PDF vision input requires Anthropic's beta `client.beta.messages` surface, which this service
-      // deliberately doesn't wire yet (its types/headers are still in flux). Rather than fake a working
-      // integration, PDFs are left in "classified" state (no ocrText) until that's built for real.
-      return null;
+      const result = await this.ai.extractStructured({
+        extractorName: "document_ocr_pdf_v1",
+        model: "cheap",
+        systemPrompt: "Transcribe all readable text from this PDF verbatim, in reading order. If unreadable, say so.",
+        userContent: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") } },
+          { type: "text", text: "Transcribe this document." },
+        ],
+        schema: z.object({ transcribedText: z.string() }),
+        toolDescription: "Emit the transcribed PDF text.",
+      });
+      return result?.data.transcribedText ?? null;
     }
     if (mimeType === "image/heic") {
       // Claude's vision input only accepts jpeg/png/gif/webp; HEIC needs a real transcode step (e.g. `sharp`)

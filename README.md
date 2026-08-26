@@ -75,8 +75,11 @@ isn't:
   sessions, household + dependent management, the Gmail connector (real
   OAuth + Gmail API, cleanly gated behind config), the ingestion pipeline
   (deterministic prefilter → Claude-based structured extraction → canonical
-  facts/purchases/bills/events → Inbox review), document upload to
-  S3-compatible storage with real Claude-vision OCR for images, structured
+  facts/purchases/bills/events → Inbox review) with Gmail incremental sync
+  (a recurring worker tick drives real `history.list`-based sync off a
+  stored cursor, not just a one-time backfill), document upload to
+  S3-compatible storage with real Claude-vision OCR for images and real
+  PDF OCR via Anthropic's beta document-input surface, structured
   search + grounded Ask, Stripe billing/entitlements, a background worker
   process (BullMQ + Redis) that runs connector sync and notification
   delivery durably instead of inline on an HTTP request — including real
@@ -86,16 +89,16 @@ isn't:
   to the real API, and a separate internal admin console (its own app,
   its own operator-account identity plane, audited support lookups).
 - **Present but requires configuration to activate**: Gmail connector
-  (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), AI extraction (needs
-  `ANTHROPIC_API_KEY` — without it, ingestion degrades gracefully to
+  (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), AI extraction and PDF/image OCR
+  (need `ANTHROPIC_API_KEY` — without it, ingestion degrades gracefully to
   deterministic-only and marks messages "filed" rather than fabricating
-  results), Stripe billing (needs `STRIPE_SECRET_KEY`/webhook secret).
+  results, and document uploads skip OCR rather than crash), Stripe
+  billing (needs `STRIPE_SECRET_KEY`/webhook secret).
 - **Explicitly not built yet** (see docs/ROADMAP.md for the full list):
-  PDF OCR (needs Anthropic's beta PDF/document input surface), a signed/
-  notarized desktop build and a Windows build (only an unsigned macOS/arm64
-  build has been produced here), admin account management UI (accounts are
-  created via a CLI script), most of Phase 2+ domains (home/vehicle/travel/
-  family/school/etc.).
+  a signed/notarized desktop build and a Windows build (only an unsigned
+  macOS/arm64 build has been produced here), the Outlook/Microsoft
+  connector, admin account management UI (accounts are created via a CLI
+  script), most of Phase 2+ domains (home/vehicle/travel/family/school/etc.).
 
 The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
 loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme

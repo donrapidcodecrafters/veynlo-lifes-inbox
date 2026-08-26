@@ -180,7 +180,7 @@ match, access is denied.
 ## What's deliberately not built yet
 
 See `docs/ROADMAP.md` for the full, prioritized list. The short version:
-Outlook/Microsoft connector, PDF OCR, full entity-resolution/merge-lineage
+Outlook/Microsoft connector, full entity-resolution/merge-lineage
 beyond order-number/tracking-number matching, automation rule execution,
 push/desktop notification channels, native mobile builds (the Expo
 codebase exists and is verified via web preview; no simulator/device

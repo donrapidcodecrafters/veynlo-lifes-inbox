@@ -17,7 +17,7 @@ this repository, not an aspirational plan.
 | Home "Needs You" + caught-up state | ✅ Built, reads real attention_items. Nothing populates attention_items automatically yet from the pipeline — currently only seed data and (implicitly) future automation-rule output would. |
 | Ask / structured search | ✅ Built — grounded synthesis with evidence citations, `insufficientEvidence` flag. Semantic/vector search not wired (pgvector column exists, unused). |
 | Timeline | ❌ Not built. |
-| Documents/vault | ✅ Upload (web UI at `/documents` + API), S3 storage, image OCR via Claude vision. PDF OCR not built (needs Anthropic's beta document-input surface). |
+| Documents/vault | ✅ Upload (web UI at `/documents` + API), S3 storage, image OCR via Claude vision, PDF OCR via Anthropic's beta document-input surface (`client.beta.messages`, `betas: ["pdfs-2024-09-25"]`). |
 | Notifications | ✅ Preferences, daily/weekly brief composition, per-item email delivery, quiet-hours + intensity suppression — all real, running in the worker process (SMTP via Mailhog in dev). Push/desktop channels not implemented (no APNs/FCM integration yet — only `channel: "email"` actually sends). |
 | Background workers | ✅ Separate worker process (`services/api/src/worker-main.ts`, BullMQ + Redis) runs connector sync and notification dispatch/delivery durably — survives a process restart, retries with backoff, dedupes by job ID. |
 | Billing/entitlements | ✅ Stripe checkout + webhook + entitlement resolution. App Store/Play Store receipt verification not built (mobile doesn't exist yet either). |
@@ -77,8 +77,26 @@ this repository, not an aspirational plan.
 6. **Outlook/Microsoft connector** — second direct-API email source; the
    connector interface (`@veynlo/core`'s `ProviderAdapter`) was designed to
    make this an adapter addition, not a pipeline rewrite.
-7. **PDF OCR** — wire Anthropic's beta document-input surface (`client.beta.messages`),
-   or a dedicated OCR engine if volume/cost data favors it.
+7. ~~**PDF OCR**~~ — done. `AnthropicExtractionService.extractStructured` now
+   detects a `document` content block in its input and routes through
+   `client.beta.messages.create` with `betas: ["pdfs-2024-09-25"]` instead
+   of the stable Messages API (which doesn't accept PDF content blocks in
+   the installed SDK version); everything else (image OCR, text
+   extraction) is unchanged and still uses the stable path.
+   `documents.service.ts`'s PDF branch, previously an unconditional `return
+   null` stub, now calls this for real. Verified live: uploaded a real PDF
+   through the running API with no `ANTHROPIC_API_KEY` configured (this
+   environment has none) and confirmed it degrades gracefully — document
+   lands in `processingState: "classified"` with no crash, same as before.
+   Then, to verify the request shape itself rather than just the
+   degraded-path branch, restarted the API with a deliberately invalid key
+   and re-uploaded: the request reached Anthropic's real production API
+   and came back with a genuine `401 authentication_error`, proving the
+   beta call (model, document content block, tools, tool_choice, betas
+   array) is well-formed — a malformed request would have 400'd instead,
+   or failed client-side before any network call. A dedicated OCR engine
+   remains a possible future swap if volume/cost data ever favors it over
+   Claude vision, per the original ROADMAP note.
 8. ~~**Gmail incremental/recurring sync**~~ — done. `GmailAdapter.initialSync`
    now captures the mailbox's `historyId` into `connections.cursor` right
    after the backfill; `GmailAdapter.incrementalSync` drives real
