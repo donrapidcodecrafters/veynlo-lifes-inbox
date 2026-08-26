@@ -5,6 +5,7 @@
  */
 export const QUEUE_NAMES = {
   connectorSync: "connector-sync",
+  connectorScan: "connector-scan",
   notificationDispatch: "notification-dispatch",
   notificationDelivery: "notification-delivery",
 } as const;
@@ -15,6 +16,9 @@ export interface ConnectorSyncJobData {
   connectionId: string;
   kind: "initial" | "incremental";
 }
+
+/** Recurring tick with no payload — its processor finds eligible connections itself (see worker-main.ts). */
+export type ConnectorScanJobData = Record<string, never>;
 
 export interface NotificationDispatchJobData {
   /** Which recurring brief this tick is composing. */

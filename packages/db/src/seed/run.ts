@@ -94,6 +94,12 @@ async function main() {
     })
     .onConflictDoNothing();
 
+  // `credentialRef: "credref_demo_gmail"` below doesn't resolve to a real vault entry — this seed data
+  // has never had working Gmail credentials. It's seeded "healthy" for a good out-of-box demo look, but
+  // the worker process's recurring connector-scan tick (worker-main.ts) will legitimately flip this to
+  // "degraded" within 15 minutes of actually running, once it tries a real incremental sync against a
+  // credential that isn't there. That's correct behavior, not a bug — a non-functional connection
+  // shouldn't stay reported as healthy forever just because it's demo data.
   const gmailConnectionId = "conn_demo_gmail";
   await db
     .insert(schema.connections)

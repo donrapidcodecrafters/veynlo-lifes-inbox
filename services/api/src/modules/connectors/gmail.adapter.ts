@@ -95,8 +95,9 @@ export class GmailAdapter {
     if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
 
     const credentials = await this.vault.read(connection.credentialRef);
+    if (!credentials) throw new Error(`Connection ${connectionId} has a credentialRef with no matching vault entry`);
     const client = this.oauthClient(`${loadEnv().API_PUBLIC_URL}/v1/connectors/gmail/callback`);
-    client.setCredentials(credentials as Record<string, unknown>);
+    client.setCredentials(credentials);
     const gmail = google.gmail({ version: "v1", auth: client });
 
     const afterDate = new Date(Date.now() - (connection.historyDepthDays ?? 90) * 86_400_000);
@@ -120,9 +121,97 @@ export class GmailAdapter {
       pageToken = list.data.nextPageToken ?? undefined;
     } while (pageToken);
 
+    // Gmail's history.list API (used by incrementalSync below) needs a starting point — the mailbox's
+    // historyId as of right after this backfill, so nothing since is missed and nothing before is redone.
+    const profile = await gmail.users.getProfile({ userId: "me" });
+
     await this.db
       .update(schema.connections)
-      .set({ health: "healthy", lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount })
+      .set({
+        health: "healthy",
+        lastSuccessfulSyncAt: new Date(),
+        itemsDiscoveredCount: itemCount,
+        cursor: profile.data.historyId ?? null,
+      })
+      .where(eq(schema.connections.id, connectionId));
+
+    return { itemCount };
+  }
+
+  /**
+   * Real incremental sync (§ROADMAP "Gmail incremental/recurring sync"),
+   * driven by `history.list` keyed off the `connections.cursor` historyId
+   * captured at the end of `initialSync`. Gmail expires history records
+   * after some time — if `startHistoryId` is too old, `history.list` 404s,
+   * in which case this falls back to a fresh full backfill (which also
+   * re-establishes a current cursor) rather than silently going quiet.
+   */
+  async incrementalSync(connectionId: string): Promise<{ itemCount: number }> {
+    const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
+    if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
+
+    if (!connection.cursor) {
+      return this.initialSync(connectionId);
+    }
+
+    const credentials = await this.vault.read(connection.credentialRef);
+    if (!credentials) throw new Error(`Connection ${connectionId} has a credentialRef with no matching vault entry`);
+    const client = this.oauthClient(`${loadEnv().API_PUBLIC_URL}/v1/connectors/gmail/callback`);
+    client.setCredentials(credentials);
+    const gmail = google.gmail({ version: "v1", auth: client });
+
+    let itemCount = 0;
+    let pageToken: string | undefined;
+    let latestHistoryId = connection.cursor;
+
+    try {
+      do {
+        const list = await gmail.users.history.list({
+          userId: "me",
+          startHistoryId: connection.cursor,
+          historyTypes: ["messageAdded"],
+          pageToken,
+          maxResults: 100,
+        });
+
+        const seenMessageIds = new Set<string>();
+        for (const record of list.data.history ?? []) {
+          for (const added of record.messagesAdded ?? []) {
+            const messageId = added.message?.id;
+            if (!messageId || seenMessageIds.has(messageId)) continue;
+            seenMessageIds.add(messageId);
+            const full = await gmail.users.messages.get({ userId: "me", id: messageId, format: "full" });
+            await this.ingestion.ingestGmailMessage({
+              ownerUserId: connection.ownerUserId,
+              householdId: connection.householdId,
+              connectionId,
+              message: full.data,
+            });
+            itemCount += 1;
+          }
+        }
+
+        if (list.data.historyId) latestHistoryId = list.data.historyId;
+        pageToken = list.data.nextPageToken ?? undefined;
+      } while (pageToken);
+    } catch (err) {
+      // history.list 404s once startHistoryId falls outside Gmail's retention window — the documented
+      // recovery is a fresh full sync, not treating this as a fatal connector failure.
+      const status = (err as { code?: number; response?: { status?: number } })?.code ?? (err as { response?: { status?: number } })?.response?.status;
+      if (status === 404) {
+        return this.initialSync(connectionId);
+      }
+      throw err;
+    }
+
+    await this.db
+      .update(schema.connections)
+      .set({
+        health: "healthy",
+        lastSuccessfulSyncAt: new Date(),
+        itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
+        cursor: latestHistoryId,
+      })
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };

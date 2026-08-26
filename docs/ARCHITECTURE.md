@@ -72,8 +72,8 @@ sure of.
 
 - `src/main.ts` — the HTTP server (Fastify).
 - `src/worker-main.ts` — a headless process (`NestFactory.createApplicationContext`,
-  no HTTP listener) that runs three BullMQ workers: `connector-sync`,
-  `notification-dispatch`, `notification-delivery`. It resolves the exact
+  no HTTP listener) that runs four BullMQ workers: `connector-sync`,
+  `connector-scan`, `notification-dispatch`, `notification-delivery`. It resolves the exact
   same providers (`GmailAdapter`, `NotificationDeliveryService`, etc.) via
   Nest's DI container, so job-processing logic is never duplicated between
   the HTTP and worker codepaths.
@@ -88,9 +88,18 @@ Job flow, concretely:
 ```
 Gmail OAuth callback → enqueue connector-sync(kind: "initial")
   → [worker] GmailAdapter.initialSync() → ingestion pipeline → InboxItem
+    → captures the mailbox's historyId into connections.cursor
     → (if high/verified confidence) NotificationDeliveryService.createAndEnqueue()
       → enqueue notification-delivery
         → [worker] checks quiet hours/intensity → sends via Nodemailer → notifications.state = "sent"
+
+Recurring tick (every 15 min) → connector-scan
+  → [worker] finds every healthy Gmail connection
+    → enqueue connector-sync(kind: "incremental") per connection
+      → [worker] GmailAdapter.incrementalSync() → history.list from connections.cursor
+        → ingestion pipeline → InboxItem → (same notification path as above)
+        → advances connections.cursor; falls back to a fresh initialSync if
+          Gmail 404s a startHistoryId that's aged out of its retention window
 
 Recurring cron (13:00 UTC daily / Monday) → notification-dispatch(daily|weekly)
   → [worker] NotificationDispatchService composes one digest per eligible user

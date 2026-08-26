@@ -2,12 +2,18 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Worker } from "bullmq";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@veynlo/db";
 import { AppModule } from "./app.module";
 import { DATABASE } from "./database/database.module";
 import { getRedisConnection } from "./queue/redis-connection";
-import { QUEUE_NAMES, type ConnectorSyncJobData, type NotificationDeliveryJobData, type NotificationDispatchJobData } from "./queue/queue-names";
+import {
+  QUEUE_NAMES,
+  type ConnectorScanJobData,
+  type ConnectorSyncJobData,
+  type NotificationDeliveryJobData,
+  type NotificationDispatchJobData,
+} from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
@@ -37,13 +43,13 @@ async function bootstrap() {
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
     async (job) => {
-      const { connectionId } = job.data;
+      const { connectionId, kind } = job.data;
       try {
-        // `kind: "incremental"` is accepted by the queue contract but not yet distinct from "initial" —
-        // Gmail's history.list-based cursor sync (real incremental, driven by connections.cursor) is a
-        // ROADMAP item; today every sync re-scans the configured history window, which stays correct
-        // (never duplicates data) because source_events.idempotency_key makes re-processing a no-op.
-        await gmailAdapter.initialSync(connectionId);
+        if (kind === "incremental") {
+          await gmailAdapter.incrementalSync(connectionId);
+        } else {
+          await gmailAdapter.initialSync(connectionId);
+        }
       } catch (err) {
         await db
           .update(schema.connections)
@@ -53,6 +59,30 @@ async function bootstrap() {
       }
     },
     { connection: getRedisConnection(), concurrency: 4 },
+  );
+
+  // Recurring tick (see QueueProducerService.scheduleRecurringConnectorScan): finds every healthy,
+  // still-connected Gmail connection and enqueues one incremental sync per connection. Deduplicated by
+  // enqueueConnectorSync's jobId (`${connectionId}-incremental`), so a connection already mid-sync when
+  // this tick fires is just skipped rather than double-queued.
+  const connectorScanWorker = new Worker<ConnectorScanJobData>(
+    QUEUE_NAMES.connectorScan,
+    async () => {
+      const eligible = await db
+        .select({ id: schema.connections.id })
+        .from(schema.connections)
+        .where(
+          and(
+            eq(schema.connections.provider, "gmail"),
+            eq(schema.connections.health, "healthy"),
+            isNull(schema.connections.disconnectedAt),
+          ),
+        );
+      for (const connection of eligible) {
+        await queueProducer.enqueueConnectorSync({ connectionId: connection.id, kind: "incremental" });
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
   );
 
   const notificationDispatchWorker = new Worker<NotificationDispatchJobData>(
@@ -72,19 +102,28 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 8 },
   );
 
-  for (const worker of [connectorSyncWorker, notificationDispatchWorker, notificationDeliveryWorker]) {
+  for (const worker of [connectorSyncWorker, connectorScanWorker, notificationDispatchWorker, notificationDeliveryWorker]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
   }
 
-  // Registers the repeatable daily/weekly brief jobs (idempotent — BullMQ dedupes repeat jobs by jobId).
+  // Registers the repeatable daily/weekly brief jobs and the connector incremental-scan tick
+  // (idempotent — BullMQ dedupes repeat jobs by jobId).
   await queueProducer.scheduleRecurringNotificationDispatch();
+  await queueProducer.scheduleRecurringConnectorScan();
 
-  logger.log("Veynlo worker process started — processing connector-sync, notification-dispatch, notification-delivery");
+  logger.log(
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery",
+  );
 
   const shutdown = async () => {
     logger.log("Shutting down worker process...");
-    await Promise.all([connectorSyncWorker.close(), notificationDispatchWorker.close(), notificationDeliveryWorker.close()]);
+    await Promise.all([
+      connectorSyncWorker.close(),
+      connectorScanWorker.close(),
+      notificationDispatchWorker.close(),
+      notificationDeliveryWorker.close(),
+    ]);
     await appContext.close();
     process.exit(0);
   };

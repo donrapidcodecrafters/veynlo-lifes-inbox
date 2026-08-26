@@ -79,13 +79,29 @@ this repository, not an aspirational plan.
    make this an adapter addition, not a pipeline rewrite.
 7. **PDF OCR** — wire Anthropic's beta document-input surface (`client.beta.messages`),
    or a dedicated OCR engine if volume/cost data favors it.
-8. **Gmail incremental/recurring sync** — today a connection only syncs once,
-   right after OAuth completes (the "initial" job). Nothing re-syncs it
-   afterward. Real incremental sync needs a recurring job (or Gmail push
-   notifications via `watch()`) plus `history.list` keyed off a stored
-   `connections.cursor` — the schema already has the `cursor` column, and
-   the queue already accepts a `kind: "incremental"` job, but nothing
-   schedules one yet.
+8. ~~**Gmail incremental/recurring sync**~~ — done. `GmailAdapter.initialSync`
+   now captures the mailbox's `historyId` into `connections.cursor` right
+   after the backfill; `GmailAdapter.incrementalSync` drives real
+   `history.list`-based sync off that cursor (paginated, deduped per
+   message, falls back to a fresh `initialSync` if Gmail 404s a
+   too-old `startHistoryId`). A new recurring `connector-scan` queue tick
+   (every 15 minutes, `QueueProducerService.scheduleRecurringConnectorScan`)
+   finds every healthy Gmail connection and enqueues one incremental sync
+   each. **Found and fixed two real bugs via live testing** (inserted a
+   synthetic connection row, manually fired the scan tick, watched it
+   fail, fixed, reran): (1) BullMQ 5.81+ rejects custom job IDs containing
+   `:` — `enqueueConnectorSync`'s and `enqueueNotificationDelivery`'s jobId
+   patterns both used `:` and were silently broken for any job that had
+   never actually been exercised through the real queue before; switched
+   to `-`. (2) `GmailAdapter`'s two sync methods dereferenced
+   `vault.read()`'s result without a null check, so a connection with no
+   matching credential vault row crashed with a cryptic
+   `Cannot read properties of null (reading 'access_token')` instead of a
+   clear error — added an explicit null check in both. Not yet done: Gmail
+   push notifications via `watch()` (would replace polling with real-time
+   push, but needs a public HTTPS endpoint Google can call, unavailable in
+   local dev), per-connection scan cadence (today it's a flat 15 minutes
+   for every connection).
 9. ~~**Browser extension**~~ — done. `apps/browser-extension` (see its own
    README), Manifest V3, reuses the same `x-veynlo-platform`/bearer-token
    auth transport mobile uses (added `"extension"` to
