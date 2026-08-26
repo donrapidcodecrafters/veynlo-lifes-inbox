@@ -55,12 +55,24 @@ this repository, not an aspirational plan.
    the merchant, so this is deliberately looser than the purchase match).
    Still missing: user-facing merge/unmerge with lineage (the `entity_merge_lineage`
    table exists, nothing writes to it yet), and VIN/tracking-number matching
-   for domains beyond commerce. **Known gap**: the known-sender fast path
-   (`matchKnownSender`) maps one sender domain to exactly one category, so a
-   shipping-confirmation email from a sender categorized as "receipt" (e.g.
-   amazon.com) still routes through the receipt extractor rather than the
+   for domains beyond commerce. ~~**Known gap**~~ — fixed. The known-sender fast path
+   (`matchKnownSender`) used to map one sender domain to exactly one category, so a
+   shipping-confirmation email from a sender categorized as receipt (e.g.
+   amazon.com) still routed through the receipt extractor rather than the
    shipment one — fine for senders that only ever send one type of email,
    wrong for ones (like Amazon) that send both from the same domain.
+   `matchKnownSender` now takes an optional subject+snippet argument;
+   pure single-purpose carriers (UPS/FedEx/USPS) keep a fixed category
+   exactly as before, but a domain marked `"ambiguous"` (Amazon) is
+   disambiguated deterministically from shipment-specific keywords ("has
+   shipped", "out for delivery", "tracking number", "delivered") instead
+   of being hardcoded to one category — still no AI call, staying inside
+   the cheap/deterministic fast path. Covered by unit tests asserting the
+   exact failure mode this fixes, and verified live against the real
+   running ingestion pipeline (a temporary debug log, added and removed
+   for this verification, confirmed a simulated Amazon "has shipped"
+   email resolves to shipment, a simulated Amazon order-confirmation
+   email still resolves to receipt, and UPS is unaffected).
 4. ~~**CI**~~ — done (`.github/workflows/ci.yml`).
 5. ~~**Real admin RBAC**~~ — done. A separate `admin_users`/`admin_sessions`
    identity plane (distinct JWT audience claim so a consumer session can

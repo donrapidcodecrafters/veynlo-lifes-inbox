@@ -163,7 +163,7 @@ export class IngestionService {
     householdId: string | null;
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<void> {
-    const known = matchKnownSender(ctx.parsed.fromAddress);
+    const known = matchKnownSender(ctx.parsed.fromAddress, `${ctx.parsed.subject}\n${ctx.parsed.snippet}`);
     let domains: string[];
 
     if (known) {

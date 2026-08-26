@@ -37,9 +37,30 @@ describe("evaluateRelevance", () => {
 });
 
 describe("matchKnownSender", () => {
-  it("matches a known high-volume sender domain", () => {
-    expect(matchKnownSender("auto-confirm@amazon.com")).toEqual({ merchantName: "Amazon", category: "receipt" });
+  it("matches a pure-shipment carrier domain regardless of subject text", () => {
     expect(matchKnownSender("mcinfo@ups.com")).toEqual({ merchantName: "UPS", category: "shipment" });
+    expect(matchKnownSender("mcinfo@ups.com", "Your invoice is ready")).toEqual({ merchantName: "UPS", category: "shipment" });
+  });
+
+  it("defaults an ambiguous sender (Amazon) to receipt when the subject has no shipment signal", () => {
+    expect(matchKnownSender("auto-confirm@amazon.com", "Your Amazon.com order confirmation")).toEqual({
+      merchantName: "Amazon",
+      category: "receipt",
+    });
+    expect(matchKnownSender("auto-confirm@amazon.com")).toEqual({ merchantName: "Amazon", category: "receipt" });
+  });
+
+  it("classifies an ambiguous sender (Amazon) as shipment when the subject has a shipping signal — the real bug this fixes", () => {
+    // Before this fix, every amazon.com email was hardcoded to "receipt", so a real shipping-confirmation
+    // email from Amazon was routed through the receipt extractor instead of the shipment one.
+    expect(matchKnownSender("ship-confirm@amazon.com", "Your package has shipped")).toEqual({
+      merchantName: "Amazon",
+      category: "shipment",
+    });
+    expect(matchKnownSender("ship-confirm@amazon.com", "Your order is out for delivery")).toEqual({
+      merchantName: "Amazon",
+      category: "shipment",
+    });
   });
 
   it("returns null for an unrecognized domain rather than guessing", () => {
