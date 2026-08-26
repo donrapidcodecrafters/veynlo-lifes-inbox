@@ -65,12 +65,20 @@ export default function LifePage() {
           <h1 className="text-2xl font-semibold tracking-tight text-primary">Life</h1>
           <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows you own, owe, and are due back.</p>
         </div>
-        <Link
-          href="/documents"
-          className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
-        >
-          Documents →
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/timeline"
+            className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
+          >
+            Timeline →
+          </Link>
+          <Link
+            href="/documents"
+            className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
+          >
+            Documents →
+          </Link>
+        </div>
       </header>
 
       <Section title="Returns">

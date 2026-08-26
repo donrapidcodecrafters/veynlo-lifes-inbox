@@ -16,6 +16,7 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
 import { SearchModule } from "./modules/search/search.module";
 import { BillingModule } from "./modules/billing/billing.module";
 import { AdminModule } from "./modules/admin/admin.module";
+import { TimelineModule } from "./modules/timeline/timeline.module";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { AdminModule } from "./modules/admin/admin.module";
     SearchModule,
     BillingModule,
     AdminModule,
+    TimelineModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
