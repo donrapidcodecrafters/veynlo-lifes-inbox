@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Veynlo</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="popup-header">
+        <span class="brand-dot"></span>
+        <span class="brand-name">Veynlo</span>
+      </header>
+
+      <section id="signed-out-view" class="view hidden">
+        <p class="lede">Sign in to save pages to your Veynlo inbox.</p>
+        <form id="sign-in-form" class="stack">
+          <label class="field">
+            <span>Email</span>
+            <input type="email" id="email" autocomplete="username" required />
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" id="password" autocomplete="current-password" required />
+          </label>
+          <button type="submit" class="primary">Sign in</button>
+          <p id="sign-in-error" class="error hidden"></p>
+        </form>
+      </section>
+
+      <section id="signed-in-view" class="view hidden">
+        <p class="lede" id="account-email"></p>
+        <div class="stack">
+          <button id="save-page" class="primary">Save this page</button>
+          <button id="save-selection" class="secondary">Save selected text</button>
+        </div>
+        <p id="save-status" class="status hidden"></p>
+        <button id="sign-out" class="link">Sign out</button>
+      </section>
+
+      <section id="loading-view" class="view">
+        <p class="lede">Loading…</p>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

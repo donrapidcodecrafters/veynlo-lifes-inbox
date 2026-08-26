@@ -63,7 +63,7 @@ export class IdentityController {
 
 function detectPlatform(req: FastifyRequest): string {
   const header = String(req.headers["x-veynlo-platform"] ?? "web");
-  return ["ios", "android", "web", "macos", "windows"].includes(header) ? header : "web";
+  return ["ios", "android", "web", "macos", "windows", "extension"].includes(header) ? header : "web";
 }
 
 /**

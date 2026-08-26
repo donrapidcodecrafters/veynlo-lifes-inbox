@@ -1,0 +1,145 @@
+:root {
+  color-scheme: light dark;
+  --brand: #5b63e3;
+  --brand-hover: #464dc4;
+  --bg: #ffffff;
+  --text: #14151a;
+  --text-muted: #5b5f6b;
+  --border: #e2e3e8;
+  --danger: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16171d;
+    --text: #f2f2f5;
+    --text-muted: #a3a6b1;
+    --border: #33353f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 300px;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  font-size: 13px;
+}
+
+.popup {
+  padding: 16px;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.brand-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.lede {
+  color: var(--text-muted);
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.field input {
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.field input:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+button {
+  font: inherit;
+  border-radius: 8px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--brand-hover);
+}
+
+button.secondary {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 4px 0;
+  margin-top: 10px;
+  text-decoration: underline;
+  align-self: flex-start;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 10px 0 0;
+}

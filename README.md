@@ -91,10 +91,10 @@ isn't:
   deterministic-only and marks messages "filed" rather than fabricating
   results), Stripe billing (needs `STRIPE_SECRET_KEY`/webhook secret).
 - **Explicitly not built yet** (see docs/ROADMAP.md for the full list):
-  PDF OCR (needs Anthropic's beta PDF/document input surface), desktop app,
-  browser extension, admin account management UI (accounts are created via
-  a CLI script), most of Phase 2+ domains (home/vehicle/travel/family/
-  school/etc.).
+  PDF OCR (needs Anthropic's beta PDF/document input surface), a desktop
+  app (no Rust/cargo toolchain available here to build Tauri for real),
+  admin account management UI (accounts are created via a CLI script),
+  most of Phase 2+ domains (home/vehicle/travel/family/school/etc.).
 
 The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
 loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme
@@ -106,6 +106,13 @@ full reload, tab navigation, and the dark-mode toggle all confirmed live.
 Real device/simulator builds haven't been produced — that needs Xcode/
 Android Studio or EAS Build, neither available in this environment.
 
+The browser extension (`apps/browser-extension`, Manifest V3, any
+Chromium-based browser) saves the current page or a text selection to your
+Veynlo inbox via the toolbar popup or a right-click menu, using the same
+bearer-token auth transport as mobile. See its own README for how to load
+it unpacked. Verified live via a Playwright-driven real Chromium instance
+with the extension actually loaded, against the real API.
+
 ## Workspace layout
 
 ```
@@ -113,6 +120,7 @@ apps/
   web/                Next.js consumer web app
   admin/               Next.js internal support console (separate app, separate auth)
   mobile/              Expo (React Native) consumer app — iOS/Android, shares design tokens with web
+  browser-extension/  Manifest V3 extension (Chromium-based browsers) — save pages/selections to Veynlo
 services/
   api/                NestJS/Fastify API — the whole backend for now
 packages/

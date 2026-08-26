@@ -142,7 +142,8 @@ time based on the `x-veynlo-platform` header:
   compromised web page's JS reading a token straight out of a fetch
   response would defeat the entire point of httpOnly (XSS-exfiltration
   resistance).
-- **Native** (`ios`/`android`/etc.): no browser cookie jar to rely on, so
+- **Native/non-web** (`ios`/`android`/`macos`/`windows`/`extension`): no
+  shared browser cookie jar with the web app's origin to rely on, so
   the same response also includes `{ token, expiresAt }`, and the client
   stores it in Keychain/Keystore (`expo-secure-store` on mobile) and sends
   it back as `Authorization: Bearer <token>`.
@@ -174,5 +175,32 @@ Outlook/Microsoft connector, PDF OCR, full entity-resolution/merge-lineage
 beyond order-number/tracking-number matching, automation rule execution,
 push/desktop notification channels, native mobile builds (the Expo
 codebase exists and is verified via web preview; no simulator/device
-build has been produced in this environment), and a desktop/browser-
-extension client.
+build has been produced in this environment), and a desktop app (deferred —
+no Rust/cargo toolchain available here to build Tauri for real). The
+browser extension (`apps/browser-extension`) is built — see its README.
+
+## Browser extension
+
+Manifest V3, plain JS/HTML/CSS (no bundler — `public/` is the literal
+extension root Chrome loads). Reuses two existing pieces of
+infrastructure rather than building new ones:
+
+- **Auth**: `"extension"` was added to `identity.controller.ts`'s
+  `detectPlatform()` whitelist, so it gets the exact same bearer-token
+  transport as mobile (`x-veynlo-platform: extension` → token in the
+  sign-in/up response body, sent back as `Authorization: Bearer`,
+  verified by the same `AuthGuard` as every other client).
+- **Capture destination**: both the popup and the right-click context menu
+  route through the existing `POST /v1/ingestion/manual` endpoint —
+  the same manual/share-capture entry point used for local pipeline
+  testing — rather than a new domain. The spec's §29 `saved_items` domain
+  would be the more correct long-term home for captured pages (price
+  snapshots, product metadata); this is a deliberate reuse of real,
+  working infrastructure over a half-built parallel path.
+
+Permissions are deliberately narrow: `activeTab` + `scripting`, not the
+broader `tabs` permission — the popup and context menu only ever see the
+tab the user just interacted with, in keeping with this codebase's
+authorization-before-retrieval principle. Verified live via a Playwright
+persistent context loading the real unpacked extension
+(`--load-extension`) against the running API.

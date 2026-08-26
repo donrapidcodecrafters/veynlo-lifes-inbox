@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Veynlo settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="options">
+      <h1>Veynlo</h1>
+      <p class="lede">Signed-in account and connection details for the Veynlo browser extension.</p>
+
+      <section id="account-section">
+        <h2>Account</h2>
+        <p id="account-status">Checking session…</p>
+        <button id="sign-out" class="secondary hidden">Sign out</button>
+      </section>
+
+      <section>
+        <h2>API endpoint</h2>
+        <p class="lede">The Veynlo API this extension talks to. Only change this for local development.</p>
+        <label class="field">
+          <span>API base URL</span>
+          <input type="text" id="api-base" />
+        </label>
+        <button id="save-api-base" class="primary">Save</button>
+        <p id="save-status" class="status hidden"></p>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

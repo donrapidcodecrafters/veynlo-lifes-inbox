@@ -24,8 +24,8 @@ this repository, not an aspirational plan.
 | Admin console | ✅ Separate app (`apps/admin`, its own port/origin) with real per-operator RBAC: sign-in, user lookup, connector health, audit log — all live, all audited. Break-glass/elevated-access workflow and role-scoped endpoints (`support` vs `superadmin` don't differ in practice yet) are not built. |
 | Web app (Home/Inbox/Ask/Life/Connections/Settings) | ✅ Built, responsive, light/dark theme, real API integration. |
 | Mobile (iOS/Android) | 🟡 Core loop built and verified: Expo + expo-router app (`apps/mobile`) with sign-in/up, Home, Inbox, Ask, Settings (light/dark theme), talking to the real API via bearer-token auth. Verified live via Playwright driving `expo start --web` — sign-up, session persistence across reload, tab navigation, dark-mode toggle. **Not done**: no actual iOS/Android simulator or device build has been produced (needs Xcode/Android Studio/EAS Build, unavailable here); theme preference isn't persisted across restarts; no share extension, widgets, biometrics, or push notifications; Life/Documents/Timeline/Connections screens don't exist on mobile yet (only the core Home/Inbox/Ask/Settings loop). |
-| Desktop (macOS/Windows) | ❌ Not started. |
-| Browser extension | ❌ Not started. |
+| Desktop (macOS/Windows) | ❌ Not started — no Rust/cargo toolchain available in this environment to build a real Tauri app. |
+| Browser extension | ✅ Built (`apps/browser-extension`, Manifest V3, Chromium-based browsers). Sign-in/out, save-page and save-selection via popup and right-click context menu, options page. Verified live via Playwright loading the real unpacked extension against the real API. Not yet: packaged/signed store build, real designed icons (placeholders are solid-color PNGs), Firefox (MV3 support differs). |
 | CI/CD | ❌ Not started — no GitHub Actions workflow yet. |
 | Observability (structured logs/metrics/tracing) | ❌ Not started — only Nest's default console logger. |
 
@@ -86,6 +86,20 @@ this repository, not an aspirational plan.
    `connections.cursor` — the schema already has the `cursor` column, and
    the queue already accepts a `kind: "incremental"` job, but nothing
    schedules one yet.
+9. ~~**Browser extension**~~ — done. `apps/browser-extension` (see its own
+   README), Manifest V3, reuses the same `x-veynlo-platform`/bearer-token
+   auth transport mobile uses (added `"extension"` to
+   `identity.controller.ts`'s platform whitelist) and the existing
+   `/v1/ingestion/manual` endpoint rather than a new domain. Prioritized
+   ahead of the desktop app specifically because it needed no missing local
+   toolchain to build and verify for real.
+10. **Desktop (macOS/Windows)** — deferred. A real Tauri build needs a
+    Rust/cargo toolchain, which isn't installed in this environment
+    (`which cargo rustc` finds neither). Two honest options when picked back
+    up: install the toolchain and do a real build/verify pass, or scaffold
+    the full Tauri config as "real, ready to build" and say so explicitly —
+    consistent with how this repo handles Gmail/Anthropic/Stripe when their
+    credentials are missing, rather than pretending a stub is a working app.
 
 ## Phase 2 — financially sticky + household-ready
 
