@@ -54,6 +54,19 @@ export const ReceiptExtractionSchema = z.object({
 });
 export type ReceiptExtraction = z.infer<typeof ReceiptExtractionSchema>;
 
+export const ShipmentExtractionSchema = z.object({
+  carrier: z.string().nullable().describe("e.g. UPS, FedEx, USPS, Amazon Logistics"),
+  trackingNumber: z.string().nullable(),
+  orderNumber: z.string().nullable().describe("The retailer's order number, if mentioned, so this can be linked to its purchase"),
+  merchantName: z.string().nullable(),
+  status: z
+    .enum(["label_created", "in_transit", "out_for_delivery", "delivered", "exception", "returned_to_sender", "lost"])
+    .nullable(),
+  estimatedDelivery: ExtractedDateSchema,
+  confidenceNotes: z.string(),
+});
+export type ShipmentExtraction = z.infer<typeof ShipmentExtractionSchema>;
+
 export const BillExtractionSchema = z.object({
   billerName: z.string().nullable(),
   amountDueMinorUnits: z.number().int().nullable(),

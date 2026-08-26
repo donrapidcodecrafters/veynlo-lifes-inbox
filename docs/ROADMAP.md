@@ -46,8 +46,21 @@ this repository, not an aspirational plan.
    confidence Inbox item) all run for real, verified via live Mailhog
    delivery. Push/desktop channels remain unbuilt (need APNs/FCM, which in
    turn need a mobile/desktop client to receive them).
-3. **Entity resolution v2** — real merge/unmerge with lineage, order-ID/
-   tracking-number/VIN-based matching per §40.1, not just merchant-name.
+3. **Entity resolution v2** — 🟡 partially done. Purchases now dedupe on
+   exact `(ownerUserId, merchantId, orderNumber)` — a second email about the
+   same order (payment confirmation after order confirmation, etc.) updates
+   the existing purchase instead of creating a sibling, per §40.1 "auto-merge
+   exact order IDs." Shipments dedupe by tracking number and best-effort
+   link to a purchase by order number alone (carrier emails don't restate
+   the merchant, so this is deliberately looser than the purchase match).
+   Still missing: user-facing merge/unmerge with lineage (the `entity_merge_lineage`
+   table exists, nothing writes to it yet), and VIN/tracking-number matching
+   for domains beyond commerce. **Known gap**: the known-sender fast path
+   (`matchKnownSender`) maps one sender domain to exactly one category, so a
+   shipping-confirmation email from a sender categorized as "receipt" (e.g.
+   amazon.com) still routes through the receipt extractor rather than the
+   shipment one — fine for senders that only ever send one type of email,
+   wrong for ones (like Amazon) that send both from the same domain.
 4. ~~**CI**~~ — done (`.github/workflows/ci.yml`).
 5. **Real admin RBAC** — replace the shared-secret header with per-operator
    accounts and audited, scoped access before any real user data exists.

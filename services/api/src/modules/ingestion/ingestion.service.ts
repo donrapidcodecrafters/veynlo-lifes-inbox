@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
 import { generateId, confidenceToBand } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -11,6 +11,7 @@ import { NotificationDeliveryService } from "../notifications/notification-deliv
 import {
   DomainClassificationResultSchema,
   ReceiptExtractionSchema,
+  ShipmentExtractionSchema,
   BillExtractionSchema,
   CalendarEventExtractionSchema,
 } from "../intelligence/extraction-schemas";
@@ -157,8 +158,11 @@ export class IngestionService {
     }
 
     let filedAny = false;
-    if (domains.includes("receipt") || domains.includes("shipment")) {
-      filedAny = (await this.extractReceipt(ctx, known?.merchantName ?? null)) || filedAny;
+    if (domains.includes("receipt")) {
+      filedAny = (await this.extractReceipt(ctx, known?.category === "receipt" ? known.merchantName : null)) || filedAny;
+    }
+    if (domains.includes("shipment")) {
+      filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null)) || filedAny;
     }
     if (domains.includes("bill") || domains.includes("subscription")) {
       filedAny = (await this.extractBill(ctx)) || filedAny;
@@ -192,62 +196,182 @@ export class IngestionService {
     const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
     const purchaseDate = toTemporalValue(result.data.purchaseDate);
 
-    const purchaseId = generateId("purchase");
-    await this.db.insert(schema.purchases).values({
-      id: purchaseId,
-      ownerUserId: ctx.ownerUserId,
-      householdId: ctx.householdId,
-      merchantId,
-      orderNumber: result.data.orderNumber,
-      purchaseDate,
-      purchaseDateSort: temporalToSortDate(purchaseDate),
-      totalMinorUnits: result.data.totalAmountMinorUnits,
-      totalCurrency: result.data.currency,
-      taxMinorUnits: result.data.taxMinorUnits,
-      shippingMinorUnits: result.data.shippingMinorUnits,
-      state: "candidate",
-      confidenceBand,
-      sourceEventId: ctx.sourceEventId,
-    });
+    // §40.1 "Auto-merge exact order IDs" — a second email about the same order (payment confirmation
+    // following an order confirmation, a receipt duplicating a prior notice) must update the existing
+    // purchase rather than create a sibling. Only order-number+merchant is exact enough to auto-merge.
+    const existing = result.data.orderNumber
+      ? await this.findExistingPurchase(ctx.ownerUserId, merchantId, result.data.orderNumber)
+      : null;
 
-    for (const line of result.data.lineItems) {
-      await this.db.insert(schema.purchaseLines).values({
-        id: generateId("purchaseLine"),
-        purchaseId,
-        productLabel: line.productLabel,
-        quantity: line.quantity,
-        unitPriceMinorUnits: line.unitPriceMinorUnits,
-        lineTotalMinorUnits: line.unitPriceMinorUnits ? line.unitPriceMinorUnits * line.quantity : null,
-        currency: result.data.currency,
+    const purchaseId = existing?.id ?? generateId("purchase");
+    if (existing) {
+      await this.db
+        .update(schema.purchases)
+        .set({
+          // Fill in gaps rather than clobber previously-confirmed values with a lower-quality later extraction.
+          totalMinorUnits: existing.totalMinorUnits ?? result.data.totalAmountMinorUnits,
+          taxMinorUnits: existing.taxMinorUnits ?? result.data.taxMinorUnits,
+          shippingMinorUnits: existing.shippingMinorUnits ?? result.data.shippingMinorUnits,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.purchases.id, purchaseId));
+    } else {
+      await this.db.insert(schema.purchases).values({
+        id: purchaseId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
+        merchantId,
+        orderNumber: result.data.orderNumber,
+        purchaseDate,
+        purchaseDateSort: temporalToSortDate(purchaseDate),
+        totalMinorUnits: result.data.totalAmountMinorUnits,
+        totalCurrency: result.data.currency,
+        taxMinorUnits: result.data.taxMinorUnits,
+        shippingMinorUnits: result.data.shippingMinorUnits,
+        state: "candidate",
+        confidenceBand,
+        sourceEventId: ctx.sourceEventId,
       });
-    }
 
-    if (result.data.returnDeadline) {
-      const deadline = toTemporalValue(result.data.returnDeadline);
-      await this.db.insert(schema.returnCases).values({
-        id: generateId("returnCase"),
-        purchaseId,
-        state: "eligible",
-        deadline,
-        deadlineSort: temporalToSortDate(deadline),
-        valueAtStakeMinorUnits: result.data.totalAmountMinorUnits,
-        valueAtStakeCurrency: result.data.currency,
-      });
+      for (const line of result.data.lineItems) {
+        await this.db.insert(schema.purchaseLines).values({
+          id: generateId("purchaseLine"),
+          purchaseId,
+          productLabel: line.productLabel,
+          quantity: line.quantity,
+          unitPriceMinorUnits: line.unitPriceMinorUnits,
+          lineTotalMinorUnits: line.unitPriceMinorUnits ? line.unitPriceMinorUnits * line.quantity : null,
+          currency: result.data.currency,
+        });
+      }
+
+      if (result.data.returnDeadline) {
+        const deadline = toTemporalValue(result.data.returnDeadline);
+        await this.db.insert(schema.returnCases).values({
+          id: generateId("returnCase"),
+          purchaseId,
+          state: "eligible",
+          deadline,
+          deadlineSort: temporalToSortDate(deadline),
+          valueAtStakeMinorUnits: result.data.totalAmountMinorUnits,
+          valueAtStakeCurrency: result.data.currency,
+        });
+      }
     }
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "purchase",
-      summary: `${merchantName} — ${result.data.lineItems[0]?.productLabel ?? "purchase"} detected`,
+      summary: existing
+        ? `${merchantName} order updated — ${result.data.orderNumber}`
+        : `${merchantName} — ${result.data.lineItems[0]?.productLabel ?? "purchase"} detected`,
       linkedResourceType: "purchase",
       linkedResourceId: purchaseId,
       sourceEventId: ctx.sourceEventId,
-      suggestedActions: ["confirm", "correct", "dismiss"],
+      suggestedActions: existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
       confidenceBand,
     });
 
     return true;
+  }
+
+  private async extractShipment(
+    ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: ReturnType<typeof parseGmailMessage> },
+    knownCarrierName: string | null,
+  ): Promise<boolean> {
+    if (!this.ai.isConfigured()) return false;
+    const result = await this.ai.extractStructured({
+      extractorName: "shipment_extraction_v1",
+      model: "cheap",
+      systemPrompt:
+        "Extract structured shipping/tracking data from this email for Veynlo. Never invent a carrier, tracking " +
+        "number, or delivery date that is not clearly stated.",
+      userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
+      schema: ShipmentExtractionSchema,
+      toolDescription: "Emit the extracted shipment fields.",
+    });
+    if (!result || !result.data.trackingNumber) return false;
+
+    const carrier = knownCarrierName ?? result.data.carrier ?? "Unknown carrier";
+    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const estimatedDelivery = toTemporalValue(result.data.estimatedDelivery);
+
+    // Best-effort link to the purchase this shipment belongs to — a carrier email rarely restates the
+    // merchant the way a receipt does, so this matches on order number alone when the merchant can't be
+    // resolved (§40.1: shipment auto-merge is by carrier+tracking; linking to a purchase is a weaker,
+    // order-number-only match and stays unlinked rather than guessing when no order number is present).
+    const linkedPurchase = result.data.orderNumber
+      ? await this.findExistingPurchaseByOrderNumberOnly(ctx.ownerUserId, result.data.orderNumber)
+      : null;
+
+    const existingShipment = await this.findExistingShipment(result.data.trackingNumber);
+    const shipmentId = existingShipment?.id ?? generateId("shipment");
+    if (existingShipment) {
+      await this.db
+        .update(schema.shipments)
+        .set({
+          status: result.data.status ?? existingShipment.status,
+          estimatedDelivery,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.shipments.id, shipmentId));
+    } else {
+      await this.db.insert(schema.shipments).values({
+        id: shipmentId,
+        purchaseId: linkedPurchase?.id ?? null,
+        carrier,
+        trackingNumber: result.data.trackingNumber,
+        status: result.data.status ?? "in_transit",
+        estimatedDelivery,
+        isGiftPrivate: false,
+      });
+    }
+
+    await this.fileInboxItem({
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      category: "shipment",
+      summary: existingShipment
+        ? `${carrier} tracking ${result.data.trackingNumber} updated — ${result.data.status ?? "in transit"}`
+        : `${carrier} package ${result.data.status === "delivered" ? "delivered" : "on its way"}`,
+      linkedResourceType: "shipment",
+      linkedResourceId: shipmentId,
+      sourceEventId: ctx.sourceEventId,
+      suggestedActions: ["confirm", "dismiss"],
+      confidenceBand,
+    });
+
+    return true;
+  }
+
+  private async findExistingPurchase(ownerUserId: string, merchantId: string, orderNumber: string) {
+    const [existing] = await this.db
+      .select()
+      .from(schema.purchases)
+      .where(
+        and(
+          eq(schema.purchases.ownerUserId, ownerUserId),
+          eq(schema.purchases.merchantId, merchantId),
+          eq(schema.purchases.orderNumber, orderNumber),
+        ),
+      )
+      .limit(1);
+    return existing ?? null;
+  }
+
+  private async findExistingPurchaseByOrderNumberOnly(ownerUserId: string, orderNumber: string) {
+    const [existing] = await this.db
+      .select({ id: schema.purchases.id })
+      .from(schema.purchases)
+      .where(and(eq(schema.purchases.ownerUserId, ownerUserId), eq(schema.purchases.orderNumber, orderNumber)))
+      .limit(1);
+    return existing ?? null;
+  }
+
+  private async findExistingShipment(trackingNumber: string) {
+    const [existing] = await this.db.select().from(schema.shipments).where(eq(schema.shipments.trackingNumber, trackingNumber)).limit(1);
+    return existing ?? null;
   }
 
   private async extractBill(ctx: {
