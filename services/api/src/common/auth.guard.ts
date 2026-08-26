@@ -16,6 +16,12 @@ export interface AuthenticatedUser {
  * session row so a revoked session (AUTH-002 "sign out everywhere", stolen
  * device, household removal cascade) takes effect immediately rather than
  * waiting for token expiry.
+ *
+ * Two transport mechanisms for the same session token: the web client uses
+ * an httpOnly cookie (immune to XSS exfiltration); native clients (no
+ * shared browser cookie jar with sensible defaults) use a `Bearer` token
+ * from Sign In With Apple/Google-style native flows, stored in Keychain/
+ * Keystore. Both verify identically once extracted.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -23,7 +29,10 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const token: string | undefined = request.cookies?.veynlo_session;
+    const bearer = request.headers?.authorization?.startsWith("Bearer ")
+      ? request.headers.authorization.slice("Bearer ".length)
+      : undefined;
+    const token: string | undefined = request.cookies?.veynlo_session ?? bearer;
     if (!token) throw new UnauthorizedException("No session");
 
     const env = loadEnv();

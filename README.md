@@ -57,6 +57,15 @@ pnpm dev
 Postgres is published on **5433**, not 5432 — many dev machines already run
 a local Postgres on 5432, and this avoids fighting it for the port.
 
+To run the mobile app (not part of `pnpm dev` — Expo has its own dev
+server/QR flow):
+
+```bash
+cp apps/mobile/.env.example apps/mobile/.env.local
+cd apps/mobile
+npx expo start        # then press i (iOS Simulator), a (Android emulator), or w (web preview)
+```
+
 ## What's real vs. what's a stub
 
 Per the project's guiding rule, nothing pretends to be functional when it
@@ -82,10 +91,20 @@ isn't:
   deterministic-only and marks messages "filed" rather than fabricating
   results), Stripe billing (needs `STRIPE_SECRET_KEY`/webhook secret).
 - **Explicitly not built yet** (see docs/ROADMAP.md for the full list):
-  PDF OCR (needs Anthropic's beta PDF/document input surface), mobile app
-  (iOS/Android), desktop app, browser extension, admin account management
-  UI (accounts are created via a CLI script), most of Phase 2+ domains
-  (home/vehicle/travel/family/school/etc.).
+  PDF OCR (needs Anthropic's beta PDF/document input surface), desktop app,
+  browser extension, admin account management UI (accounts are created via
+  a CLI script), most of Phase 2+ domains (home/vehicle/travel/family/
+  school/etc.).
+
+The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
+loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme
+— talking to the real API over a bearer-token session (native has no
+browser cookie jar; see docs/ARCHITECTURE.md's auth section). Verified via
+Playwright against `expo start --web` (a real Chromium instance driving
+the actual React Native codebase): sign-up, session persistence across a
+full reload, tab navigation, and the dark-mode toggle all confirmed live.
+Real device/simulator builds haven't been produced — that needs Xcode/
+Android Studio or EAS Build, neither available in this environment.
 
 ## Workspace layout
 
@@ -93,6 +112,7 @@ isn't:
 apps/
   web/                Next.js consumer web app
   admin/               Next.js internal support console (separate app, separate auth)
+  mobile/              Expo (React Native) consumer app — iOS/Android, shares design tokens with web
 services/
   api/                NestJS/Fastify API — the whole backend for now
 packages/

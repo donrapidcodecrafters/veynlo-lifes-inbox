@@ -17,17 +17,19 @@ export class IdentityController {
   @Post("sign-up")
   @UsePipes(new ZodValidationPipe(SignUpDtoSchema))
   async signUp(@Body() dto: SignUpDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
-    const session = await this.identity.signUp(dto, { platform: detectPlatform(req) });
+    const platform = detectPlatform(req);
+    const session = await this.identity.signUp(dto, { platform });
     setSessionCookie(res, session.token, session.expiresAt);
-    return { userId: session.userId };
+    return { userId: session.userId, ...nativeTokenPayload(platform, session) };
   }
 
   @Post("sign-in")
   @UsePipes(new ZodValidationPipe(SignInDtoSchema))
   async signIn(@Body() dto: SignInDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
-    const session = await this.identity.signIn(dto, { platform: detectPlatform(req) });
+    const platform = detectPlatform(req);
+    const session = await this.identity.signIn(dto, { platform });
     setSessionCookie(res, session.token, session.expiresAt);
-    return { userId: session.userId };
+    return { userId: session.userId, ...nativeTokenPayload(platform, session) };
   }
 
   @Post("sign-out")
@@ -62,6 +64,18 @@ export class IdentityController {
 function detectPlatform(req: FastifyRequest): string {
   const header = String(req.headers["x-veynlo-platform"] ?? "web");
   return ["ios", "android", "web", "macos", "windows"].includes(header) ? header : "web";
+}
+
+/**
+ * The raw session token is only ever returned in a JSON body for non-web
+ * platforms. Web relies solely on the httpOnly cookie — putting the token
+ * in a body a compromised web page's JS could read would defeat the whole
+ * point of httpOnly (XSS exfiltration). Native apps have no browser cookie
+ * jar to rely on, so they store this in Keychain/Keystore instead.
+ */
+function nativeTokenPayload(platform: string, session: { token: string; expiresAt: Date }) {
+  if (platform === "web") return {};
+  return { token: session.token, expiresAt: session.expiresAt.toISOString() };
 }
 
 function setSessionCookie(res: FastifyReply, token: string, expiresAt: Date) {

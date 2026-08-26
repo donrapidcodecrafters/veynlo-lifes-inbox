@@ -41,7 +41,12 @@ async function bootstrap() {
   await app.register(fastifyCookie as any);
   await app.register(fastifyMultipart as any, { limits: { fileSize: 25 * 1024 * 1024 } });
 
-  app.enableCors({ origin: [env.WEB_APP_URL, env.ADMIN_APP_URL], credentials: true });
+  // Native (iOS/Android) requests aren't subject to CORS at all — it's a browser-only mechanism, enforced
+  // here only for the two real browser-based clients (web, admin) plus, in development, any localhost origin
+  // so the Expo web preview (a real browser context, unlike the native app it mirrors) can hit the API too.
+  const corsOrigin =
+    env.NODE_ENV === "production" ? [env.WEB_APP_URL, env.ADMIN_APP_URL] : [env.WEB_APP_URL, env.ADMIN_APP_URL, /^http:\/\/localhost:\d+$/];
+  app.enableCors({ origin: corsOrigin, credentials: true });
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   await app.listen(env.PORT, "0.0.0.0");

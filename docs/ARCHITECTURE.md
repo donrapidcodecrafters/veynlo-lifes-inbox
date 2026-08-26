@@ -14,6 +14,7 @@ sprawl.
 | Monorepo | pnpm workspaces + Turborepo | Shared types across API/web without publishing packages |
 | Web | Next.js 15 (App Router) + Tailwind v4 | Fast to build a genuinely polished UI; Tailwind v4's `@theme` maps directly onto our CSS-variable design tokens |
 | Admin | Separate Next.js app (`apps/admin`, own port/origin) | Spec §41.3 treats admin as its own deployable; a separate app also makes "consumer auth can never reach admin endpoints" structural rather than a convention |
+| Mobile | Expo + expo-router (React Native) | Matches the spec's own recommendation (§41.2 "React Native shell + native modules"); one codebase for iOS/Android, `expo start --web` gives a real-browser preview path for environments without a simulator |
 | API | NestJS 11 + Fastify | Module system matches the spec's bounded-context list (Appendix I) directly; Fastify for throughput |
 | Database | PostgreSQL 16 + pgvector | Single source of truth; vector search colocated rather than a separate service until scale demands it |
 | ORM | Drizzle | SQL-first migrations (reviewable, source-controlled), native-enough pgvector support via a small custom column type |
@@ -131,6 +132,31 @@ an explicit `precision` field (`instant | date | month | approximate | unknown`)
 so "we don't know" is representable and never silently upgraded to a fake
 certainty.
 
+## Authentication: cookie vs. bearer token
+
+One session token, two transports, chosen per client at sign-in/sign-up
+time based on the `x-veynlo-platform` header:
+
+- **Web/admin** (`platform: "web"`): the token lives in an httpOnly cookie
+  only — never present in the JSON response body. This is deliberate: a
+  compromised web page's JS reading a token straight out of a fetch
+  response would defeat the entire point of httpOnly (XSS-exfiltration
+  resistance).
+- **Native** (`ios`/`android`/etc.): no browser cookie jar to rely on, so
+  the same response also includes `{ token, expiresAt }`, and the client
+  stores it in Keychain/Keystore (`expo-secure-store` on mobile) and sends
+  it back as `Authorization: Bearer <token>`.
+
+`AuthGuard` (`services/api/src/common/auth.guard.ts`) accepts either
+transport identically — it extracts whichever is present, verifies the
+JWT, then re-checks the backing `sessions` row so a revoked session takes
+effect immediately regardless of which transport carried it.
+
+`expo start --web` runs the mobile codebase in a real browser, so it
+reports `Platform.OS === "web"` too and gets the cookie flow — the mobile
+API client always sends `credentials: "include"` (a no-op on true native)
+specifically so this works without any special-casing.
+
 ## Authorization model
 
 `resolveAccess(db, principalUserId, resource)` in `packages/authz` is the
@@ -144,8 +170,9 @@ match, access is denied.
 ## What's deliberately not built yet
 
 See `docs/ROADMAP.md` for the full, prioritized list. The short version:
-workers/queues for background sync (connectors currently sync inline on
-connect), PDF OCR, entity-resolution/merge-lineage beyond simple
-merchant-name matching, notification delivery (push/email — preferences
-and history exist, sending doesn't), automation rule execution, mobile/
-desktop/browser-extension clients, and real admin RBAC.
+Outlook/Microsoft connector, PDF OCR, full entity-resolution/merge-lineage
+beyond order-number/tracking-number matching, automation rule execution,
+push/desktop notification channels, native mobile builds (the Expo
+codebase exists and is verified via web preview; no simulator/device
+build has been produced in this environment), and a desktop/browser-
+extension client.

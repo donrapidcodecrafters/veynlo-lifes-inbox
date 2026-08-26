@@ -1,0 +1,44 @@
+import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
+import { useAppTheme } from "@/lib/theme-context";
+
+type Variant = "primary" | "secondary" | "ghost";
+
+interface ButtonProps extends Omit<PressableProps, "children"> {
+  variant?: Variant;
+  loading?: boolean;
+  children: string;
+}
+
+export function Button({ variant = "primary", loading, disabled, children, style, ...props }: ButtonProps) {
+  const { theme } = useAppTheme();
+
+  const backgroundColor =
+    variant === "primary" ? theme.colors.brandDefault : variant === "secondary" ? theme.colors.bgSurface : "transparent";
+  const textColor = variant === "primary" ? theme.colors.textOnBrand : theme.colors.textPrimary;
+  const borderColor = variant === "secondary" ? theme.colors.borderDefault : "transparent";
+
+  return (
+    <Pressable
+      disabled={disabled || loading}
+      style={(state) => [
+        {
+          backgroundColor,
+          borderColor,
+          borderWidth: variant === "secondary" ? 1 : 0,
+          borderRadius: theme.radius.md,
+          height: 48,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 8,
+          opacity: disabled || loading ? 0.5 : state.pressed ? 0.85 : 1,
+        },
+        typeof style === "function" ? style(state) : style,
+      ]}
+      {...props}
+    >
+      {loading && <ActivityIndicator color={textColor} size="small" />}
+      <Text style={{ color: textColor, fontSize: 16, fontWeight: "600" }}>{children}</Text>
+    </Pressable>
+  );
+}

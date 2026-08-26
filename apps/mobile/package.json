@@ -1,0 +1,39 @@
+{
+  "name": "@veynlo/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no-op (ESLint flat config pending)'",
+    "test": "echo 'no-op'",
+    "build": "echo 'no-op — native builds go through EAS Build, not turbo (see docs/ROADMAP.md)'",
+    "clean": "rm -rf .expo dist"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.13",
+    "@veynlo/core": "workspace:*",
+    "@veynlo/design-tokens": "workspace:*",
+    "expo": "~57.0.16",
+    "expo-constants": "~57.0.14",
+    "expo-linking": "~57.0.7",
+    "expo-router": "~57.0.16",
+    "expo-secure-store": "~57.0.1",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.2",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  }
+}

@@ -23,7 +23,7 @@ this repository, not an aspirational plan.
 | Billing/entitlements | ✅ Stripe checkout + webhook + entitlement resolution. App Store/Play Store receipt verification not built (mobile doesn't exist yet either). |
 | Admin console | ✅ Separate app (`apps/admin`, its own port/origin) with real per-operator RBAC: sign-in, user lookup, connector health, audit log — all live, all audited. Break-glass/elevated-access workflow and role-scoped endpoints (`support` vs `superadmin` don't differ in practice yet) are not built. |
 | Web app (Home/Inbox/Ask/Life/Connections/Settings) | ✅ Built, responsive, light/dark theme, real API integration. |
-| Mobile (iOS/Android) | ❌ Not started. |
+| Mobile (iOS/Android) | 🟡 Core loop built and verified: Expo + expo-router app (`apps/mobile`) with sign-in/up, Home, Inbox, Ask, Settings (light/dark theme), talking to the real API via bearer-token auth. Verified live via Playwright driving `expo start --web` — sign-up, session persistence across reload, tab navigation, dark-mode toggle. **Not done**: no actual iOS/Android simulator or device build has been produced (needs Xcode/Android Studio/EAS Build, unavailable here); theme preference isn't persisted across restarts; no share extension, widgets, biometrics, or push notifications; Life/Documents/Timeline/Connections screens don't exist on mobile yet (only the core Home/Inbox/Ask/Settings loop). |
 | Desktop (macOS/Windows) | ❌ Not started. |
 | Browser extension | ❌ Not started. |
 | CI/CD | ❌ Not started — no GitHub Actions workflow yet. |
