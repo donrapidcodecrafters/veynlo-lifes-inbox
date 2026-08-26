@@ -1,0 +1,201 @@
+/**
+ * Veynlo design tokens as CSS custom properties.
+ * Mirrors packages/design-tokens/src/colors.ts + layout.ts + typography.ts.
+ * Keep in sync by hand until a token-build script is introduced.
+ */
+
+:root {
+  /* Brand */
+  --color-brand-50: #f2f4ff;
+  --color-brand-100: #e6e9fe;
+  --color-brand-200: #c9cffc;
+  --color-brand-300: #a3adf8;
+  --color-brand-400: #7c86f0;
+  --color-brand-500: #5b63e3;
+  --color-brand-600: #464dc4;
+  --color-brand-700: #383da0;
+  --color-brand-800: #2e3280;
+  --color-brand-900: #282b68;
+
+  /* Semantic surfaces — light (default) */
+  --bg-canvas: #f8f8fb;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #ffffff;
+  --bg-subtle: #f0f1f5;
+  --bg-overlay: rgba(23, 24, 31, 0.48);
+  --bg-inverse: #17181f;
+
+  --border-subtle: #e7e8ee;
+  --border-default: #dcdee6;
+  --border-strong: #c2c5d1;
+  --border-focus: var(--color-brand-500);
+
+  --text-primary: #17181f;
+  --text-secondary: #585b6d;
+  --text-tertiary: #75788a;
+  --text-disabled: #9a9dad;
+  --text-inverse: #ffffff;
+  --text-on-brand: #ffffff;
+
+  --brand-default: var(--color-brand-500);
+  --brand-hover: var(--color-brand-600);
+  --brand-active: var(--color-brand-700);
+  --brand-subtle-bg: var(--color-brand-50);
+  --brand-subtle-text: var(--color-brand-700);
+
+  --color-critical: #d64545;
+  --color-critical-subtle-bg: #fef2f2;
+  --color-critical-subtle-text: #8f2929;
+  --color-warning: #c98a1f;
+  --color-warning-subtle-bg: #fff8ec;
+  --color-warning-subtle-text: #7a5210;
+  --color-info: #3b82f6;
+  --color-info-subtle-bg: #eff6ff;
+  --color-info-subtle-text: #1d4ea8;
+  --color-positive: #2f9e63;
+  --color-positive-subtle-bg: #eefbf3;
+  --color-positive-subtle-text: #1c633c;
+
+  --focus-ring: var(--color-brand-400);
+
+  /* Typography */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Spacing (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-full: 9999px;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgba(15, 15, 20, 0.06);
+  --shadow-sm: 0 2px 6px rgba(15, 15, 20, 0.08);
+  --shadow-md: 0 6px 16px rgba(15, 15, 20, 0.1);
+  --shadow-lg: 0 16px 32px rgba(15, 15, 20, 0.14);
+
+  /* Motion */
+  --duration-fast: 140ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layout */
+  --width-content: 720px;
+  --width-panel: 960px;
+  --width-wide: 1200px;
+  --width-full: 1440px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-canvas: #0e0f14;
+    --bg-surface: #17181f;
+    --bg-surface-raised: #20212c;
+    --bg-subtle: #20212c;
+    --bg-overlay: rgba(4, 4, 6, 0.6);
+    --bg-inverse: #f8f8fb;
+
+    --border-subtle: #20212c;
+    --border-default: #3a3c4d;
+    --border-strong: #585b6d;
+    --border-focus: var(--color-brand-400);
+
+    --text-primary: #f8f8fb;
+    --text-secondary: #c2c5d1;
+    --text-tertiary: #9a9dad;
+    --text-disabled: #585b6d;
+    --text-inverse: #17181f;
+    --text-on-brand: #ffffff;
+
+    --brand-default: var(--color-brand-400);
+    --brand-hover: var(--color-brand-300);
+    --brand-active: var(--color-brand-200);
+    --brand-subtle-bg: rgba(91, 99, 227, 0.16);
+    --brand-subtle-text: var(--color-brand-300);
+
+    --color-critical: #e9807f;
+    --color-critical-subtle-bg: rgba(214, 69, 69, 0.16);
+    --color-critical-subtle-text: #f4b3b2;
+    --color-warning: #e8b463;
+    --color-warning-subtle-bg: rgba(201, 138, 31, 0.16);
+    --color-warning-subtle-text: #f0cf94;
+    --color-info: #7fb1fb;
+    --color-info-subtle-bg: rgba(59, 130, 246, 0.16);
+    --color-info-subtle-text: #b7d3fd;
+    --color-positive: #6bc793;
+    --color-positive-subtle-bg: rgba(47, 158, 99, 0.16);
+    --color-positive-subtle-text: #a6e2c1;
+
+    --focus-ring: var(--color-brand-300);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg-canvas: #0e0f14;
+  --bg-surface: #17181f;
+  --bg-surface-raised: #20212c;
+  --bg-subtle: #20212c;
+  --bg-overlay: rgba(4, 4, 6, 0.6);
+  --bg-inverse: #f8f8fb;
+
+  --border-subtle: #20212c;
+  --border-default: #3a3c4d;
+  --border-strong: #585b6d;
+  --border-focus: var(--color-brand-400);
+
+  --text-primary: #f8f8fb;
+  --text-secondary: #c2c5d1;
+  --text-tertiary: #9a9dad;
+  --text-disabled: #585b6d;
+  --text-inverse: #17181f;
+  --text-on-brand: #ffffff;
+
+  --brand-default: var(--color-brand-400);
+  --brand-hover: var(--color-brand-300);
+  --brand-active: var(--color-brand-200);
+  --brand-subtle-bg: rgba(91, 99, 227, 0.16);
+  --brand-subtle-text: var(--color-brand-300);
+
+  --color-critical: #e9807f;
+  --color-critical-subtle-bg: rgba(214, 69, 69, 0.16);
+  --color-critical-subtle-text: #f4b3b2;
+  --color-warning: #e8b463;
+  --color-warning-subtle-bg: rgba(201, 138, 31, 0.16);
+  --color-warning-subtle-text: #f0cf94;
+  --color-info: #7fb1fb;
+  --color-info-subtle-bg: rgba(59, 130, 246, 0.16);
+  --color-info-subtle-text: #b7d3fd;
+  --color-positive: #6bc793;
+  --color-positive-subtle-bg: rgba(47, 158, 99, 0.16);
+  --color-positive-subtle-text: #a6e2c1;
+
+  --focus-ring: var(--color-brand-300);
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

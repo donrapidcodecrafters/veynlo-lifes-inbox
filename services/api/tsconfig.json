@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.lib.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "target": "ES2022",
+    "useDefineForClassFields": false,
+    "incremental": false
+  },
+  "include": ["src"]
+}

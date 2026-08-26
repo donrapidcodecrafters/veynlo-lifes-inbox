@@ -1,0 +1,32 @@
+import { pgTable, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { users } from "./identity";
+import { households } from "./household";
+
+export const entitlements = pgTable("entitlements", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
+  planKey: text("plan_key").notNull(),
+  source: text("source").notNull(),
+  effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
+  effectiveTo: timestamp("effective_to", { withTimezone: true }),
+  gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Normalized ledger of raw store/processor billing events, source-of-truth reconciliation input (§46.2). */
+export const billingEvents = pgTable("billing_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  source: text("source").notNull(), // "app_store" | "play_store" | "web_stripe"
+  externalEventId: text("external_event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  payloadJson: jsonb("payload_json").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

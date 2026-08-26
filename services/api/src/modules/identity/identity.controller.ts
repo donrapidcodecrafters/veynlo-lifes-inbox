@@ -1,0 +1,76 @@
+import { Body, Controller, Get, Post, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { AuthGuard } from "../../common/auth.guard";
+import { CurrentUser } from "../../common/current-user.decorator";
+import type { AuthenticatedUser } from "../../common/auth.guard";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { loadEnv } from "../../config/env";
+import { IdentityService } from "./identity.service";
+import { SignInDtoSchema, SignUpDtoSchema, type SignInDto, type SignUpDto } from "./dto";
+
+const SESSION_COOKIE = "veynlo_session";
+
+@Controller("v1/auth")
+export class IdentityController {
+  constructor(private readonly identity: IdentityService) {}
+
+  @Post("sign-up")
+  @UsePipes(new ZodValidationPipe(SignUpDtoSchema))
+  async signUp(@Body() dto: SignUpDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+    const session = await this.identity.signUp(dto, { platform: detectPlatform(req) });
+    setSessionCookie(res, session.token, session.expiresAt);
+    return { userId: session.userId };
+  }
+
+  @Post("sign-in")
+  @UsePipes(new ZodValidationPipe(SignInDtoSchema))
+  async signIn(@Body() dto: SignInDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+    const session = await this.identity.signIn(dto, { platform: detectPlatform(req) });
+    setSessionCookie(res, session.token, session.expiresAt);
+    return { userId: session.userId };
+  }
+
+  @Post("sign-out")
+  @UseGuards(AuthGuard)
+  async signOut(@CurrentUser() user: AuthenticatedUser, @Res({ passthrough: true }) res: FastifyReply) {
+    await this.identity.revokeSession(user.sessionId);
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { success: true };
+  }
+
+  @Post("sign-out-everywhere")
+  @UseGuards(AuthGuard)
+  async signOutEverywhere(@CurrentUser() user: AuthenticatedUser, @Res({ passthrough: true }) res: FastifyReply) {
+    await this.identity.revokeAllSessions(user.userId);
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { success: true };
+  }
+
+  @Get("me")
+  @UseGuards(AuthGuard)
+  async me(@CurrentUser() user: AuthenticatedUser) {
+    return this.identity.me(user.userId);
+  }
+
+  @Get("sessions")
+  @UseGuards(AuthGuard)
+  async sessions(@CurrentUser() user: AuthenticatedUser) {
+    return this.identity.listSessions(user.userId);
+  }
+}
+
+function detectPlatform(req: FastifyRequest): string {
+  const header = String(req.headers["x-veynlo-platform"] ?? "web");
+  return ["ios", "android", "web", "macos", "windows"].includes(header) ? header : "web";
+}
+
+function setSessionCookie(res: FastifyReply, token: string, expiresAt: Date) {
+  const env = loadEnv();
+  res.setCookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    expires: expiresAt,
+  });
+}

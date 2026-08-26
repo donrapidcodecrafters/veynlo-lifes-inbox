@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1787754234250,
+      "tag": "0000_freezing_robin_chapel",
+      "breakpoints": true
+    }
+  ]
+}

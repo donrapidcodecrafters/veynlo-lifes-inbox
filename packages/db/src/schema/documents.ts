@@ -1,0 +1,42 @@
+import { pgTable, text, timestamp, integer, real, jsonb, index } from "drizzle-orm/pg-core";
+import { users } from "./identity";
+import { households } from "./household";
+import { sensitivityTierEnum, visibilityEnum } from "./common";
+
+export const documents = pgTable(
+  "documents",
+  {
+    id: text("id").primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
+    documentType: text("document_type").notNull(),
+    title: text("title").notNull(),
+    sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
+    visibility: visibilityEnum("visibility").notNull().default("private"),
+    processingState: text("processing_state").notNull().default("uploaded"),
+    currentVersionId: text("current_version_id"),
+    linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("documents_owner_idx").on(t.ownerUserId)],
+);
+
+export const documentVersions = pgTable("document_versions", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  versionNumber: integer("version_number").notNull().default(1),
+  blobRef: text("blob_ref").notNull(),
+  contentHash: text("content_hash").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  ocrText: text("ocr_text"),
+  ocrConfidence: real("ocr_confidence"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

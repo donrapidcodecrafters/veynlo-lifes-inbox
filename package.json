@@ -1,0 +1,30 @@
+{
+  "name": "veynlo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Veynlo — the connective intelligence layer across your permitted digital life.",
+  "packageManager": "pnpm@10.26.2",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:generate": "pnpm --filter @veynlo/db generate",
+    "db:migrate": "pnpm --filter @veynlo/db migrate",
+    "db:seed": "pnpm --filter @veynlo/db seed",
+    "db:studio": "pnpm --filter @veynlo/db studio",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "prettier": "^3.4.2",
+    "eslint": "^9.17.0",
+    "@types/node": "^22.10.5"
+  }
+}
