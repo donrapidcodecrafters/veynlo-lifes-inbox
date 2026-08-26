@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import useSWR from "swr";
 import { swrFetcher } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
@@ -59,9 +60,17 @@ export default function LifePage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">Life</h1>
-        <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows you own, owe, and are due back.</p>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">Life</h1>
+          <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows you own, owe, and are due back.</p>
+        </div>
+        <Link
+          href="/documents"
+          className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
+        >
+          Documents →
+        </Link>
       </header>
 
       <Section title="Returns">

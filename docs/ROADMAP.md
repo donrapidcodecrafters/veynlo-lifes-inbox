@@ -17,7 +17,7 @@ this repository, not an aspirational plan.
 | Home "Needs You" + caught-up state | ✅ Built, reads real attention_items. Nothing populates attention_items automatically yet from the pipeline — currently only seed data and (implicitly) future automation-rule output would. |
 | Ask / structured search | ✅ Built — grounded synthesis with evidence citations, `insufficientEvidence` flag. Semantic/vector search not wired (pgvector column exists, unused). |
 | Timeline | ❌ Not built. |
-| Documents/vault | ✅ Upload, S3 storage, image OCR via Claude vision. PDF OCR not built (needs Anthropic's beta document-input surface). |
+| Documents/vault | ✅ Upload (web UI at `/documents` + API), S3 storage, image OCR via Claude vision. PDF OCR not built (needs Anthropic's beta document-input surface). |
 | Notifications | ✅ Preferences, daily/weekly brief composition, per-item email delivery, quiet-hours + intensity suppression — all real, running in the worker process (SMTP via Mailhog in dev). Push/desktop channels not implemented (no APNs/FCM integration yet — only `channel: "email"` actually sends). |
 | Background workers | ✅ Separate worker process (`services/api/src/worker-main.ts`, BullMQ + Redis) runs connector sync and notification dispatch/delivery durably — survives a process restart, retries with backoff, dedupes by job ID. |
 | Billing/entitlements | ✅ Stripe checkout + webhook + entitlement resolution. App Store/Play Store receipt verification not built (mobile doesn't exist yet either). |
