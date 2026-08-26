@@ -12,7 +12,7 @@ this repository, not an aspirational plan.
 | Household + dependents | ✅ Built (create/invite/leave/dependents). Caregiver delegation types exist in `@veynlo/core`, no API yet. |
 | Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events. Travel/warranty/school/home/vehicle extractors not started. |
-| Entity resolution | 🟡 Merchant-by-name only. No merge/unmerge UI, no cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`. |
+| Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`; the owner-scoped `canonical_entities` knowledge-graph layer remains unwritten (see below). |
 | Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built. "Correct" (editing extracted fields) and "merge" are not yet implemented — only confirm/archive/dismiss/snooze. |
 | Home "Needs You" + caught-up state | ✅ Built, reads real attention_items. Nothing populates attention_items automatically yet from the pipeline — currently only seed data and (implicitly) future automation-rule output would. |
 | Ask / structured search | ✅ Built — grounded synthesis with evidence citations, `insufficientEvidence` flag. Semantic/vector search not wired (pgvector column exists, unused). |
