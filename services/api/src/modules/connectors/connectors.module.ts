@@ -10,6 +10,6 @@ import { GmailAdapter } from "./gmail.adapter";
   imports: [IdentityModule, IngestionModule],
   controllers: [ConnectorsController],
   providers: [ConnectorsService, GmailAdapter, CredentialVault],
-  exports: [ConnectorsService],
+  exports: [ConnectorsService, GmailAdapter, CredentialVault],
 })
 export class ConnectorsModule {}

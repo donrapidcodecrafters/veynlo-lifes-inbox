@@ -38,6 +38,16 @@ const EnvSchema = z.object({
   // Billing
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // Outbound email (notification delivery + daily/weekly briefs). Defaults target the local Mailhog
+  // container so email genuinely sends in dev — visible at http://localhost:8025 — without any real
+  // provider credentials. Point these at a real SMTP/API provider in staging/production.
+  SMTP_HOST: z.string().default("localhost"),
+  SMTP_PORT: z.coerce.number().int().default(1025),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  MAIL_FROM_ADDRESS: z.string().default("noreply@veynlo.app"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

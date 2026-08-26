@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 import { DatabaseModule } from "./database/database.module";
+import { QueueModule } from "./queue/queue.module";
 import { IdentityModule } from "./modules/identity/identity.module";
 import { HouseholdModule } from "./modules/household/household.module";
 import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
@@ -20,6 +21,7 @@ import { AdminModule } from "./modules/admin/admin.module";
   imports: [
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     DatabaseModule,
+    QueueModule,
     IdentityModule,
     HouseholdModule,
     IntelligenceModule,

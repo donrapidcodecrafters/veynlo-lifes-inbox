@@ -1,0 +1,95 @@
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import { Logger } from "@nestjs/common";
+import { Worker } from "bullmq";
+import { eq } from "drizzle-orm";
+import { schema, type Database } from "@veynlo/db";
+import { AppModule } from "./app.module";
+import { DATABASE } from "./database/database.module";
+import { getRedisConnection } from "./queue/redis-connection";
+import { QUEUE_NAMES, type ConnectorSyncJobData, type NotificationDeliveryJobData, type NotificationDispatchJobData } from "./queue/queue-names";
+import { GmailAdapter } from "./modules/connectors/gmail.adapter";
+import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
+import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
+import { QueueProducerService } from "./queue/queue-producer.service";
+
+const logger = new Logger("Worker");
+
+/**
+ * A second bootstrap for the SAME Nest project (§42.5: durable background
+ * work must survive a process restart, not run inline on an HTTP request).
+ * This process has no HTTP server — `createApplicationContext` gives it
+ * the exact same DI graph as `main.ts` (same services, same DB connection
+ * config) purely so job processors can call into GmailAdapter/Notification*
+ * without duplicating that logic in a second codebase. Deploy this as its
+ * own process (`pnpm --filter @veynlo/api run start:worker`) alongside the
+ * HTTP process, not instead of it.
+ */
+async function bootstrap() {
+  const appContext = await NestFactory.createApplicationContext(AppModule, { logger: ["error", "warn", "log"] });
+
+  const db = appContext.get<Database>(DATABASE);
+  const gmailAdapter = appContext.get(GmailAdapter);
+  const notificationDelivery = appContext.get(NotificationDeliveryService);
+  const notificationDispatch = appContext.get(NotificationDispatchService);
+  const queueProducer = appContext.get(QueueProducerService);
+
+  const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
+    QUEUE_NAMES.connectorSync,
+    async (job) => {
+      const { connectionId } = job.data;
+      try {
+        // `kind: "incremental"` is accepted by the queue contract but not yet distinct from "initial" —
+        // Gmail's history.list-based cursor sync (real incremental, driven by connections.cursor) is a
+        // ROADMAP item; today every sync re-scans the configured history window, which stays correct
+        // (never duplicates data) because source_events.idempotency_key makes re-processing a no-op.
+        await gmailAdapter.initialSync(connectionId);
+      } catch (err) {
+        await db
+          .update(schema.connections)
+          .set({ health: "degraded", healthDetail: String((err as Error)?.message ?? err) })
+          .where(eq(schema.connections.id, connectionId));
+        throw err; // let BullMQ's retry/backoff attempt again before giving up
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 4 },
+  );
+
+  const notificationDispatchWorker = new Worker<NotificationDispatchJobData>(
+    QUEUE_NAMES.notificationDispatch,
+    async (job) => {
+      if (job.data.brief === "daily") await notificationDispatch.dispatchDailyBrief();
+      else await notificationDispatch.dispatchWeeklyBrief();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
+  const notificationDeliveryWorker = new Worker<NotificationDeliveryJobData>(
+    QUEUE_NAMES.notificationDelivery,
+    async (job) => {
+      await notificationDelivery.deliver(job.data.notificationId);
+    },
+    { connection: getRedisConnection(), concurrency: 8 },
+  );
+
+  for (const worker of [connectorSyncWorker, notificationDispatchWorker, notificationDeliveryWorker]) {
+    worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
+    worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
+  }
+
+  // Registers the repeatable daily/weekly brief jobs (idempotent — BullMQ dedupes repeat jobs by jobId).
+  await queueProducer.scheduleRecurringNotificationDispatch();
+
+  logger.log("Veynlo worker process started — processing connector-sync, notification-dispatch, notification-delivery");
+
+  const shutdown = async () => {
+    logger.log("Shutting down worker process...");
+    await Promise.all([connectorSyncWorker.close(), notificationDispatchWorker.close(), notificationDeliveryWorker.close()]);
+    await appContext.close();
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
+
+bootstrap();

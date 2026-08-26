@@ -17,7 +17,8 @@ sprawl.
 | Database | PostgreSQL 16 + pgvector | Single source of truth; vector search colocated rather than a separate service until scale demands it |
 | ORM | Drizzle | SQL-first migrations (reviewable, source-controlled), native-enough pgvector support via a small custom column type |
 | Object storage | S3-compatible (MinIO locally) | Documents/receipts/scans — never a public URL, always short-lived signed URLs |
-| Jobs/queues | Redis + BullMQ (dependency present; workers not yet built — see ROADMAP) | |
+| Jobs/queues | Redis + BullMQ | Connector sync and notification dispatch/delivery run as durable, retrying jobs — never inline on an HTTP request |
+| Email | Nodemailer over SMTP (Mailhog in dev) | Daily/weekly briefs and per-item notifications actually send; no fake "would send" logging |
 | AI | Anthropic (`@anthropic-ai/sdk`) | Structured extraction via forced tool-use against a zod schema; Haiku for cheap/routine extraction, Sonnet for Ask synthesis |
 | Billing | Stripe | Entitlement ledger normalizes across billing sources per spec §46 |
 
@@ -32,7 +33,7 @@ Mirrors spec Appendix I:
 - **intelligence** — the only place that calls the Anthropic API. Schema-constrained, versioned, cost-tiered.
 - **commerce / schedule / documents** — domain read/write APIs (purchases, returns, subscriptions, bills, calendar events, tasks, document vault).
 - **attention** — the Home "Needs You" queue and the Inbox review surface.
-- **notifications** — preferences and delivery history (channel delivery itself is not yet wired — see ROADMAP).
+- **notifications** — preferences, daily/weekly brief composition, quiet-hours/intensity suppression, and real SMTP delivery. Push/desktop channels aren't wired (no client to receive them yet).
 - **automation** — types/schema exist in `@veynlo/core`; no rule engine or execution yet (ROADMAP).
 - **search** — structured SQL search + grounded Ask (semantic/vector search not yet wired — search_documents table + pgvector column exist, embeddings pipeline doesn't yet).
 - **billing** — Stripe checkout + webhook, entitlement resolution.
@@ -57,7 +58,55 @@ SourceEvent (raw, idempotent)
 Every extraction is versioned (`extractorName`), schema-validated before it
 can touch canonical tables, and produces a review item in the Inbox rather
 than silently mutating state — confirming an Inbox item is what promotes a
-candidate to `confidenceBand: "verified"`.
+candidate to `confidenceBand: "verified"`. Filing an Inbox item at
+high/verified confidence also creates a `"useful"`-priority notification
+(dedupe key `inbox-item:<id>`) — low/needs-review candidates stay silent in
+the Inbox rather than paging the user about something Veynlo itself isn't
+sure of.
+
+## Background jobs and the worker process
+
+`services/api` has two entry points compiled from the same codebase:
+
+- `src/main.ts` — the HTTP server (Fastify).
+- `src/worker-main.ts` — a headless process (`NestFactory.createApplicationContext`,
+  no HTTP listener) that runs three BullMQ workers: `connector-sync`,
+  `notification-dispatch`, `notification-delivery`. It resolves the exact
+  same providers (`GmailAdapter`, `NotificationDeliveryService`, etc.) via
+  Nest's DI container, so job-processing logic is never duplicated between
+  the HTTP and worker codepaths.
+
+Both processes must run for the product to work end-to-end in dev
+(`pnpm dev` for HTTP + web, `pnpm dev:worker` for the worker) — an OAuth
+callback or a filed Inbox item enqueues a job and returns immediately; the
+job only actually runs once the worker process picks it up.
+
+Job flow, concretely:
+
+```
+Gmail OAuth callback → enqueue connector-sync(kind: "initial")
+  → [worker] GmailAdapter.initialSync() → ingestion pipeline → InboxItem
+    → (if high/verified confidence) NotificationDeliveryService.createAndEnqueue()
+      → enqueue notification-delivery
+        → [worker] checks quiet hours/intensity → sends via Nodemailer → notifications.state = "sent"
+
+Recurring cron (13:00 UTC daily / Monday) → notification-dispatch(daily|weekly)
+  → [worker] NotificationDispatchService composes one digest per eligible user
+    → same notification-delivery path as above
+```
+
+Every job is retried with exponential backoff on failure (BullMQ `attempts`/
+`backoff`), deduplicated by `jobId` where re-enqueuing the same logical work
+item should be a no-op, and safe to reprocess — `connector-sync` relies on
+`source_events.idempotency_key`, `notification-delivery` checks
+`notifications.state !== "queued"` before sending.
+
+**Deviation from the spec's literal repo layout**: §41.3 suggests a separate
+`/services/workers` app. This repo keeps one codebase with two bootstrap
+entry points instead, specifically to avoid duplicating GmailAdapter/
+IngestionService/NotificationDeliveryService logic across two packages.
+Revisit if the worker ever needs to scale or deploy on a genuinely different
+release cadence than the API.
 
 ## Data model
 

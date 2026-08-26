@@ -8,6 +8,7 @@ import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
+import { QueueProducerService } from "../../queue/queue-producer.service";
 
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 
@@ -25,6 +26,7 @@ export class GmailAdapter {
     @Inject(DATABASE) private readonly db: Database,
     private readonly vault: CredentialVault,
     private readonly ingestion: IngestionService,
+    private readonly queue: QueueProducerService,
   ) {}
 
   private oauthClient(redirectUri: string) {
@@ -80,13 +82,10 @@ export class GmailAdapter {
     );
     await this.db.update(schema.connections).set({ credentialRef }).where(eq(schema.connections.id, connectionId));
 
-    // Kick off the initial backfill asynchronously; ingestion pipeline tracks its own progress/health.
-    void this.initialSync(connectionId).catch(async (err) => {
-      await this.db
-        .update(schema.connections)
-        .set({ health: "degraded", healthDetail: String(err?.message ?? err) })
-        .where(eq(schema.connections.id, connectionId));
-    });
+    // The initial backfill runs as a durable background job (services/api/src/worker-main.ts), not inline
+    // on this request — a large mailbox or a process restart mid-sync must not lose progress or leave the
+    // OAuth callback hanging (§42.5 "historical backfill: chunked, resumable, rate-limited").
+    await this.queue.enqueueConnectorSync({ connectionId, kind: "initial" });
 
     return { connectionId };
   }

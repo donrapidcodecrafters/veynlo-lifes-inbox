@@ -18,7 +18,8 @@ this repository, not an aspirational plan.
 | Ask / structured search | ✅ Built — grounded synthesis with evidence citations, `insufficientEvidence` flag. Semantic/vector search not wired (pgvector column exists, unused). |
 | Timeline | ❌ Not built. |
 | Documents/vault | ✅ Upload, S3 storage, image OCR via Claude vision. PDF OCR not built (needs Anthropic's beta document-input surface). |
-| Notifications | 🟡 Preferences + history schema/API exist. No actual push/email delivery, no digest composition, no quiet-hours enforcement logic yet. |
+| Notifications | ✅ Preferences, daily/weekly brief composition, per-item email delivery, quiet-hours + intensity suppression — all real, running in the worker process (SMTP via Mailhog in dev). Push/desktop channels not implemented (no APNs/FCM integration yet — only `channel: "email"` actually sends). |
+| Background workers | ✅ Separate worker process (`services/api/src/worker-main.ts`, BullMQ + Redis) runs connector sync and notification dispatch/delivery durably — survives a process restart, retries with backoff, dedupes by job ID. |
 | Billing/entitlements | ✅ Stripe checkout + webhook + entitlement resolution. App Store/Play Store receipt verification not built (mobile doesn't exist yet either). |
 | Admin console | 🟡 User lookup, connector health, audit log read endpoints exist behind a shared-secret header. Real RBAC/break-glass/audit-of-access is not built. |
 | Web app (Home/Inbox/Ask/Life/Connections/Settings) | ✅ Built, responsive, light/dark theme, real API integration. |
@@ -30,16 +31,24 @@ this repository, not an aspirational plan.
 
 ## Immediate next priorities (in order)
 
-1. **Background job workers** (`services/workers`, BullMQ + Redis are already
-   dependencies) — connector sync currently runs inline on the request that
-   triggers it (OAuth callback), which won't survive a large mailbox or a
-   process restart mid-sync. This is the biggest correctness gap.
-2. **Notification delivery** — compose and send the daily/weekly brief,
-   push notifications for critical attention items, respecting quiet hours.
+1. ~~**Background job workers**~~ — done. `services/api/src/worker-main.ts` is
+   a second bootstrap of the same Nest project (via `createApplicationContext`,
+   no HTTP) that runs BullMQ workers for connector sync and notification
+   dispatch/delivery. Architecture note: the spec's repo layout (§41.3)
+   suggests a separate `/services/workers` app; this repo instead keeps one
+   codebase with two entry points (`main.ts` for HTTP, `worker-main.ts` for
+   jobs) so GmailAdapter/IngestionService/NotificationDeliveryService aren't
+   duplicated across two packages. Revisit if/when the worker needs to scale
+   or deploy independently enough that sharing a codebase becomes awkward.
+2. ~~**Notification delivery**~~ — done for email. Daily/weekly brief
+   composition, quiet-hours + intensity suppression, and per-discovery
+   notifications (created when the ingestion pipeline files a high/verified-
+   confidence Inbox item) all run for real, verified via live Mailhog
+   delivery. Push/desktop channels remain unbuilt (need APNs/FCM, which in
+   turn need a mobile/desktop client to receive them).
 3. **Entity resolution v2** — real merge/unmerge with lineage, order-ID/
    tracking-number/VIN-based matching per §40.1, not just merchant-name.
-4. **CI** — GitHub Actions: install, typecheck, lint, test, build on every
-   PR. Nothing enforces "keep the project runnable" automatically yet.
+4. ~~**CI**~~ — done (`.github/workflows/ci.yml`).
 5. **Real admin RBAC** — replace the shared-secret header with per-operator
    accounts and audited, scoped access before any real user data exists.
 6. **Outlook/Microsoft connector** — second direct-API email source; the
@@ -47,6 +56,13 @@ this repository, not an aspirational plan.
    make this an adapter addition, not a pipeline rewrite.
 7. **PDF OCR** — wire Anthropic's beta document-input surface (`client.beta.messages`),
    or a dedicated OCR engine if volume/cost data favors it.
+8. **Gmail incremental/recurring sync** — today a connection only syncs once,
+   right after OAuth completes (the "initial" job). Nothing re-syncs it
+   afterward. Real incremental sync needs a recurring job (or Gmail push
+   notifications via `watch()`) plus `history.list` keyed off a stored
+   `connections.cursor` — the schema already has the `cursor` column, and
+   the queue already accepts a `kind: "incremental"` job, but nothing
+   schedules one yet.
 
 ## Phase 2 — financially sticky + household-ready
 

@@ -7,6 +7,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
+import { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 import {
   DomainClassificationResultSchema,
   ReceiptExtractionSchema,
@@ -40,6 +41,7 @@ export class IngestionService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly ai: AnthropicExtractionService,
+    private readonly notifications: NotificationDeliveryService,
   ) {}
 
   async ingestGmailMessage(params: IngestGmailParams): Promise<void> {
@@ -233,8 +235,7 @@ export class IngestionService {
       });
     }
 
-    await this.db.insert(schema.inboxItems).values({
-      id: generateId("inboxItem"),
+    await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "purchase",
@@ -283,8 +284,7 @@ export class IngestionService {
       autopayBelieved: result.data.autopayMentioned,
     });
 
-    await this.db.insert(schema.inboxItems).values({
-      id: generateId("inboxItem"),
+    await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "bill",
@@ -334,8 +334,7 @@ export class IngestionService {
       visibility: "private",
     });
 
-    await this.db.insert(schema.inboxItems).values({
-      id: generateId("inboxItem"),
+    await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "appointment",
@@ -347,6 +346,49 @@ export class IngestionService {
       confidenceBand,
     });
     return true;
+  }
+
+  /**
+   * Creates the Inbox review card and, only for high/verified confidence,
+   * a "useful"-priority notification — low/needs-review candidates stay in
+   * the Inbox silently rather than pinging the user about something Veynlo
+   * itself isn't sure about (§AI-002 risk policy driving notification tier,
+   * not just canonical-data acceptance).
+   */
+  private async fileInboxItem(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    category: string;
+    summary: string;
+    linkedResourceType: string;
+    linkedResourceId: string;
+    sourceEventId: string;
+    suggestedActions: string[];
+    confidenceBand: string;
+  }): Promise<void> {
+    const inboxItemId = generateId("inboxItem");
+    await this.db.insert(schema.inboxItems).values({
+      id: inboxItemId,
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      category: params.category,
+      summary: params.summary,
+      linkedResourceType: params.linkedResourceType,
+      linkedResourceId: params.linkedResourceId,
+      sourceEventId: params.sourceEventId,
+      suggestedActions: params.suggestedActions,
+      confidenceBand: params.confidenceBand,
+    });
+
+    if (params.confidenceBand === "high" || params.confidenceBand === "verified") {
+      await this.notifications.createAndEnqueue({
+        ownerUserId: params.ownerUserId,
+        dedupeKey: `inbox-item:${inboxItemId}`,
+        priority: "useful",
+        title: "Veynlo found something new",
+        body: params.summary,
+      });
+    }
   }
 
   private async findOrCreateMerchant(displayName: string): Promise<string> {

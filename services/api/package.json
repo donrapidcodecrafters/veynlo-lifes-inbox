@@ -5,7 +5,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "nest start --watch",
+    "worker:dev": "tsx watch src/worker-main.ts",
     "start": "node dist/main.js",
+    "start:worker": "node dist/worker-main.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
@@ -37,11 +39,13 @@
     "@aws-sdk/s3-request-presigner": "^3.716.0",
     "stripe": "^17.5.0",
     "nanoid": "^5.0.9",
-    "zod-to-json-schema": "^3.24.1"
+    "zod-to-json-schema": "^3.24.1",
+    "nodemailer": "^6.9.16"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@types/pg": "^8.11.10",
+    "@types/nodemailer": "^6.4.17",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
     "tsx": "^4.19.2"

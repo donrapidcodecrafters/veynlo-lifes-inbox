@@ -23,7 +23,8 @@ Prerequisites: Node 20+, pnpm 10+, Docker.
 ```bash
 pnpm install
 
-# Start local infra (Postgres+pgvector, Redis, MinIO, Mailhog)
+# Start local infra (Postgres+pgvector, Redis, MinIO, Mailhog — Mailhog catches all
+# outbound email in dev at http://localhost:8025, no real SMTP provider needed)
 cd infrastructure/docker && docker compose up -d && cd ../..
 
 # Create the MinIO bucket the API expects (first time only)
@@ -62,8 +63,13 @@ isn't:
   (deterministic prefilter → Claude-based structured extraction → canonical
   facts/purchases/bills/events → Inbox review), document upload to
   S3-compatible storage with real Claude-vision OCR for images, structured
-  search + grounded Ask, Stripe billing/entitlements, and the whole web app
-  (Home, Inbox, Ask, Life, Connections, Settings) talking to the real API.
+  search + grounded Ask, Stripe billing/entitlements, a background worker
+  process (BullMQ + Redis) that runs connector sync and notification
+  delivery durably instead of inline on an HTTP request — including real
+  SMTP email delivery (Mailhog in dev) for the daily/weekly brief and
+  per-discovery notifications, with quiet-hours/intensity suppression — and
+  the whole web app (Home, Inbox, Ask, Life, Connections, Settings) talking
+  to the real API.
 - **Present but requires configuration to activate**: Gmail connector
   (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), AI extraction (needs
   `ANTHROPIC_API_KEY` — without it, ingestion degrades gracefully to
@@ -93,11 +99,20 @@ spec/                  The original master product/technical specification
 docs/                  Architecture, roadmap, environment variable reference
 ```
 
+Connector sync (Gmail backfill) and notification delivery (daily/weekly
+brief, per-item email) run in a **separate worker process** — it does not
+start with `pnpm dev`. Run it alongside the API in another terminal:
+
+```bash
+pnpm dev:worker
+```
+
 ## Common commands
 
 ```bash
 pnpm build        # build every package/app
-pnpm dev          # run every app/service in dev/watch mode
+pnpm dev          # run every app/service in dev/watch mode (API + web; NOT the worker — see above)
+pnpm dev:worker   # run the background job worker (connector sync, notification delivery)
 pnpm typecheck    # typecheck the whole workspace
 pnpm test         # run all test suites
 pnpm db:generate  # generate a new migration from schema changes

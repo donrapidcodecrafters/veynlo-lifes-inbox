@@ -74,6 +74,14 @@ async function main() {
     .onConflictDoNothing();
 
   await db
+    .insert(schema.notificationPreferences)
+    .values([
+      { userId, intensity: "balanced", dailyBriefEnabled: true, weeklyBriefEnabled: true },
+      { userId: partnerUserId, intensity: "balanced", dailyBriefEnabled: true, weeklyBriefEnabled: true },
+    ])
+    .onConflictDoNothing();
+
+  await db
     .insert(schema.entitlements)
     .values({
       id: "ent_demo_family",
