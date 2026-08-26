@@ -13,6 +13,7 @@ sprawl.
 |---|---|---|
 | Monorepo | pnpm workspaces + Turborepo | Shared types across API/web without publishing packages |
 | Web | Next.js 15 (App Router) + Tailwind v4 | Fast to build a genuinely polished UI; Tailwind v4's `@theme` maps directly onto our CSS-variable design tokens |
+| Admin | Separate Next.js app (`apps/admin`, own port/origin) | Spec §41.3 treats admin as its own deployable; a separate app also makes "consumer auth can never reach admin endpoints" structural rather than a convention |
 | API | NestJS 11 + Fastify | Module system matches the spec's bounded-context list (Appendix I) directly; Fastify for throughput |
 | Database | PostgreSQL 16 + pgvector | Single source of truth; vector search colocated rather than a separate service until scale demands it |
 | ORM | Drizzle | SQL-first migrations (reviewable, source-controlled), native-enough pgvector support via a small custom column type |

@@ -41,7 +41,7 @@ async function bootstrap() {
   await app.register(fastifyCookie as any);
   await app.register(fastifyMultipart as any, { limits: { fileSize: 25 * 1024 * 1024 } });
 
-  app.enableCors({ origin: env.WEB_APP_URL, credentials: true });
+  app.enableCors({ origin: [env.WEB_APP_URL, env.ADMIN_APP_URL], credentials: true });
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   await app.listen(env.PORT, "0.0.0.0");

@@ -21,7 +21,7 @@ this repository, not an aspirational plan.
 | Notifications | ✅ Preferences, daily/weekly brief composition, per-item email delivery, quiet-hours + intensity suppression — all real, running in the worker process (SMTP via Mailhog in dev). Push/desktop channels not implemented (no APNs/FCM integration yet — only `channel: "email"` actually sends). |
 | Background workers | ✅ Separate worker process (`services/api/src/worker-main.ts`, BullMQ + Redis) runs connector sync and notification dispatch/delivery durably — survives a process restart, retries with backoff, dedupes by job ID. |
 | Billing/entitlements | ✅ Stripe checkout + webhook + entitlement resolution. App Store/Play Store receipt verification not built (mobile doesn't exist yet either). |
-| Admin console | 🟡 User lookup, connector health, audit log read endpoints exist behind a shared-secret header. Real RBAC/break-glass/audit-of-access is not built. |
+| Admin console | ✅ Separate app (`apps/admin`, its own port/origin) with real per-operator RBAC: sign-in, user lookup, connector health, audit log — all live, all audited. Break-glass/elevated-access workflow and role-scoped endpoints (`support` vs `superadmin` don't differ in practice yet) are not built. |
 | Web app (Home/Inbox/Ask/Life/Connections/Settings) | ✅ Built, responsive, light/dark theme, real API integration. |
 | Mobile (iOS/Android) | ❌ Not started. |
 | Desktop (macOS/Windows) | ❌ Not started. |

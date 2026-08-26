@@ -39,6 +39,7 @@ pnpm db:seed
 # except secrets, which you should set explicitly even locally)
 cp services/api/.env.example services/api/.env
 cp apps/web/.env.example apps/web/.env.local
+cp apps/admin/.env.example apps/admin/.env.local
 
 # Create your own admin console account (there's no self-serve admin sign-up by design)
 pnpm --filter @veynlo/api run create-admin -- --email you@veynlo.app --role superadmin
@@ -49,6 +50,7 @@ pnpm dev
 
 - API: http://localhost:4000
 - Web: http://localhost:3000
+- Admin console: http://localhost:3100 (sign in with the account you just created)
 - MinIO console: http://localhost:9001 (veynlo / veynlo_dev_password)
 - Mailhog (captured outbound email in dev): http://localhost:8025
 
@@ -72,7 +74,8 @@ isn't:
   SMTP email delivery (Mailhog in dev) for the daily/weekly brief and
   per-discovery notifications, with quiet-hours/intensity suppression — and
   the whole web app (Home, Inbox, Ask, Life, Connections, Settings) talking
-  to the real API.
+  to the real API, and a separate internal admin console (its own app,
+  its own operator-account identity plane, audited support lookups).
 - **Present but requires configuration to activate**: Gmail connector
   (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), AI extraction (needs
   `ANTHROPIC_API_KEY` — without it, ingestion degrades gracefully to
@@ -80,15 +83,16 @@ isn't:
   results), Stripe billing (needs `STRIPE_SECRET_KEY`/webhook secret).
 - **Explicitly not built yet** (see docs/ROADMAP.md for the full list):
   PDF OCR (needs Anthropic's beta PDF/document input surface), mobile app
-  (iOS/Android), desktop app, browser extension, admin RBAC (currently a
-  single shared-secret header — fine for local dev, not for production),
-  most of Phase 2+ domains (home/vehicle/travel/family/school/etc.).
+  (iOS/Android), desktop app, browser extension, admin account management
+  UI (accounts are created via a CLI script), most of Phase 2+ domains
+  (home/vehicle/travel/family/school/etc.).
 
 ## Workspace layout
 
 ```
 apps/
   web/                Next.js consumer web app
+  admin/               Next.js internal support console (separate app, separate auth)
 services/
   api/                NestJS/Fastify API — the whole backend for now
 packages/

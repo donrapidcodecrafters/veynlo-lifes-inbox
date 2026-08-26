@@ -16,6 +16,7 @@ const EnvSchema = z.object({
   CREDENTIAL_ENCRYPTION_KEY: z.string().default("dev-only-32-byte-key-change-me!!"),
 
   WEB_APP_URL: z.string().default("http://localhost:3000"),
+  ADMIN_APP_URL: z.string().default("http://localhost:3100"),
   API_PUBLIC_URL: z.string().default("http://localhost:4000"),
 
   // Connector OAuth — unset in dev; connections show a clear "not configured" state rather than pretending to work.
