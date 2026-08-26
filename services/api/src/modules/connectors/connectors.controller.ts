@@ -6,6 +6,7 @@ import type { AuthenticatedUser } from "../../common/auth.guard";
 import { loadEnv } from "../../config/env";
 import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
+import { OutlookAdapter } from "./outlook.adapter";
 
 @Controller("v1/connectors")
 @UseGuards(AuthGuard)
@@ -13,6 +14,7 @@ export class ConnectorsController {
   constructor(
     private readonly connectors: ConnectorsService,
     private readonly gmail: GmailAdapter,
+    private readonly outlook: OutlookAdapter,
   ) {}
 
   @Get()
@@ -59,6 +61,53 @@ export class ConnectorsController {
         householdId: null,
       });
       return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=gmail` };
+    } catch (err) {
+      if (err instanceof ConnectorNotConfiguredError) {
+        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
+      }
+      throw err;
+    }
+  }
+
+  @Get("outlook/authorize")
+  async outlookAuthorize(@CurrentUser() user: AuthenticatedUser) {
+    if (!this.outlook.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message:
+          "Outlook isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/outlook/callback`;
+    const state = await new SignJWT({ sub: user.userId })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("10m")
+      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const authorizationUrl = this.outlook.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("outlook/callback")
+  async outlookCallback(@Query("code") code: string, @Query("state") state: string) {
+    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+    const env = loadEnv();
+    let userId: string;
+    try {
+      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
+      userId = (verified.payload as { sub: string }).sub;
+    } catch {
+      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
+    }
+    try {
+      const result = await this.outlook.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/outlook/callback`,
+        ownerUserId: userId,
+        householdId: null,
+      });
+      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=outlook` };
     } catch (err) {
       if (err instanceof ConnectorNotConfiguredError) {
         throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });

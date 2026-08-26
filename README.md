@@ -72,12 +72,14 @@ Per the project's guiding rule, nothing pretends to be functional when it
 isn't:
 
 - **Real and working end-to-end**: email/password auth with revocable
-  sessions, household + dependent management, the Gmail connector (real
-  OAuth + Gmail API, cleanly gated behind config), the ingestion pipeline
-  (deterministic prefilter → Claude-based structured extraction → canonical
-  facts/purchases/bills/events → Inbox review) with Gmail incremental sync
-  (a recurring worker tick drives real `history.list`-based sync off a
-  stored cursor, not just a one-time backfill), document upload to
+  sessions, household + dependent management, the Gmail and Outlook
+  connectors (real OAuth + Gmail API / Microsoft Graph API, cleanly gated
+  behind config, both sharing one ingestion pipeline), the ingestion
+  pipeline (deterministic prefilter → Claude-based structured extraction →
+  canonical facts/purchases/bills/events → Inbox review) with real
+  incremental sync for both providers (a recurring worker tick drives
+  Gmail's `history.list` and Outlook's delta query off a stored cursor,
+  not just a one-time backfill), document upload to
   S3-compatible storage with real Claude-vision OCR for images and real
   PDF OCR via Anthropic's beta document-input surface, structured
   search + grounded Ask, Stripe billing/entitlements, a background worker
@@ -88,17 +90,18 @@ isn't:
   the whole web app (Home, Inbox, Ask, Life, Connections, Settings) talking
   to the real API, and a separate internal admin console (its own app,
   its own operator-account identity plane, audited support lookups).
-- **Present but requires configuration to activate**: Gmail connector
-  (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), AI extraction and PDF/image OCR
+- **Present but requires configuration to activate**: the Gmail connector
+  (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), the Outlook connector (needs
+  `MICROSOFT_OAUTH_CLIENT_ID/SECRET`), AI extraction and PDF/image OCR
   (need `ANTHROPIC_API_KEY` — without it, ingestion degrades gracefully to
   deterministic-only and marks messages "filed" rather than fabricating
   results, and document uploads skip OCR rather than crash), Stripe
   billing (needs `STRIPE_SECRET_KEY`/webhook secret).
 - **Explicitly not built yet** (see docs/ROADMAP.md for the full list):
   a signed/notarized desktop build and a Windows build (only an unsigned
-  macOS/arm64 build has been produced here), the Outlook/Microsoft
-  connector, admin account management UI (accounts are created via a CLI
-  script), most of Phase 2+ domains (home/vehicle/travel/family/school/etc.).
+  macOS/arm64 build has been produced here), admin account management UI
+  (accounts are created via a CLI script), most of Phase 2+ domains
+  (home/vehicle/travel/family/school/etc.).
 
 The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
 loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme

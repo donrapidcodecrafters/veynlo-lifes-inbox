@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Worker } from "bullmq";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@veynlo/db";
 import { AppModule } from "./app.module";
 import { DATABASE } from "./database/database.module";
@@ -15,6 +15,7 @@ import {
   type NotificationDispatchJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
+import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { QueueProducerService } from "./queue/queue-producer.service";
@@ -26,7 +27,7 @@ const logger = new Logger("Worker");
  * work must survive a process restart, not run inline on an HTTP request).
  * This process has no HTTP server — `createApplicationContext` gives it
  * the exact same DI graph as `main.ts` (same services, same DB connection
- * config) purely so job processors can call into GmailAdapter/Notification*
+ * config) purely so job processors can call into GmailAdapter/OutlookAdapter/Notification*
  * without duplicating that logic in a second codebase. Deploy this as its
  * own process (`pnpm --filter @veynlo/api run start:worker`) alongside the
  * HTTP process, not instead of it.
@@ -36,6 +37,7 @@ async function bootstrap() {
 
   const db = appContext.get<Database>(DATABASE);
   const gmailAdapter = appContext.get(GmailAdapter);
+  const outlookAdapter = appContext.get(OutlookAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const queueProducer = appContext.get(QueueProducerService);
@@ -45,10 +47,17 @@ async function bootstrap() {
     async (job) => {
       const { connectionId, kind } = job.data;
       try {
+        const [connection] = await db
+          .select({ provider: schema.connections.provider })
+          .from(schema.connections)
+          .where(eq(schema.connections.id, connectionId))
+          .limit(1);
+        if (!connection) throw new Error(`Connection ${connectionId} not found`);
+        const adapter = connection.provider === "outlook" ? outlookAdapter : gmailAdapter;
         if (kind === "incremental") {
-          await gmailAdapter.incrementalSync(connectionId);
+          await adapter.incrementalSync(connectionId);
         } else {
-          await gmailAdapter.initialSync(connectionId);
+          await adapter.initialSync(connectionId);
         }
       } catch (err) {
         await db
@@ -62,9 +71,9 @@ async function bootstrap() {
   );
 
   // Recurring tick (see QueueProducerService.scheduleRecurringConnectorScan): finds every healthy,
-  // still-connected Gmail connection and enqueues one incremental sync per connection. Deduplicated by
-  // enqueueConnectorSync's jobId (`${connectionId}-incremental`), so a connection already mid-sync when
-  // this tick fires is just skipped rather than double-queued.
+  // still-connected direct-API email connection (Gmail, Outlook) and enqueues one incremental sync per
+  // connection. Deduplicated by enqueueConnectorSync's jobId (`${connectionId}-incremental`), so a
+  // connection already mid-sync when this tick fires is just skipped rather than double-queued.
   const connectorScanWorker = new Worker<ConnectorScanJobData>(
     QUEUE_NAMES.connectorScan,
     async () => {
@@ -73,7 +82,7 @@ async function bootstrap() {
         .from(schema.connections)
         .where(
           and(
-            eq(schema.connections.provider, "gmail"),
+            inArray(schema.connections.provider, ["gmail", "outlook"]),
             eq(schema.connections.health, "healthy"),
             isNull(schema.connections.disconnectedAt),
           ),

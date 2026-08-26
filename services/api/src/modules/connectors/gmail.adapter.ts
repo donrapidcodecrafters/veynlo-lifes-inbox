@@ -9,6 +9,7 @@ import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
+import { ConnectorNotConfiguredError } from "./connector-errors";
 
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 
@@ -218,9 +219,4 @@ export class GmailAdapter {
   }
 }
 
-export class ConnectorNotConfiguredError extends Error {
-  constructor(public readonly provider: string) {
-    super(`${provider} connector is not configured on this deployment (missing OAuth client credentials).`);
-    this.name = "ConnectorNotConfiguredError";
-  }
-}
+export { ConnectorNotConfiguredError };

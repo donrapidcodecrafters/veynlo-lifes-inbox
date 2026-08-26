@@ -16,7 +16,8 @@ import {
   CalendarEventExtractionSchema,
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender } from "../intelligence/deterministic-prefilter";
-import { parseGmailMessage } from "./gmail-message-parser";
+import { parseGmailMessage, type ParsedEmail } from "./gmail-message-parser";
+import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, temporalToSortDate } from "./temporal.util";
 
 interface IngestGmailParams {
@@ -24,6 +25,13 @@ interface IngestGmailParams {
   householdId: string | null;
   connectionId: string;
   message: gmail_v1.Schema$Message;
+}
+
+interface IngestOutlookParams {
+  ownerUserId: string;
+  householdId: string | null;
+  connectionId: string;
+  message: GraphMessage;
 }
 
 const RISK_THRESHOLDS = { reviewThreshold: 0.55, highThreshold: 0.85 };
@@ -46,10 +54,34 @@ export class IngestionService {
   ) {}
 
   async ingestGmailMessage(params: IngestGmailParams): Promise<void> {
-    const parsed = parseGmailMessage(params.message);
-    const providerItemId = params.message.id ?? undefined;
+    await this.ingestParsedEmail({
+      ...params,
+      providerPrefix: "gmail",
+      providerItemId: params.message.id ?? undefined,
+      parsed: parseGmailMessage(params.message),
+    });
+  }
+
+  async ingestOutlookMessage(params: IngestOutlookParams): Promise<void> {
+    await this.ingestParsedEmail({
+      ...params,
+      providerPrefix: "outlook",
+      providerItemId: params.message.id ?? undefined,
+      parsed: parseOutlookMessage(params.message),
+    });
+  }
+
+  private async ingestParsedEmail(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    connectionId: string;
+    providerPrefix: string;
+    providerItemId: string | undefined;
+    parsed: ParsedEmail;
+  }): Promise<void> {
+    const { parsed, providerItemId } = params;
     const contentHash = createHash("sha256").update(parsed.subject + parsed.bodyText).digest("hex");
-    const idempotencyKey = `gmail:${providerItemId ?? contentHash}`;
+    const idempotencyKey = `${params.providerPrefix}:${providerItemId ?? contentHash}`;
 
     const [existing] = await this.db
       .select({ id: schema.sourceEvents.id })

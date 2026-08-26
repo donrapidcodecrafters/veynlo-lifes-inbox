@@ -28,20 +28,35 @@ const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral
   disconnected: "neutral",
 };
 
+const AVAILABLE_CONNECTORS = [
+  {
+    provider: "gmail",
+    name: "Gmail",
+    description: "Receipts, bills, appointments, and more from your inbox.",
+    notConfiguredMessage: "Gmail isn't configured on this deployment yet. An administrator needs to add Google OAuth credentials.",
+  },
+  {
+    provider: "outlook",
+    name: "Outlook",
+    description: "The same receipts, bills, and appointments — from a Microsoft 365 or Outlook.com inbox.",
+    notConfiguredMessage: "Outlook isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
+  },
+] as const;
+
 export default function ConnectionsPage() {
   const { data, isLoading, mutate } = useSWR<Connection[]>("/v1/connectors", swrFetcher);
   const [connectError, setConnectError] = useState<string | null>(null);
 
-  async function connectGmail() {
+  async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {
     setConnectError(null);
     try {
-      const { authorizationUrl } = await api.get<{ authorizationUrl: string }>("/v1/connectors/gmail/authorize");
+      const { authorizationUrl } = await api.get<{ authorizationUrl: string }>(`/v1/connectors/${provider.provider}/authorize`);
       window.location.href = authorizationUrl;
     } catch (err) {
       setConnectError(
         err instanceof ApiError && err.code === "CONNECTOR_NOT_CONFIGURED"
-          ? "Gmail isn't configured on this deployment yet. An administrator needs to add Google OAuth credentials."
-          : "Couldn't start the Gmail connection. Please try again.",
+          ? provider.notConfiguredMessage
+          : `Couldn't start the ${provider.name} connection. Please try again.`,
       );
     }
   }
@@ -66,17 +81,21 @@ export default function ConnectionsPage() {
         </p>
       )}
 
-      <Card>
-        <CardBody className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-[0.9375rem] font-medium text-primary">Gmail</p>
-            <p className="text-sm text-tertiary">Receipts, bills, appointments, and more from your inbox.</p>
-          </div>
-          <Button variant="secondary" onClick={connectGmail}>
-            Connect
-          </Button>
-        </CardBody>
-      </Card>
+      <div className="space-y-3">
+        {AVAILABLE_CONNECTORS.map((provider) => (
+          <Card key={provider.provider}>
+            <CardBody className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">{provider.name}</p>
+                <p className="text-sm text-tertiary">{provider.description}</p>
+              </div>
+              <Button variant="secondary" onClick={() => connect(provider)}>
+                Connect
+              </Button>
+            </CardBody>
+          </Card>
+        ))}
+      </div>
 
       {isLoading && <div className="h-20 animate-pulse rounded-xl bg-subtle" />}
 

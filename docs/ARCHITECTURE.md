@@ -94,12 +94,14 @@ Gmail OAuth callback → enqueue connector-sync(kind: "initial")
         → [worker] checks quiet hours/intensity → sends via Nodemailer → notifications.state = "sent"
 
 Recurring tick (every 15 min) → connector-scan
-  → [worker] finds every healthy Gmail connection
+  → [worker] finds every healthy Gmail/Outlook connection
     → enqueue connector-sync(kind: "incremental") per connection
-      → [worker] GmailAdapter.incrementalSync() → history.list from connections.cursor
-        → ingestion pipeline → InboxItem → (same notification path as above)
-        → advances connections.cursor; falls back to a fresh initialSync if
-          Gmail 404s a startHistoryId that's aged out of its retention window
+      → [worker] dispatches by connection.provider to GmailAdapter or OutlookAdapter
+        → GmailAdapter.incrementalSync() → history.list from connections.cursor
+        → OutlookAdapter.incrementalSync() → Graph delta query from connections.cursor
+        → either way: ingestion pipeline → InboxItem → (same notification path as above)
+        → advances connections.cursor; falls back to a fresh initialSync on
+          Gmail's 404 (startHistoryId aged out) or Outlook's 410 (deltaLink expired)
 
 Recurring cron (13:00 UTC daily / Monday) → notification-dispatch(daily|weekly)
   → [worker] NotificationDispatchService composes one digest per eligible user
@@ -180,8 +182,8 @@ match, access is denied.
 ## What's deliberately not built yet
 
 See `docs/ROADMAP.md` for the full, prioritized list. The short version:
-Outlook/Microsoft connector, full entity-resolution/merge-lineage
-beyond order-number/tracking-number matching, automation rule execution,
+full entity-resolution/merge-lineage beyond order-number/tracking-number
+matching, automation rule execution,
 push/desktop notification channels, native mobile builds (the Expo
 codebase exists and is verified via web preview; no simulator/device
 build has been produced in this environment), and production

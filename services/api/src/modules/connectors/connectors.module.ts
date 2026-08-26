@@ -5,11 +5,12 @@ import { CredentialVault } from "../../common/credential-vault";
 import { ConnectorsController } from "./connectors.controller";
 import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter } from "./gmail.adapter";
+import { OutlookAdapter } from "./outlook.adapter";
 
 @Module({
   imports: [IdentityModule, IngestionModule],
   controllers: [ConnectorsController],
-  providers: [ConnectorsService, GmailAdapter, CredentialVault],
-  exports: [ConnectorsService, GmailAdapter, CredentialVault],
+  providers: [ConnectorsService, GmailAdapter, OutlookAdapter, CredentialVault],
+  exports: [ConnectorsService, GmailAdapter, OutlookAdapter, CredentialVault],
 })
 export class ConnectorsModule {}

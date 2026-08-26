@@ -10,7 +10,7 @@ this repository, not an aspirational plan.
 |---|---|
 | Auth (email/password, sessions, device list) | ✅ Built. Passkeys/MFA/OAuth sign-in not yet. |
 | Household + dependents | ✅ Built (create/invite/leave/dependents). Caregiver delegation types exist in `@veynlo/core`, no API yet. |
-| Gmail connector | ✅ Real OAuth + Gmail API sync, gated behind config. Outlook/IMAP/ICS connectors not started. |
+| Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events. Travel/warranty/school/home/vehicle extractors not started. |
 | Entity resolution | 🟡 Merchant-by-name only. No merge/unmerge UI, no cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`. |
 | Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built. "Correct" (editing extracted fields) and "merge" are not yet implemented — only confirm/archive/dismiss/snooze. |
@@ -74,9 +74,40 @@ this repository, not an aspirational plan.
    concrete action that should be superadmin-only. Verified live: sign-in,
    guarded lookup with real audit row, 401 with no cookie, and sign-out
    actually revoking the session server-side (not just clearing the cookie).
-6. **Outlook/Microsoft connector** — second direct-API email source; the
-   connector interface (`@veynlo/core`'s `ProviderAdapter`) was designed to
-   make this an adapter addition, not a pipeline rewrite.
+6. ~~**Outlook/Microsoft connector**~~ — done. `OutlookAdapter`
+   (`services/api/src/modules/connectors/outlook.adapter.ts`) mirrors
+   `GmailAdapter`'s shape exactly (`authorizationUrl`/`handleCallback`/
+   `initialSync`/`incrementalSync`), using the Microsoft identity platform
+   OAuth2 v2.0 endpoints and Graph API directly via `fetch` (no MSAL
+   dependency — the flows involved are plain REST/JSON). Incremental sync
+   uses Graph's delta query (`@odata.deltaLink`/`@odata.nextLink`) as the
+   direct analog to Gmail's `history.list`/historyId, stored in the same
+   `connections.cursor` column; a 401 from a stale access token
+   transparently refreshes and re-persists via the credential vault rather
+   than tracking expiry client-side, and a 410 (expired deltaLink) falls
+   back to a fresh `initialSync`, mirroring Gmail's 404 fallback.
+   `ingestion.service.ts` was refactored so `ingestGmailMessage` and the
+   new `ingestOutlookMessage` both normalize into the same `ParsedEmail`
+   shape and share one `ingestParsedEmail` pipeline entry point — Outlook
+   messages get the identical domain-classification/extraction/dedup path
+   as Gmail, not a parallel one. `worker-main.ts`'s connector-sync worker
+   and the recurring connector-scan tick both now dispatch by
+   `connection.provider` (gmail → GmailAdapter, outlook → OutlookAdapter)
+   instead of being Gmail-only. The web app's Connections page now lists
+   both providers from a small config array instead of a hardcoded Gmail
+   card. Verified live: confirmed `/v1/connectors/outlook/authorize`
+   returns the same `CONNECTOR_NOT_CONFIGURED` contract as Gmail when
+   unconfigured; then, since this environment has no real Microsoft OAuth
+   app registered, verified the token-exchange request's *shape* directly
+   against Microsoft's real endpoint — sending the adapter's exact field
+   set with a fake authorization code got back a deep validation error
+   (`AADSTS9002313`, after passing field-presence and grant-type checks),
+   which is a distinctly different, later-stage error than what a
+   missing-field or wrong-grant-type request produces (verified both, to
+   rule out a coincidence) — proving the request is well-formed. Also
+   verified the Connections page renders both provider cards and shows
+   the correct not-configured message for Outlook via a real Playwright
+   browser session against the live API.
 7. ~~**PDF OCR**~~ — done. `AnthropicExtractionService.extractStructured` now
    detects a `document` content block in its input and routes through
    `client.beta.messages.create` with `betas: ["pdfs-2024-09-25"]` instead
