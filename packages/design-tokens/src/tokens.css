@@ -43,24 +43,24 @@
   --brand-subtle-bg: var(--color-brand-50);
   --brand-subtle-text: var(--color-brand-700);
 
-  --color-critical: #d64545;
-  --color-critical-subtle-bg: #fef2f2;
-  --color-critical-subtle-text: #8f2929;
-  --color-warning: #c98a1f;
-  --color-warning-subtle-bg: #fff8ec;
-  --color-warning-subtle-text: #7a5210;
-  --color-info: #3b82f6;
-  --color-info-subtle-bg: #eff6ff;
-  --color-info-subtle-text: #1d4ea8;
-  --color-positive: #2f9e63;
-  --color-positive-subtle-bg: #eefbf3;
-  --color-positive-subtle-text: #1c633c;
+  --semantic-critical: #d64545;
+  --semantic-critical-subtle-bg: #fef2f2;
+  --semantic-critical-subtle-text: #8f2929;
+  --semantic-warning: #c98a1f;
+  --semantic-warning-subtle-bg: #fff8ec;
+  --semantic-warning-subtle-text: #7a5210;
+  --semantic-info: #3b82f6;
+  --semantic-info-subtle-bg: #eff6ff;
+  --semantic-info-subtle-text: #1d4ea8;
+  --semantic-positive: #2f9e63;
+  --semantic-positive-subtle-bg: #eefbf3;
+  --semantic-positive-subtle-text: #1c633c;
 
   --focus-ring: var(--color-brand-400);
 
   /* Typography */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-family-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-family-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Spacing (4px base) */
   --space-1: 4px;
@@ -75,18 +75,18 @@
   --space-16: 64px;
 
   /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --radius-2xl: 28px;
+  --radius-token-sm: 6px;
+  --radius-token-md: 10px;
+  --radius-token-lg: 14px;
+  --radius-token-xl: 20px;
+  --radius-token-2xl: 28px;
   --radius-full: 9999px;
 
   /* Elevation */
-  --shadow-xs: 0 1px 2px rgba(15, 15, 20, 0.06);
-  --shadow-sm: 0 2px 6px rgba(15, 15, 20, 0.08);
-  --shadow-md: 0 6px 16px rgba(15, 15, 20, 0.1);
-  --shadow-lg: 0 16px 32px rgba(15, 15, 20, 0.14);
+  --shadow-token-xs: 0 1px 2px rgba(15, 15, 20, 0.06);
+  --shadow-token-sm: 0 2px 6px rgba(15, 15, 20, 0.08);
+  --shadow-token-md: 0 6px 16px rgba(15, 15, 20, 0.1);
+  --shadow-token-lg: 0 16px 32px rgba(15, 15, 20, 0.14);
 
   /* Motion */
   --duration-fast: 140ms;
@@ -130,18 +130,18 @@
     --brand-subtle-bg: rgba(91, 99, 227, 0.16);
     --brand-subtle-text: var(--color-brand-300);
 
-    --color-critical: #e9807f;
-    --color-critical-subtle-bg: rgba(214, 69, 69, 0.16);
-    --color-critical-subtle-text: #f4b3b2;
-    --color-warning: #e8b463;
-    --color-warning-subtle-bg: rgba(201, 138, 31, 0.16);
-    --color-warning-subtle-text: #f0cf94;
-    --color-info: #7fb1fb;
-    --color-info-subtle-bg: rgba(59, 130, 246, 0.16);
-    --color-info-subtle-text: #b7d3fd;
-    --color-positive: #6bc793;
-    --color-positive-subtle-bg: rgba(47, 158, 99, 0.16);
-    --color-positive-subtle-text: #a6e2c1;
+    --semantic-critical: #e9807f;
+    --semantic-critical-subtle-bg: rgba(214, 69, 69, 0.16);
+    --semantic-critical-subtle-text: #f4b3b2;
+    --semantic-warning: #e8b463;
+    --semantic-warning-subtle-bg: rgba(201, 138, 31, 0.16);
+    --semantic-warning-subtle-text: #f0cf94;
+    --semantic-info: #7fb1fb;
+    --semantic-info-subtle-bg: rgba(59, 130, 246, 0.16);
+    --semantic-info-subtle-text: #b7d3fd;
+    --semantic-positive: #6bc793;
+    --semantic-positive-subtle-bg: rgba(47, 158, 99, 0.16);
+    --semantic-positive-subtle-text: #a6e2c1;
 
     --focus-ring: var(--color-brand-300);
     color-scheme: dark;
@@ -174,18 +174,18 @@
   --brand-subtle-bg: rgba(91, 99, 227, 0.16);
   --brand-subtle-text: var(--color-brand-300);
 
-  --color-critical: #e9807f;
-  --color-critical-subtle-bg: rgba(214, 69, 69, 0.16);
-  --color-critical-subtle-text: #f4b3b2;
-  --color-warning: #e8b463;
-  --color-warning-subtle-bg: rgba(201, 138, 31, 0.16);
-  --color-warning-subtle-text: #f0cf94;
-  --color-info: #7fb1fb;
-  --color-info-subtle-bg: rgba(59, 130, 246, 0.16);
-  --color-info-subtle-text: #b7d3fd;
-  --color-positive: #6bc793;
-  --color-positive-subtle-bg: rgba(47, 158, 99, 0.16);
-  --color-positive-subtle-text: #a6e2c1;
+  --semantic-critical: #e9807f;
+  --semantic-critical-subtle-bg: rgba(214, 69, 69, 0.16);
+  --semantic-critical-subtle-text: #f4b3b2;
+  --semantic-warning: #e8b463;
+  --semantic-warning-subtle-bg: rgba(201, 138, 31, 0.16);
+  --semantic-warning-subtle-text: #f0cf94;
+  --semantic-info: #7fb1fb;
+  --semantic-info-subtle-bg: rgba(59, 130, 246, 0.16);
+  --semantic-info-subtle-text: #b7d3fd;
+  --semantic-positive: #6bc793;
+  --semantic-positive-subtle-bg: rgba(47, 158, 99, 0.16);
+  --semantic-positive-subtle-text: #a6e2c1;
 
   --focus-ring: var(--color-brand-300);
   color-scheme: dark;

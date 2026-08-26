@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "@veynlo/design-tokens/css";
+
+:root {
+  /* next/font self-hosts Inter and exposes it via this variable; fall back to the token default otherwise. */
+  --font-family-sans: var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@theme inline {
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-surface-raised: var(--bg-surface-raised);
+  --color-subtle: var(--bg-subtle);
+  --color-overlay: var(--bg-overlay);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-border-focus: var(--border-focus);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-on-brand: var(--text-on-brand);
+
+  --color-brand: var(--brand-default);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-subtle: var(--brand-subtle-bg);
+  --color-brand-subtle-text: var(--brand-subtle-text);
+
+  --color-critical: var(--semantic-critical);
+  --color-critical-subtle: var(--semantic-critical-subtle-bg);
+  --color-critical-subtle-text: var(--semantic-critical-subtle-text);
+  --color-warning: var(--semantic-warning);
+  --color-warning-subtle: var(--semantic-warning-subtle-bg);
+  --color-warning-subtle-text: var(--semantic-warning-subtle-text);
+  --color-info: var(--semantic-info);
+  --color-info-subtle: var(--semantic-info-subtle-bg);
+  --color-info-subtle-text: var(--semantic-info-subtle-text);
+  --color-positive: var(--semantic-positive);
+  --color-positive-subtle: var(--semantic-positive-subtle-bg);
+  --color-positive-subtle-text: var(--semantic-positive-subtle-text);
+
+  --font-sans: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
+
+  --radius-sm: var(--radius-token-sm);
+  --radius-md: var(--radius-token-md);
+  --radius-lg: var(--radius-token-lg);
+  --radius-xl: var(--radius-token-xl);
+  --radius-2xl: var(--radius-token-2xl);
+
+  --shadow-xs: var(--shadow-token-xs);
+  --shadow-sm: var(--shadow-token-sm);
+  --shadow-md: var(--shadow-token-md);
+  --shadow-lg: var(--shadow-token-lg);
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--brand-subtle-bg);
+}
