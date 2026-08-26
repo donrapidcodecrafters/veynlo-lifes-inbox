@@ -91,10 +91,11 @@ isn't:
   deterministic-only and marks messages "filed" rather than fabricating
   results), Stripe billing (needs `STRIPE_SECRET_KEY`/webhook secret).
 - **Explicitly not built yet** (see docs/ROADMAP.md for the full list):
-  PDF OCR (needs Anthropic's beta PDF/document input surface), a desktop
-  app (no Rust/cargo toolchain available here to build Tauri for real),
-  admin account management UI (accounts are created via a CLI script),
-  most of Phase 2+ domains (home/vehicle/travel/family/school/etc.).
+  PDF OCR (needs Anthropic's beta PDF/document input surface), a signed/
+  notarized desktop build and a Windows build (only an unsigned macOS/arm64
+  build has been produced here), admin account management UI (accounts are
+  created via a CLI script), most of Phase 2+ domains (home/vehicle/travel/
+  family/school/etc.).
 
 The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
 loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme
@@ -112,6 +113,13 @@ Veynlo inbox via the toolbar popup or a right-click menu, using the same
 bearer-token auth transport as mobile. See its own README for how to load
 it unpacked. Verified live via a Playwright-driven real Chromium instance
 with the extension actually loaded, against the real API.
+
+The desktop app (`apps/desktop`, Tauri 2, macOS/Windows/Linux) is a native
+window around the real web app — no separate frontend. Requires a Rust
+toolchain (`rustup.rs`) to build. Verified live in this environment: both
+`tauri dev` and a real `tauri build` (unsigned `.app` + `.dmg`) completed
+successfully; production use needs real code signing and the window
+pointed at a deployed web origin instead of localhost. See its own README.
 
 ## Workspace layout
 

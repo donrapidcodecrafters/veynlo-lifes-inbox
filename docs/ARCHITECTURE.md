@@ -175,9 +175,22 @@ Outlook/Microsoft connector, PDF OCR, full entity-resolution/merge-lineage
 beyond order-number/tracking-number matching, automation rule execution,
 push/desktop notification channels, native mobile builds (the Expo
 codebase exists and is verified via web preview; no simulator/device
-build has been produced in this environment), and a desktop app (deferred —
-no Rust/cargo toolchain available here to build Tauri for real). The
-browser extension (`apps/browser-extension`) is built — see its README.
+build has been produced in this environment), and production
+signing/notarization + a Windows build for the desktop app (macOS/arm64
+only was built here). The browser extension (`apps/browser-extension`)
+and desktop app (`apps/desktop`) are both built — see their READMEs.
+
+## Desktop app
+
+Tauri 2, native macOS/Windows/Linux shell. Deliberately not a separate
+frontend: the window just loads `apps/web` (`http://localhost:3000` in
+dev, `src-tauri/tauri.conf.json`'s `app.windows[0].url`), the same way
+`expo start --web` gives mobile a real-browser preview — every web
+feature works here identically with zero duplicated UI code. A production
+build needs that URL pointed at the real deployed web origin instead of
+localhost, plus real code signing/notarization (the local build here is
+ad-hoc signed, which is fine for local use but triggers Gatekeeper/
+SmartScreen warnings elsewhere).
 
 ## Browser extension
 

@@ -24,7 +24,7 @@ this repository, not an aspirational plan.
 | Admin console | ✅ Separate app (`apps/admin`, its own port/origin) with real per-operator RBAC: sign-in, user lookup, connector health, audit log — all live, all audited. Break-glass/elevated-access workflow and role-scoped endpoints (`support` vs `superadmin` don't differ in practice yet) are not built. |
 | Web app (Home/Inbox/Ask/Life/Connections/Settings) | ✅ Built, responsive, light/dark theme, real API integration. |
 | Mobile (iOS/Android) | 🟡 Core loop built and verified: Expo + expo-router app (`apps/mobile`) with sign-in/up, Home, Inbox, Ask, Settings (light/dark theme), talking to the real API via bearer-token auth. Verified live via Playwright driving `expo start --web` — sign-up, session persistence across reload, tab navigation, dark-mode toggle. **Not done**: no actual iOS/Android simulator or device build has been produced (needs Xcode/Android Studio/EAS Build, unavailable here); theme preference isn't persisted across restarts; no share extension, widgets, biometrics, or push notifications; Life/Documents/Timeline/Connections screens don't exist on mobile yet (only the core Home/Inbox/Ask/Settings loop). |
-| Desktop (macOS/Windows) | ❌ Not started — no Rust/cargo toolchain available in this environment to build a real Tauri app. |
+| Desktop (macOS/Windows) | ✅ Built (`apps/desktop`, Tauri 2). A native window loading the real `apps/web` app — no duplicated frontend. A Rust toolchain was installed (none was available at the start of this project) and both `tauri dev` and a real unsigned `tauri build` (.app + .dmg, ad-hoc signed) were run successfully. Not yet: production signing/notarization, Windows build (only macOS/arm64 built here), auto-update, system tray/native menu bar. |
 | Browser extension | ✅ Built (`apps/browser-extension`, Manifest V3, Chromium-based browsers). Sign-in/out, save-page and save-selection via popup and right-click context menu, options page. Verified live via Playwright loading the real unpacked extension against the real API. Not yet: packaged/signed store build, real designed icons (placeholders are solid-color PNGs), Firefox (MV3 support differs). |
 | CI/CD | ❌ Not started — no GitHub Actions workflow yet. |
 | Observability (structured logs/metrics/tracing) | ❌ Not started — only Nest's default console logger. |
@@ -93,13 +93,15 @@ this repository, not an aspirational plan.
    `/v1/ingestion/manual` endpoint rather than a new domain. Prioritized
    ahead of the desktop app specifically because it needed no missing local
    toolchain to build and verify for real.
-10. **Desktop (macOS/Windows)** — deferred. A real Tauri build needs a
-    Rust/cargo toolchain, which isn't installed in this environment
-    (`which cargo rustc` finds neither). Two honest options when picked back
-    up: install the toolchain and do a real build/verify pass, or scaffold
-    the full Tauri config as "real, ready to build" and say so explicitly —
-    consistent with how this repo handles Gmail/Anthropic/Stripe when their
-    credentials are missing, rather than pretending a stub is a working app.
+10. ~~**Desktop (macOS/Windows)**~~ — done for macOS. A Rust toolchain
+    was installed via rustup (none was available at the start of this
+    project) and `apps/desktop` (Tauri 2) was built and run for real:
+    `tauri dev` compiled cleanly and launched a real native process
+    pointed at the live `apps/web` dev server, and `tauri build` produced
+    a real ad-hoc-signed `.app` + `.dmg`. Windows hasn't been built (this
+    environment is macOS/arm64 only) — the Tauri config is
+    platform-agnostic, so that should be a CI/cross-compile concern rather
+    than a code change.
 
 ## Phase 2 — financially sticky + household-ready
 
