@@ -39,7 +39,7 @@ Mirrors spec Appendix I:
 - **automation** — types/schema exist in `@veynlo/core`; no rule engine or execution yet (ROADMAP).
 - **search** — structured SQL search + grounded Ask (semantic/vector search not yet wired — search_documents table + pgvector column exist, embeddings pipeline doesn't yet).
 - **billing** — Stripe checkout + webhook, entitlement resolution.
-- **admin** — metadata-only support console with its own identity plane (`admin_users`/`admin_sessions`, separate JWT audience from consumer sessions, argon2 passwords, per-operator accounts provisioned via a CLI script — no self-serve sign-up). Every support lookup is audited.
+- **admin** — metadata-only support console with its own identity plane (`admin_users`/`admin_sessions`, separate JWT audience from consumer sessions, argon2 passwords, per-operator accounts provisioned via a CLI script — no self-serve sign-up). Every support lookup is audited. Also owns merchant data-quality operations — merging duplicate merchant rows (`merchant_merge_lineage`), which is a global/shared-data operation, not a per-user one.
 
 `packages/authz` is the one authorization chokepoint every module is
 expected to call before returning or mutating another principal's data —
@@ -131,9 +131,14 @@ validation) — they're deliberately not the same objects, since DB rows use
 
 Key tables: `users`/`households`/`household_memberships` (identity+household),
 `connections`/`connection_credentials` (encrypted OAuth tokens, separate table
-per §45.1), `source_events`/`facts`/`canonical_entities`/`relationships`
-(the provenance/knowledge-graph layer), `purchases`/`return_cases`/`shipments`/
-`recurring_streams`/`subscriptions`/`bills` (commerce), `calendar_events`/`tasks`
+per §45.1), `source_events`/`facts`/`canonical_entities`/`relationships`/
+`entity_merge_lineage` (the provenance/knowledge-graph layer — schema-complete
+but currently unwritten; nothing in the ingestion pipeline creates a
+`canonical_entities` row yet), `merchants`/`merchant_merge_lineage`/`purchases`/
+`return_cases`/`shipments`/`recurring_streams`/`subscriptions`/`bills` (commerce
+— `merchants` is a separate, global/shared reference table, not part of the
+per-user knowledge graph, which is why its own merge-lineage table exists
+rather than reusing `entity_merge_lineage`), `calendar_events`/`tasks`
 (schedule), `documents`/`document_versions` (vault), `inbox_items`/`attention_items`/
 `notifications` (attention layer), `entitlements`/`billing_events` (billing).
 

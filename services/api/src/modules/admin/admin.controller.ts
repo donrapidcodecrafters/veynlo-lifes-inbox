@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards, UsePipes } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 import { AdminGuard } from "./admin.guard";
@@ -13,6 +13,9 @@ const ADMIN_SESSION_COOKIE = "veynlo_admin_session";
 
 const SignInDtoSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
 type SignInDto = z.infer<typeof SignInDtoSchema>;
+
+const MergeMerchantsDtoSchema = z.object({ survivingMerchantId: z.string().min(1), mergedMerchantId: z.string().min(1) });
+type MergeMerchantsDto = z.infer<typeof MergeMerchantsDtoSchema>;
 
 @Controller("v1/admin")
 export class AdminController {
@@ -66,5 +69,36 @@ export class AdminController {
   @UseGuards(AdminGuard)
   auditEvents() {
     return this.admin.recentAuditEvents();
+  }
+
+  @Get("merchants")
+  @UseGuards(AdminGuard)
+  merchants() {
+    return this.admin.listMerchants();
+  }
+
+  @Get("merchants/duplicate-candidates")
+  @UseGuards(AdminGuard)
+  duplicateMerchantCandidates() {
+    return this.admin.findDuplicateMerchantCandidates();
+  }
+
+  @Get("merchants/merge-lineage")
+  @UseGuards(AdminGuard)
+  merchantMergeLineage() {
+    return this.admin.listMerchantMergeLineage();
+  }
+
+  @Post("merchants/merge")
+  @UseGuards(AdminGuard)
+  @UsePipes(new ZodValidationPipe(MergeMerchantsDtoSchema))
+  mergeMerchants(@CurrentAdmin() admin: AuthenticatedAdmin, @Body() dto: MergeMerchantsDto) {
+    return this.admin.mergeMerchants(dto.survivingMerchantId, dto.mergedMerchantId, admin.id);
+  }
+
+  @Post("merchants/merge-lineage/:lineageId/unmerge")
+  @UseGuards(AdminGuard)
+  unmergeMerchants(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("lineageId") lineageId: string) {
+    return this.admin.unmergeMerchants(lineageId, admin.id);
   }
 }

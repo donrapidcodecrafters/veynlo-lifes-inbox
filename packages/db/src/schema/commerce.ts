@@ -3,13 +3,46 @@ import type { TemporalValue } from "@veynlo/core";
 import { users } from "./identity";
 import { households } from "./household";
 import { canonicalEntities } from "./graph";
+import { adminUsers } from "./admin";
 
 export const merchants = pgTable("merchants", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),
   domain: text("domain"),
   logoUrl: text("logo_url"),
+  /** Set when an admin merges this merchant into another (see merchantMergeLineage) — the row stays queryable/undoable rather than being hard-deleted. */
+  mergedIntoMerchantId: text("merged_into_merchant_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Merchants are a global, shared reference table (not owner-scoped like
+ * canonical_entities), so duplicate merchants — "Amazon.com" vs. "Amazon"
+ * vs. "AMAZON MKTPLACE PMTS" from different email templates, since
+ * findOrCreateMerchant matches by exact display-name string — are a
+ * support/admin data-quality operation, not a per-user one. Deliberately a
+ * dedicated table rather than reusing entity_merge_lineage, which hard-FKs
+ * to canonical_entities (an owner-scoped, currently-unwritten table) and
+ * has different semantics (confidence score, algorithm version) that don't
+ * fit a human-initiated admin merge.
+ */
+export const merchantMergeLineage = pgTable("merchant_merge_lineage", {
+  id: text("id").primaryKey(),
+  survivingMerchantId: text("surviving_merchant_id")
+    .notNull()
+    .references(() => merchants.id),
+  mergedMerchantId: text("merged_merchant_id")
+    .notNull()
+    .references(() => merchants.id),
+  /** Full pre-merge row, so unmerge can restore it exactly rather than reconstructing a guess. */
+  mergedMerchantSnapshot: jsonb("merged_merchant_snapshot").notNull(),
+  /** Purchase IDs repointed by this merge, so unmerge repoints exactly those back rather than every purchase currently on the surviving merchant (which may include ones legitimately added after the merge). */
+  repointedPurchaseIds: jsonb("repointed_purchase_ids").$type<string[]>().notNull().default([]),
+  actorAdminId: text("actor_admin_id")
+    .notNull()
+    .references(() => adminUsers.id),
+  mergedAt: timestamp("merged_at", { withTimezone: true }).notNull().defaultNow(),
+  unmergedAt: timestamp("unmerged_at", { withTimezone: true }),
 });
 
 export const purchases = pgTable(

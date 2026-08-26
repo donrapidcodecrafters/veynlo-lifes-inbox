@@ -549,7 +549,11 @@ export class IngestionService {
 
   private async findOrCreateMerchant(displayName: string): Promise<string> {
     const [existing] = await this.db.select().from(schema.merchants).where(eq(schema.merchants.displayName, displayName)).limit(1);
-    if (existing) return existing.id;
+    if (existing) {
+      // An admin may have merged this exact merchant row into another one (see AdminService.mergeMerchants) —
+      // new purchases should attach to the surviving merchant, not resurrect the merged-away one.
+      return existing.mergedIntoMerchantId ?? existing.id;
+    }
     const id = generateId("merchant");
     await this.db.insert(schema.merchants).values({ id, displayName });
     return id;

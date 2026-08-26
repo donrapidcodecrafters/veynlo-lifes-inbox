@@ -53,9 +53,39 @@ this repository, not an aspirational plan.
    exact order IDs." Shipments dedupe by tracking number and best-effort
    link to a purchase by order number alone (carrier emails don't restate
    the merchant, so this is deliberately looser than the purchase match).
-   Still missing: user-facing merge/unmerge with lineage (the `entity_merge_lineage`
-   table exists, nothing writes to it yet), and VIN/tracking-number matching
-   for domains beyond commerce. ~~**Known gap**~~ — fixed. The known-sender fast path
+   ~~Still missing: user-facing merge/unmerge with lineage~~ — done, for
+   merchants specifically. `findOrCreateMerchant` matches by exact
+   `displayName` string, so the same real-world merchant ends up as
+   several rows across email templates ("Amazon.com" / "AMAZON MKTPLACE
+   PMTS" / "Amazon, Inc."). Since `merchants` is a global, shared
+   reference table (not owner-scoped) rather than a per-user knowledge-
+   graph node, this is a support/admin data-quality operation — built as
+   `AdminService.mergeMerchants`/`unmergeMerchants` (`apps/admin`'s new
+   `/dashboard/merchants` page) with a dedicated `merchant_merge_lineage`
+   table (not the pre-existing `entity_merge_lineage`, which hard-FKs to
+   `canonical_entities` — an owner-scoped table nothing currently writes
+   to; see below). A merge repoints every purchase from the merged
+   merchant to the surviving one, snapshots the merged row instead of
+   hard-deleting it, and records exactly which purchases were repointed
+   so unmerge only reverses that merge's effects. A normalized-name
+   grouping heuristic surfaces likely duplicates for a human to confirm —
+   never an automatic merge. Every merge/unmerge is audited via the
+   existing `audit_events` mechanism. `findOrCreateMerchant` now follows
+   a merged merchant's `mergedIntoMerchantId` pointer so new purchases
+   attach to the surviving merchant. Verified live end-to-end against the
+   real API and a real Postgres instance (merge → purchase repointed →
+   lineage recorded → audit event written → merged merchant excluded from
+   listings → unmerge → full restore → a second unmerge attempt cleanly
+   rejected as `ALREADY_UNMERGED`), and again through the actual
+   `/dashboard/merchants` admin UI via a real Playwright browser session
+   (duplicate-group detection, one-click merge, manual merge-by-ID, undo).
+   **Still not addressed**: the owner-scoped `canonical_entities` /
+   `entity_merge_lineage` knowledge-graph layer remains entirely
+   unwritten — nothing in the ingestion pipeline creates a
+   `canonical_entities` row today, so there is nothing there yet to merge;
+   building that merge UI before the entity-resolution write path exists
+   would be scaffolding with no real data behind it. VIN/tracking-number matching
+   for domains beyond commerce is also still missing. ~~**Known gap**~~ — fixed. The known-sender fast path
    (`matchKnownSender`) used to map one sender domain to exactly one category, so a
    shipping-confirmation email from a sender categorized as receipt (e.g.
    amazon.com) still routed through the receipt extractor rather than the

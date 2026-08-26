@@ -89,7 +89,9 @@ isn't:
   per-discovery notifications, with quiet-hours/intensity suppression — and
   the whole web app (Home, Inbox, Ask, Life, Connections, Settings) talking
   to the real API, and a separate internal admin console (its own app,
-  its own operator-account identity plane, audited support lookups).
+  its own operator-account identity plane, audited support lookups, and a
+  merchant data-quality tool for merging/undoing duplicate merchant
+  records with full lineage).
 - **Present but requires configuration to activate**: the Gmail connector
   (needs `GOOGLE_OAUTH_CLIENT_ID/SECRET`), the Outlook connector (needs
   `MICROSOFT_OAUTH_CLIENT_ID/SECRET`), AI extraction and PDF/image OCR
