@@ -8,6 +8,7 @@
     "worker:dev": "tsx watch src/worker-main.ts",
     "start": "node dist/main.js",
     "start:worker": "node dist/worker-main.js",
+    "create-admin": "tsx src/scripts/create-admin.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run",

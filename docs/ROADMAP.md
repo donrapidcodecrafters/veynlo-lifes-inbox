@@ -62,8 +62,18 @@ this repository, not an aspirational plan.
    shipment one — fine for senders that only ever send one type of email,
    wrong for ones (like Amazon) that send both from the same domain.
 4. ~~**CI**~~ — done (`.github/workflows/ci.yml`).
-5. **Real admin RBAC** — replace the shared-secret header with per-operator
-   accounts and audited, scoped access before any real user data exists.
+5. ~~**Real admin RBAC**~~ — done. A separate `admin_users`/`admin_sessions`
+   identity plane (distinct JWT audience claim so a consumer session can
+   never be replayed as an admin one), per-operator accounts provisioned
+   via `pnpm --filter @veynlo/api run create-admin` (no self-serve sign-up),
+   argon2-hashed passwords, server-side revocable sessions, and every
+   support lookup (hit or miss) written to `audit_events` with
+   `actorType: "support_agent"`. `role: "support" | "superadmin"` exists in
+   the schema but nothing branches on it yet — every admin endpoint accepts
+   both roles today; role-scoped endpoints are a follow-up once there's a
+   concrete action that should be superadmin-only. Verified live: sign-in,
+   guarded lookup with real audit row, 401 with no cookie, and sign-out
+   actually revoking the session server-side (not just clearing the cookie).
 6. **Outlook/Microsoft connector** — second direct-API email source; the
    connector interface (`@veynlo/core`'s `ProviderAdapter`) was designed to
    make this an adapter addition, not a pipeline rewrite.
@@ -102,13 +112,15 @@ infrastructure from Phase 2 is proven.
 
 ## Known limitations to fix before any real users touch this
 
-- Admin access control (shared secret, not per-operator RBAC).
 - No rate limiting beyond a blanket 300 req/min global throttle — no
   per-endpoint or per-user tiers yet.
 - No malware scanning on document uploads (MIME/size/hash validated; no AV).
 - No automated backup/restore drills (spec §49.2/49.3) — local dev only.
-- No structured audit logging wired into the actual request path yet
-  (the `audit_events` table exists; nothing writes to it yet).
+- Structured audit logging exists and is used by the admin console
+  (`audit_events`, written on every support lookup); consumer-side actions
+  (household changes, sharing changes, corrections) don't write to it yet.
+- No admin *management* UI/API yet — creating/revoking operator accounts is
+  a CLI script (`create-admin`), not a self-service superadmin console.
 - Session refresh-token rotation is not implemented — the current session
   cookie is a single long-lived JWT re-checked against a revocable DB row
   per request (safe against revocation, but not the full rotating-refresh-

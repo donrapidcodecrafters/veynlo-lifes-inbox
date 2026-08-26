@@ -11,7 +11,7 @@ export interface StructuredExtractionRequest<T> {
   /** Plain text, or real multi-modal content blocks (image/document) for OCR-style extraction — never a text description standing in for bytes the model hasn't actually seen. */
   userContent: string | Anthropic.MessageParam["content"];
   /** Input type intentionally left as `any` — pinning it to `T` makes TS infer optional/default fields incorrectly at call sites. */
-  schema: ZodType<T, ZodTypeDef, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  schema: ZodType<T, ZodTypeDef, any>;
   toolDescription: string;
   /** Cheap/fast tier by default (§41.4 "larger reasoning models are not the default receipt parser"). */
   model?: "cheap" | "reasoning";

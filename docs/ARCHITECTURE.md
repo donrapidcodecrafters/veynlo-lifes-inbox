@@ -37,7 +37,7 @@ Mirrors spec Appendix I:
 - **automation** — types/schema exist in `@veynlo/core`; no rule engine or execution yet (ROADMAP).
 - **search** — structured SQL search + grounded Ask (semantic/vector search not yet wired — search_documents table + pgvector column exist, embeddings pipeline doesn't yet).
 - **billing** — Stripe checkout + webhook, entitlement resolution.
-- **admin** — metadata-only support console, gated by a shared-secret header (real RBAC is a known gap, see ROADMAP).
+- **admin** — metadata-only support console with its own identity plane (`admin_users`/`admin_sessions`, separate JWT audience from consumer sessions, argon2 passwords, per-operator accounts provisioned via a CLI script — no self-serve sign-up). Every support lookup is audited.
 
 `packages/authz` is the one authorization chokepoint every module is
 expected to call before returning or mutating another principal's data —

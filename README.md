@@ -40,6 +40,9 @@ pnpm db:seed
 cp services/api/.env.example services/api/.env
 cp apps/web/.env.example apps/web/.env.local
 
+# Create your own admin console account (there's no self-serve admin sign-up by design)
+pnpm --filter @veynlo/api run create-admin -- --email you@veynlo.app --role superadmin
+
 # Run everything
 pnpm dev
 ```
@@ -114,6 +117,8 @@ pnpm build        # build every package/app
 pnpm dev          # run every app/service in dev/watch mode (API + web; NOT the worker — see above)
 pnpm dev:worker   # run the background job worker (connector sync, notification delivery)
 pnpm typecheck    # typecheck the whole workspace
+pnpm lint         # lint backend packages (core/db/authz/api) with the shared root ESLint config;
+                  # apps/web is still a no-op pending a Next-aware config
 pnpm test         # run all test suites
 pnpm db:generate  # generate a new migration from schema changes
 pnpm db:migrate   # apply migrations

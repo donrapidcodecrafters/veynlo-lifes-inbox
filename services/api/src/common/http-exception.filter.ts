@@ -30,7 +30,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // eslint-disable-next-line no-console
     console.error(`[unhandled:${traceId}]`, exception);
     response.status(500).send({
       code: "INTERNAL_ERROR",

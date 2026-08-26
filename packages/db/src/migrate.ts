@@ -9,13 +9,11 @@ async function main() {
   // pgvector must exist before any migration creates a `vector(...)` column.
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
   await migrate(db, { migrationsFolder: "./src/migrations" });
-  // eslint-disable-next-line no-console
   console.log("Migrations applied.");
   process.exit(0);
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("Migration failed:", err);
   process.exit(1);
 });

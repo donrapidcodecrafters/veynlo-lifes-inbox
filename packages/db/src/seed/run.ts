@@ -405,13 +405,11 @@ async function main() {
     ])
     .onConflictDoNothing();
 
-  // eslint-disable-next-line no-console
   console.log("Seed complete.");
   process.exit(0);
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("Seed failed:", err);
   process.exit(1);
 });

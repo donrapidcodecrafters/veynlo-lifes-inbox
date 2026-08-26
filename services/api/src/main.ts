@@ -45,7 +45,6 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   await app.listen(env.PORT, "0.0.0.0");
-  // eslint-disable-next-line no-console
   console.log(`Veynlo API listening on port ${env.PORT} (${env.NODE_ENV})`);
 }
 
