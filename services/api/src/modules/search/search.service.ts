@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, ilike } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -26,40 +26,65 @@ export class SearchService {
     private readonly ai: AnthropicExtractionService,
   ) {}
 
+  /**
+   * §ASK-002 — every text field searched here (bills.billerLabel, documents.title/its current version's
+   * ocrText, calendarEvents.title) is stored as AES-GCM ciphertext (see encrypted-type.ts), so a SQL
+   * `ILIKE` predicate against those columns can never match a plaintext query — it was comparing a
+   * search term against ciphertext. That meant structured search only ever actually worked for
+   * purchases.orderNumber (the one unencrypted field searched), and — despite the Documents page telling
+   * users OCR'd text "will be searchable later" — document search never matched title OR body text.
+   * Fixed by fetching each owner's rows (Drizzle transparently decrypts on SELECT) and matching in
+   * application code instead of pushing the predicate into SQL.
+   */
   async structuredSearch(userId: string, query: string) {
-    const pattern = `%${query}%`;
-    const [purchases, bills, documents, events] = await Promise.all([
+    const q = query.trim().toLowerCase();
+    if (!q) return { purchases: [], bills: [], documents: [], events: [] };
+
+    const [purchases, bills, documentRows, events, merchants] = await Promise.all([
+      this.db.select().from(schema.purchases).where(eq(schema.purchases.ownerUserId, userId)).limit(200),
+      this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)).limit(200),
       this.db
-        .select()
-        .from(schema.purchases)
-        .where(and(eq(schema.purchases.ownerUserId, userId), ilike(schema.purchases.orderNumber, pattern)))
-        .limit(20),
-      this.db
-        .select()
-        .from(schema.bills)
-        .where(and(eq(schema.bills.ownerUserId, userId), ilike(schema.bills.billerLabel, pattern)))
-        .limit(20),
-      this.db
-        .select()
+        .select({ document: schema.documents, version: schema.documentVersions })
         .from(schema.documents)
-        .where(and(eq(schema.documents.ownerUserId, userId), ilike(schema.documents.title, pattern)))
-        .limit(20),
-      this.db
-        .select()
-        .from(schema.calendarEvents)
-        .where(and(eq(schema.calendarEvents.ownerUserId, userId), ilike(schema.calendarEvents.title, pattern)))
-        .limit(20),
+        .leftJoin(schema.documentVersions, eq(schema.documentVersions.id, schema.documents.currentVersionId))
+        .where(eq(schema.documents.ownerUserId, userId))
+        .limit(200),
+      this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.ownerUserId, userId)).limit(200),
+      this.db.select().from(schema.merchants).limit(500),
     ]);
-    return { purchases, bills, documents, events };
+    const merchantById = new Map(merchants.map((m) => [m.id, m.displayName]));
+
+    const matchedPurchases = purchases
+      .filter((p) => (p.orderNumber ?? "").toLowerCase().includes(q) || (p.merchantId ? (merchantById.get(p.merchantId) ?? "").toLowerCase().includes(q) : false))
+      .slice(0, 20);
+    const matchedBills = bills.filter((b) => b.billerLabel.toLowerCase().includes(q)).slice(0, 20);
+    const matchedDocuments = documentRows
+      .filter((r) => r.document.title.toLowerCase().includes(q) || (r.version?.ocrText ?? "").toLowerCase().includes(q))
+      .map((r) => r.document)
+      .slice(0, 20);
+    const matchedEvents = events.filter((e) => e.title.toLowerCase().includes(q)).slice(0, 20);
+
+    return { purchases: matchedPurchases, bills: matchedBills, documents: matchedDocuments, events: matchedEvents };
   }
 
-  /** ASK-001 — natural-language Ask, grounded in the same owner-scoped retrieval as structured search. */
+  /**
+   * ASK-001 — natural-language Ask, grounded in the same owner-scoped retrieval as structured search.
+   * Documents (title + OCR'd body text) are included in the grounding context — previously excluded
+   * entirely, so a question about something only stated in a scanned document/receipt had no way to be
+   * answered even though the text had genuinely been extracted and stored.
+   */
   async ask(userId: string, question: string) {
-    const [purchases, bills, events, merchants] = await Promise.all([
+    const [purchases, bills, events, merchants, documentRows] = await Promise.all([
       this.db.select().from(schema.purchases).where(eq(schema.purchases.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.merchants).limit(200),
+      this.db
+        .select({ document: schema.documents, version: schema.documentVersions })
+        .from(schema.documents)
+        .leftJoin(schema.documentVersions, eq(schema.documentVersions.id, schema.documents.currentVersionId))
+        .where(eq(schema.documents.ownerUserId, userId))
+        .limit(50),
     ]);
 
     const merchantById = new Map(merchants.map((m) => [m.id, m.displayName]));
@@ -78,6 +103,12 @@ export class SearchService {
         resourceType: "calendar_event",
         resourceId: e.id,
         text: `Event "${e.title}"${e.location ? ` at ${e.location}` : ""}.`,
+      })),
+      ...documentRows.map((r) => ({
+        resourceType: "document",
+        resourceId: r.document.id,
+        // Truncated per item so a handful of long OCR'd documents don't dominate the prompt.
+        text: `Document "${r.document.title}"${r.version?.ocrText ? `. Extracted text: ${r.version.ocrText.slice(0, 1000)}` : " (no extracted text available)."}`,
       })),
     ];
 
