@@ -3,6 +3,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { and, eq, inArray, ne, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
+import heicConvert from "heic-convert";
 import { generateId, type DocumentType } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -162,26 +163,33 @@ export class DocumentsService {
       return result?.data.transcribedText ?? null;
     }
     if (mimeType === "image/heic") {
-      // Claude's vision input only accepts jpeg/png/gif/webp; HEIC needs a real transcode step (e.g. `sharp`)
-      // before it can be sent — not yet wired, so we honestly skip OCR rather than send mislabeled bytes.
-      return null;
+      // Claude's vision input only accepts jpeg/png/gif/webp, not HEIC — the default photo format on
+      // iPhone, so this is a real, commonly-hit case (previously silently skipped OCR entirely for it,
+      // despite HEIC being explicitly listed as an accepted upload type in both the MIME allowlist above
+      // and the "isn't supported yet... Try PDF, JPG, PNG, HEIC" error message). Transcodes to JPEG first,
+      // then reuses the exact same vision call as any other image.
+      const jpeg = await heicConvert({ buffer: new Uint8Array(buffer), format: "JPEG", quality: 0.92 });
+      return this.transcribeImage(Buffer.from(jpeg), "image/jpeg");
     }
     if (mimeType.startsWith("image/")) {
-      const supportedMediaType = mimeType as "image/jpeg" | "image/png";
-      const result = await this.ai.extractStructured({
-        extractorName: "document_ocr_image_v1",
-        model: "cheap",
-        systemPrompt: "Transcribe all readable text from this image verbatim. If unreadable, say so.",
-        userContent: [
-          { type: "image", source: { type: "base64", media_type: supportedMediaType, data: buffer.toString("base64") } },
-          { type: "text", text: "Transcribe this image." },
-        ],
-        schema: z.object({ transcribedText: z.string() }),
-        toolDescription: "Emit the transcribed image text.",
-      });
-      return result?.data.transcribedText ?? null;
+      return this.transcribeImage(buffer, mimeType as "image/jpeg" | "image/png");
     }
     return null;
+  }
+
+  private async transcribeImage(buffer: Buffer, mediaType: "image/jpeg" | "image/png"): Promise<string | null> {
+    const result = await this.ai.extractStructured({
+      extractorName: "document_ocr_image_v1",
+      model: "cheap",
+      systemPrompt: "Transcribe all readable text from this image verbatim. If unreadable, say so.",
+      userContent: [
+        { type: "image", source: { type: "base64", media_type: mediaType, data: buffer.toString("base64") } },
+        { type: "text", text: "Transcribe this image." },
+      ],
+      schema: z.object({ transcribedText: z.string() }),
+      toolDescription: "Emit the transcribed image text.",
+    });
+    return result?.data.transcribedText ?? null;
   }
 
   async list(userId: string) {
