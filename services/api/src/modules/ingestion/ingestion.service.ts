@@ -270,6 +270,22 @@ export class IngestionService {
       });
 
       for (const line of result.data.lineItems) {
+        // §39.3/§44.1 knowledge-graph write path — one owner-scoped canonical_entities row per physical
+        // product line, so a later extractor (e.g. extractWarranty) can identify "the same thing" across
+        // separate emails via purchaseLines.ownerAssetEntityId rather than two unlinked records. Always
+        // creates rather than matches an existing entity (§40.2 "false non-merge is preferable to
+        // incorrectly combining" — precision-first; there's no reliable signal yet, like a serial number,
+        // to safely dedupe two purchase lines against each other).
+        const assetEntityId = generateId("entity");
+        await this.db.insert(schema.canonicalEntities).values({
+          id: assetEntityId,
+          type: "asset",
+          ownerUserId: ctx.ownerUserId,
+          householdId: ctx.householdId,
+          displayLabel: line.productLabel,
+          aliases: [], // encryptedJsonb columns don't get a working DB-level default — see documents.tags' history
+          lifecycleState: "active",
+        });
         await this.db.insert(schema.purchaseLines).values({
           id: generateId("purchaseLine"),
           purchaseId,
@@ -278,6 +294,7 @@ export class IngestionService {
           unitPriceMinorUnits: line.unitPriceMinorUnits,
           lineTotalMinorUnits: line.unitPriceMinorUnits ? line.unitPriceMinorUnits * line.quantity : null,
           currency: result.data.currency,
+          ownerAssetEntityId: assetEntityId,
         });
       }
 
@@ -410,6 +427,17 @@ export class IngestionService {
     return existing ?? null;
   }
 
+  /** Used by extractWarranty — see its call site for why this deliberately requires an exact match. */
+  private async findMatchingPurchaseLine(ownerUserId: string, productLabel: string) {
+    const candidates = await this.db
+      .select({ line: schema.purchaseLines })
+      .from(schema.purchaseLines)
+      .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
+      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+    const normalized = productLabel.trim().toLowerCase();
+    return candidates.find((c) => c.line.productLabel.trim().toLowerCase() === normalized)?.line ?? null;
+  }
+
   private async extractBill(ctx: {
     sourceEventId: string;
     ownerUserId: string;
@@ -530,10 +558,18 @@ export class IngestionService {
     const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
     const expirationDate = toTemporalValue(result.data.warrantyExpirationDate);
     const warrantyId = generateId("warranty");
+    // §40.1 entity resolution, applied to the one real cross-extractor case this app has today: a
+    // warranty registration email and the receipt for the same product arrive separately, but should
+    // resolve to the same canonical_entities asset row (created by extractReceipt). Deliberately
+    // conservative — exact case-insensitive productLabel match only, no fuzzy/similarity scoring, no
+    // auto-created entity when nothing matches — same precision-first stance as extractReceipt's own
+    // comment. An unmatched warranty just leaves purchaseLineId null, exactly like today's behavior.
+    const matchedLine = await this.findMatchingPurchaseLine(ctx.ownerUserId, result.data.productLabel);
     await this.db.insert(schema.warranties).values({
       id: warrantyId,
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
+      purchaseLineId: matchedLine?.id ?? null,
       productLabel: result.data.productLabel,
       warrantyLengthMonths: result.data.warrantyLengthMonths,
       expirationDate,

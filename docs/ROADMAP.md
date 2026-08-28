@@ -13,7 +13,7 @@ this repository, not an aspirational plan.
 | Household + dependents | ✅ Built (create/invite/leave/dependents/caregiver delegations — grant/list/revoke, `POST/GET /v1/households/:id/delegations`, `:id/revoke`). Delegation grants require the delegate to already be an active household member (a delegation adds a scoped capability to someone already trusted, not a way to admit an outsider), scopes are validated against a fixed enum (`schedule:read`/`documents:read`/`commerce:read`/`household:read`), and both grant/revoke are audited. `commerce:read` is now actually enforced: `HouseholdService.delegatedHouseholdIds` is the first real consumer of a granted delegation (previously the grant/list/revoke API worked but nothing ever checked a delegation before serving data), and `CommerceController`'s five read paths (purchases/bills/returns/subscriptions/warranties, including the by-ID `purchaseDetail`) now widen from "my own rows" to "my own rows, plus any household I've been delegated `commerce:read` on" — household-scoped, not per-member, matching how a grant itself has no per-member target. Verified live end-to-end: a delegate saw zero purchases before the grant, the full household's purchases/bills after it, and zero again — including on the by-ID detail route, not just the list — the moment it was revoked. `schedule:read` and `documents:read` are now enforced too, the same day: `ScheduleService` (events/tasks) and `DocumentsService` (list + the by-ID `signedUrl`/download-url path) both gained an identically-shaped `ownerOrDelegatedHousehold` helper. These two domains have a wrinkle commerce didn't: `calendar_events` and `documents` both carry a `visibility` enum (default `"private"`) that was — and, for a household member, still is — never actually enforced anywhere; rather than let a household-wide delegation grant be the first code path to leak a `"private"`-flagged row to someone, the delegated-household branch specifically excludes `visibility: "private"` (the owner's own rows are never filtered by visibility). Verified live with one household-visible and one private calendar event/document each: before the grant neither was visible; after, the household-visible ones appeared in both list endpoints and the private ones stayed hidden, including on `documents`' by-ID `download-url` route (403 before reaching the missing-file-version check, proving the authorization check itself — not a downstream error — is what blocks it); after revoke, all of it disappeared again immediately. **Not done yet**: `household:read` (viewing another member's profile/dependent info directly) remains unenforced — lower priority since `HouseholdService`'s existing `assertOwnerOrAdult` already gates most of that surface by membership role, not by delegation. |
 | Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events, and warranties (`extractWarranty`, `warranties` table, `GET /v1/warranties`, surfaced on Life and Timeline). Travel is partially covered by the calendar extractor; school/home/vehicle extractors not started. |
-| Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`; the owner-scoped `canonical_entities` knowledge-graph layer remains unwritten (see below). |
+| Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`. The owner-scoped `canonical_entities` knowledge-graph layer now has a real first writer (see item 13 below) — `extractReceipt` creates one `canonical_entities` row per purchase line and `extractWarranty` resolves back to it — but `relationships`/`facts`/`entity_merge_lineage` remain entirely unwritten (deliberately — see item 13). |
 | Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built, including "correct" for all five linkable domains (purchase/bill/calendar_event/shipment/warranty — warranty was a gap introduced alongside the warranty extractor itself, since `correct()`'s switch had no case for it; fixed the same day). Snooze is now a real user-facing action on both web and mobile (previously the backend method existed with zero UI entry point, and — more importantly — nothing ever resurfaced a snoozed item once its `snoozedUntil` passed; added a recurring `inbox-unsnooze` worker tick, mirroring the existing `connector-scan` tick's shape, that flips due snoozed items back to `reviewState: "new"`). "Merge" was assessed and deliberately not built — see below. |
 | Home "Needs You" + caught-up state | ✅ Built, reads real attention_items. Nothing populates attention_items automatically yet from the pipeline — currently only seed data and (implicitly) future automation-rule output would. |
 | Ask / structured search | ✅ Built — grounded synthesis with evidence citations, `insufficientEvidence` flag. Semantic/vector search not wired (pgvector column exists, unused). |
@@ -281,6 +281,52 @@ this repository, not an aspirational plan.
     priority since a discovered calendar event is already written to
     `calendar_events` on confirm, so "add to calendar" wouldn't do anything
     a plain Confirm doesn't already do today.
+
+13. ~~**canonical_entities knowledge-graph write path — first slice**~~ — done,
+    deliberately narrow. `canonical_entities`/`entity_merge_lineage`/
+    `relationships`/`facts` (`packages/db/src/schema/graph.ts`) existed with
+    real FK plumbing already waiting (`purchaseLines.productMatchEntityId`/
+    `.ownerAssetEntityId`) but zero write call sites anywhere — the same was
+    true of `packages/core/src/entities/graph.ts`'s zod contract
+    (`CanonicalEntityTypeSchema`/`RelationshipTypeSchema`), fully designed
+    but never imported by application code. Rather than build the whole
+    graph (relationships, facts, merge/unmerge UI) speculatively, shipped
+    the smallest real vertical slice: `extractReceipt` now creates one
+    owner-scoped `canonical_entities` row (`type: "asset"`) per purchase
+    line and links `purchaseLines.ownerAssetEntityId` to it; `extractWarranty`
+    resolves back to that same entity via a new `findMatchingPurchaseLine`
+    helper (exact case/whitespace-insensitive `productLabel` match against
+    the owner's purchase lines — deliberately no fuzzy/similarity scoring,
+    per spec §40.2's precision-first stance: "false non-merge is preferable
+    to incorrectly combining") and sets `warranties.purchaseLineId`
+    accordingly; an unmatched warranty just leaves it `null`, same as
+    before this change. No new table or migration needed — every column
+    involved already existed. Deliberately NOT built in this pass:
+    `relationships`/`facts`/`entity_merge_lineage` writes (nothing reads
+    them yet — would be exactly the "scaffolding with no real data behind
+    it" anti-pattern already called out above for the merchant-merge UI),
+    any merge/unmerge UI for `canonical_entities` (no duplicate data
+    exists yet to observe and design a real matching heuristic from), and
+    `person`/`vehicle`/`property`/`pet` entity kinds (no extractor produces
+    that data). Verified live against the real pipeline, real Postgres,
+    and real encryption — with a caveat: this environment has no
+    `ANTHROPIC_API_KEY` configured, so the real Claude-backed extraction
+    call itself couldn't be exercised (and wouldn't be, on principle, since
+    that would spend real money just to test). Instead booted the actual
+    running `IngestionService` via `NestFactory.createApplicationContext`
+    (same mechanism `worker-main.ts` uses) and stubbed only the
+    `AnthropicExtractionService.extractStructured`/`isConfigured` boundary
+    with canned responses — every line downstream of that (the
+    `canonical_entities` insert, the `ownerAssetEntityId` link, the
+    `findMatchingPurchaseLine` query, `warranties.purchaseLineId`) ran as
+    real, unmodified production code. Confirmed: the entity was created
+    with `aliases: []` set explicitly (encrypted-jsonb columns don't get a
+    working DB-level default — same recurring bug class as
+    `documents.tags`/`inbox_items.suggestedActions` earlier this session),
+    the purchase line linked to it, and a warranty with a deliberately
+    different-case, extra-whitespace product label ("  bosch 800 series
+    dishwasher  " vs. "Bosch 800 Series Dishwasher") still correctly
+    matched back to the same purchase line and entity.
 
 ## Phase 2 — financially sticky + household-ready
 
