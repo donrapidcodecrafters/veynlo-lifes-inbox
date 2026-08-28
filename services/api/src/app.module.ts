@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
+import { LoggingModule } from "./logging/logging.module";
 import { DatabaseModule } from "./database/database.module";
 import { QueueModule } from "./queue/queue.module";
 import { HealthModule } from "./modules/health/health.module";
@@ -21,6 +22,7 @@ import { TimelineModule } from "./modules/timeline/timeline.module";
 
 @Module({
   imports: [
+    LoggingModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     DatabaseModule,
     QueueModule,

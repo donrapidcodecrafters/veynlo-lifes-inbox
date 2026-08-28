@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
+import { Logger as PinoLogger } from "nestjs-pino";
 import { Worker } from "bullmq";
 import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
@@ -37,7 +38,8 @@ const logger = new Logger("Worker");
  * HTTP process, not instead of it.
  */
 async function bootstrap() {
-  const appContext = await NestFactory.createApplicationContext(AppModule, { logger: ["error", "warn", "log"] });
+  const appContext = await NestFactory.createApplicationContext(AppModule, { bufferLogs: true });
+  appContext.useLogger(appContext.get(PinoLogger));
 
   const db = appContext.get<Database>(DATABASE);
   const gmailAdapter = appContext.get(GmailAdapter);

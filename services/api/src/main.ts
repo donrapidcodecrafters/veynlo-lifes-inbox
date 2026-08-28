@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import { Logger } from "nestjs-pino";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyHelmet from "@fastify/helmet";
@@ -12,7 +13,8 @@ async function bootstrap() {
   const env = loadEnv();
   const adapter = new FastifyAdapter({ bodyLimit: 30 * 1024 * 1024 });
 
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter);
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
 
   // Stripe webhook signature verification needs the exact raw request bytes. Rather than replacing Nest's
   // own JSON content-type parser (registering a second one throws FST_ERR_CTP_ALREADY_PRESENT), a
@@ -55,7 +57,7 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   await app.listen(env.PORT, "0.0.0.0");
-  console.log(`Veynlo API listening on port ${env.PORT} (${env.NODE_ENV})`);
+  app.get(Logger).log(`Veynlo API listening on port ${env.PORT} (${env.NODE_ENV})`);
 }
 
 bootstrap();

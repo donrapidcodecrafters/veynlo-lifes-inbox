@@ -9,6 +9,10 @@ import { z } from "zod";
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   PORT: z.coerce.number().int().default(4000),
+  // Structured (JSON) logging via pino — pretty-printed instead in development. §Observability: this is
+  // the "structured logs" half of that ROADMAP line; metrics/tracing remain a separate, larger follow-up
+  // that needs a real infra decision (Prometheus/OpenTelemetry backend), not just an app-level change.
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   DATABASE_URL: z.string().default("postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo"),
   REDIS_URL: z.string().default("redis://localhost:6379"),
 
