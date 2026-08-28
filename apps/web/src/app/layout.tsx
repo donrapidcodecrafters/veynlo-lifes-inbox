@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import { themeInitScript } from "@/lib/theme-script";
 import { ThemeProvider } from "@/hooks/use-theme";
 import "@/styles/globals.css";
@@ -21,11 +22,14 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Set by middleware.ts on every request — required so this app-authored inline script (unlike Next's
+  // own internally-generated RSC-hydration scripts, which get nonced automatically) passes the CSP.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
       </head>
       <body>
         <ThemeProvider>{children}</ThemeProvider>
