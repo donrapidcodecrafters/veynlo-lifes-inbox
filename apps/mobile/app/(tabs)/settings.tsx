@@ -87,6 +87,9 @@ export default function SettingsScreen() {
         <Button variant="secondary" onPress={() => router.push("/connections")}>
           Connections
         </Button>
+        <Button variant="secondary" onPress={() => router.push("/data-export")}>
+          Export your data
+        </Button>
       </View>
 
       <View style={{ gap: 8 }}>

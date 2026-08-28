@@ -19,6 +19,7 @@ import {
   type ConnectionDataDeletionJobData,
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
+  type DataExportJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
@@ -28,6 +29,7 @@ import { NotificationDispatchService } from "./modules/notifications/notificatio
 import { StorageService } from "./modules/documents/storage.service";
 import { AttentionService } from "./modules/attention/attention.service";
 import { QueueProducerService } from "./queue/queue-producer.service";
+import { DataExportService } from "./modules/data-export/data-export.service";
 
 const logger = new Logger("Worker");
 
@@ -54,6 +56,7 @@ async function bootstrap() {
   const storage = appContext.get(StorageService);
   const attention = appContext.get(AttentionService);
   const queueProducer = appContext.get(QueueProducerService);
+  const dataExport = appContext.get(DataExportService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -297,6 +300,31 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /** PRIV-002 — gathers the user's full manifest (DataExportService.buildManifest), uploads it as a single JSON object, and marks the job completed/failed accordingly. */
+  const dataExportWorker = new Worker<DataExportJobData>(
+    QUEUE_NAMES.dataExport,
+    async (job) => {
+      const { exportJobId, userId } = job.data;
+      await db.update(schema.exportJobs).set({ state: "processing" }).where(eq(schema.exportJobs.id, exportJobId));
+      try {
+        const manifest = await dataExport.buildManifest(userId);
+        const storageKey = dataExport.storageKeyFor(userId, exportJobId);
+        await storage.putObject(storageKey, Buffer.from(JSON.stringify(manifest, null, 2)), "application/json");
+        await db
+          .update(schema.exportJobs)
+          .set({ state: "completed", storageKey, completedAt: new Date(), expiresAt: new Date(Date.now() + dataExport.ttlMs()) })
+          .where(eq(schema.exportJobs.id, exportJobId));
+      } catch (err) {
+        await db
+          .update(schema.exportJobs)
+          .set({ state: "failed", errorMessage: String((err as Error)?.message ?? err) })
+          .where(eq(schema.exportJobs.id, exportJobId));
+        throw err;
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 2 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
@@ -306,6 +334,7 @@ async function bootstrap() {
     connectionDataDeletionWorker,
     inboxUnsnoozeWorker,
     attentionScanWorker,
+    dataExportWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
@@ -319,7 +348,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringAttentionScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export",
   );
 
   const shutdown = async () => {
@@ -333,6 +362,7 @@ async function bootstrap() {
       connectionDataDeletionWorker.close(),
       inboxUnsnoozeWorker.close(),
       attentionScanWorker.close(),
+      dataExportWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);

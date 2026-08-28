@@ -48,6 +48,7 @@ export const ID_PREFIXES = {
   entitlement: "ent2",
   billingEvent: "bev",
   auditEvent: "aud",
+  exportJob: "exp",
   session: "sess",
   device: "dev",
   job: "job",

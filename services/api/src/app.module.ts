@@ -19,6 +19,7 @@ import { SearchModule } from "./modules/search/search.module";
 import { BillingModule } from "./modules/billing/billing.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { TimelineModule } from "./modules/timeline/timeline.module";
+import { DataExportModule } from "./modules/data-export/data-export.module";
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { TimelineModule } from "./modules/timeline/timeline.module";
     BillingModule,
     AdminModule,
     TimelineModule,
+    DataExportModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

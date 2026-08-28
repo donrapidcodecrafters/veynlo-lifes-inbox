@@ -13,3 +13,4 @@ export * from "./audit";
 export * from "./admin";
 export * from "./pipeline";
 export * from "./search";
+export * from "./data-export";

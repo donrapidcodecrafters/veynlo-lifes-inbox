@@ -11,6 +11,7 @@ import {
   type InboxUnsnoozeScanJobData,
   type AttentionScanJobData,
   type ConnectionDataDeletionJobData,
+  type DataExportJobData,
 } from "./queue-names";
 
 /**
@@ -44,6 +45,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly connectionDataDeletionQueue = new Queue<ConnectionDataDeletionJobData>(QUEUE_NAMES.connectionDataDeletion, {
+    connection: getRedisConnection(),
+  });
+  private readonly dataExportQueue = new Queue<DataExportJobData>(QUEUE_NAMES.dataExport, {
     connection: getRedisConnection(),
   });
 
@@ -156,6 +160,17 @@ export class QueueProducerService implements OnModuleDestroy {
     });
   }
 
+  /** PRIV-002 — runs in the background since a user's full data graph can be large. No delay; nothing to wait on. */
+  async enqueueDataExport(data: DataExportJobData): Promise<void> {
+    await this.dataExportQueue.add("export", data, {
+      jobId: data.exportJobId,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 10_000 },
+      removeOnComplete: { count: 200 },
+      removeOnFail: { count: 500 },
+    });
+  }
+
   async onModuleDestroy() {
     await Promise.all([
       this.connectorSyncQueue.close(),
@@ -166,6 +181,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.inboxUnsnoozeQueue.close(),
       this.attentionScanQueue.close(),
       this.connectionDataDeletionQueue.close(),
+      this.dataExportQueue.close(),
     ]);
   }
 }

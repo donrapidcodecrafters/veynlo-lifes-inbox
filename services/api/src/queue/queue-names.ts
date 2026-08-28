@@ -12,6 +12,7 @@ export const QUEUE_NAMES = {
   inboxUnsnooze: "inbox-unsnooze",
   attentionScan: "attention-scan",
   connectionDataDeletion: "connection-data-deletion",
+  dataExport: "data-export",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -46,4 +47,9 @@ export type AttentionScanJobData = Record<string, never>;
 export interface ConnectionDataDeletionJobData {
   connectionId: string;
   ownerUserId: string;
+}
+
+export interface DataExportJobData {
+  exportJobId: string;
+  userId: string;
 }
