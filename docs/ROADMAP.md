@@ -8,7 +8,8 @@ this repository, not an aspirational plan.
 
 | Area | Status |
 |---|---|
-| Auth (email/password, sessions, device list) | ✅ Built. Passkeys/MFA/OAuth sign-in not yet. |
+| Auth (email/password, sessions, device list) | ✅ Built, plus in-app self-service account deletion (`POST /v1/auth/delete-account` + web Settings UI — App Store/Play Store §5.1.1(v) requirement). Passkeys/MFA/OAuth sign-in not yet. |
+| Data protection at rest | ✅ Field-level AES-256-GCM encryption on ~40 sensitive columns across every domain, transparent via a Drizzle `customType`, with explicit operator-set key versioning for rotation. See `SECURITY.md` for what's covered/not and why. |
 | Household + dependents | ✅ Built (create/invite/leave/dependents). Caregiver delegation types exist in `@veynlo/core`, no API yet. |
 | Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events. Travel/warranty/school/home/vehicle extractors not started. |
@@ -235,16 +236,22 @@ infrastructure from Phase 2 is proven.
 
 ## Known limitations to fix before any real users touch this
 
-- No rate limiting beyond a blanket 300 req/min global throttle — no
-  per-endpoint or per-user tiers yet.
+See `SECURITY.md` for the full picture (field-level encryption design/key
+rotation, account deletion, network hardening, and an honest pre-submission
+checklist for the App Store/Play Store/a real pentest). Summary of what's
+still open:
+
 - No malware scanning on document uploads (MIME/size/hash validated; no AV).
 - No automated backup/restore drills (spec §49.2/49.3) — local dev only.
 - Structured audit logging exists and is used by the admin console
-  (`audit_events`, written on every support lookup); consumer-side actions
-  (household changes, sharing changes, corrections) don't write to it yet.
+  (`audit_events`, written on every support lookup and on account deletion);
+  consumer-side actions (household changes, sharing changes, corrections)
+  don't write to it yet.
 - No admin *management* UI/API yet — creating/revoking operator accounts is
   a CLI script (`create-admin`), not a self-service superadmin console.
 - Session refresh-token rotation is not implemented — the current session
   cookie is a single long-lived JWT re-checked against a revocable DB row
   per request (safe against revocation, but not the full rotating-refresh-
   token flow the spec describes for mobile).
+- No privacy policy/terms of service text, no store listings, no third-party
+  pentest — all human/business actions, not code (see `SECURITY.md`).

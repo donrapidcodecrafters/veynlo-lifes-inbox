@@ -1,14 +1,16 @@
 "use client";
 
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { useTheme } from "@/hooks/use-theme";
 import { useSession } from "@/hooks/use-session";
-import { swrFetcher, api } from "@/lib/api-client";
+import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
 
 interface NotificationPreferences {
   intensity: "quiet" | "balanced" | "proactive";
@@ -32,6 +34,25 @@ export default function SettingsPage() {
     await api.post("/v1/auth/sign-out");
     await refresh();
     router.push("/sign-in");
+  }
+
+  const [showDeleteForm, setShowDeleteForm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function deleteAccount(e: FormEvent) {
+    e.preventDefault();
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.post("/v1/auth/delete-account", { password: deletePassword });
+      await refresh();
+      router.push("/sign-in");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setDeleting(false);
+    }
   }
 
   return (
@@ -107,6 +128,60 @@ export default function SettingsPage() {
       <Button variant="secondary" onClick={signOut}>
         Sign out
       </Button>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">Danger zone</h2>
+        <Card>
+          <CardBody className="space-y-4">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Delete account</p>
+              <p className="text-sm text-tertiary">
+                Permanently deletes your account and everything in it. This can&apos;t be undone.
+              </p>
+            </div>
+            {!showDeleteForm ? (
+              <Button variant="critical" onClick={() => setShowDeleteForm(true)}>
+                Delete account
+              </Button>
+            ) : (
+              <form onSubmit={deleteAccount} className="space-y-4" noValidate>
+                <div>
+                  <Label htmlFor="delete-password">Confirm your password</Label>
+                  <Input
+                    id="delete-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    required
+                  />
+                </div>
+                {deleteError && (
+                  <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+                    {deleteError}
+                  </p>
+                )}
+                <div className="flex gap-3">
+                  <Button type="submit" variant="critical" loading={deleting}>
+                    Permanently delete my account
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setShowDeleteForm(false);
+                      setDeletePassword("");
+                      setDeleteError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardBody>
+        </Card>
+      </section>
     </div>
   );
 }

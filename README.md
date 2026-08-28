@@ -14,7 +14,10 @@ to change it again later).
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what's built, what's stubbed, and
 what's next. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the
-system is put together.
+system is put together. See [SECURITY.md](SECURITY.md) for data protection
+(field-level encryption, key rotation), account deletion, network hardening,
+and an honest pre-submission checklist for the App Store/Play Store/a real
+pentest.
 
 ## Quick start
 
