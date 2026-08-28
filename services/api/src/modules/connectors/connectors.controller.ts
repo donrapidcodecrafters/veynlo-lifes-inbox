@@ -10,6 +10,7 @@ import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
+import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { IcsConnectDtoSchema, type IcsConnectDto } from "./dto";
 
 @Controller("v1/connectors")
@@ -21,6 +22,7 @@ export class ConnectorsController {
     private readonly outlook: OutlookAdapter,
     private readonly ics: IcsAdapter,
     private readonly googleCalendar: GoogleCalendarAdapter,
+    private readonly microsoftCalendar: MicrosoftCalendarAdapter,
   ) {}
 
   @Get()
@@ -161,6 +163,53 @@ export class ConnectorsController {
         householdId: null,
       });
       return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=google_calendar` };
+    } catch (err) {
+      if (err instanceof ConnectorNotConfiguredError) {
+        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
+      }
+      throw err;
+    }
+  }
+
+  @Get("microsoft-calendar/authorize")
+  async microsoftCalendarAuthorize(@CurrentUser() user: AuthenticatedUser) {
+    if (!this.microsoftCalendar.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message:
+          "Microsoft Calendar isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/microsoft-calendar/callback`;
+    const state = await new SignJWT({ sub: user.userId })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("10m")
+      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const authorizationUrl = this.microsoftCalendar.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("microsoft-calendar/callback")
+  async microsoftCalendarCallback(@Query("code") code: string, @Query("state") state: string) {
+    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+    const env = loadEnv();
+    let userId: string;
+    try {
+      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
+      userId = (verified.payload as { sub: string }).sub;
+    } catch {
+      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
+    }
+    try {
+      const result = await this.microsoftCalendar.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/microsoft-calendar/callback`,
+        ownerUserId: userId,
+        householdId: null,
+      });
+      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=microsoft_calendar` };
     } catch (err) {
       if (err instanceof ConnectorNotConfiguredError) {
         throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });

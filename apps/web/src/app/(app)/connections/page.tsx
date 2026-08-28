@@ -18,7 +18,13 @@ interface Connection {
   itemsDiscoveredCount: number;
 }
 
-const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed", google_calendar: "Google Calendar" };
+const PROVIDER_LABEL: Record<string, string> = {
+  gmail: "Gmail",
+  outlook: "Outlook",
+  ics: "Calendar feed",
+  google_calendar: "Google Calendar",
+  microsoft_calendar: "Microsoft Calendar",
+};
 
 const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   healthy: "positive",
@@ -49,6 +55,12 @@ const AVAILABLE_CONNECTORS = [
     name: "Google Calendar",
     description: "Sync your Google Calendar events directly — separate from Gmail, so you can connect either on its own.",
     notConfiguredMessage: "Google Calendar isn't configured on this deployment yet. An administrator needs to add Google OAuth credentials.",
+  },
+  {
+    provider: "microsoft-calendar",
+    name: "Microsoft Calendar",
+    description: "Sync your Outlook/Microsoft 365 calendar events directly — separate from Outlook mail.",
+    notConfiguredMessage: "Microsoft Calendar isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
   },
 ] as const;
 

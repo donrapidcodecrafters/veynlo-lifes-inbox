@@ -25,6 +25,7 @@ import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { IcsAdapter } from "./modules/connectors/ics.adapter";
 import { GoogleCalendarAdapter } from "./modules/connectors/google-calendar.adapter";
+import { MicrosoftCalendarAdapter } from "./modules/connectors/microsoft-calendar.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { StorageService } from "./modules/documents/storage.service";
@@ -53,6 +54,7 @@ async function bootstrap() {
   const outlookAdapter = appContext.get(OutlookAdapter);
   const icsAdapter = appContext.get(IcsAdapter);
   const googleCalendarAdapter = appContext.get(GoogleCalendarAdapter);
+  const microsoftCalendarAdapter = appContext.get(MicrosoftCalendarAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get(StorageService);
@@ -78,7 +80,9 @@ async function bootstrap() {
               ? icsAdapter
               : connection.provider === "google_calendar"
                 ? googleCalendarAdapter
-                : gmailAdapter;
+                : connection.provider === "microsoft_calendar"
+                  ? microsoftCalendarAdapter
+                  : gmailAdapter;
         if (kind === "incremental") {
           await adapter.incrementalSync(connectionId);
         } else {
@@ -108,7 +112,7 @@ async function bootstrap() {
         .from(schema.connections)
         .where(
           and(
-            inArray(schema.connections.provider, ["gmail", "outlook", "ics", "google_calendar"]),
+            inArray(schema.connections.provider, ["gmail", "outlook", "ics", "google_calendar", "microsoft_calendar"]),
             eq(schema.connections.health, "healthy"),
             isNull(schema.connections.disconnectedAt),
           ),
