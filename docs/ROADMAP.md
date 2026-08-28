@@ -234,6 +234,45 @@ highest-risk one from a safety/authorization standpoint (§34.1 risk tiers
 L3/L4) and should not begin until the automation approval/audit
 infrastructure from Phase 2 is proven.
 
+## Pre-launch private testing distribution (tracked, not started)
+
+Needed before real store submission: a way for the owner and a small set of
+invited testers to use the app on their own devices — real phones/tablets
+(not just simulators), laptops, browsers, and the browser extension —
+without any paid account (Apple Developer Program, Google Play Console,
+AWS). Requested 2026-08-28; deprioritized the same session in favor of
+continuing the "100%" build-out, but tracked here so it isn't lost.
+
+- **iOS/iPadOS — hard blocker, not a code problem.** Apple has no free path
+  to install a custom app on someone else's iPhone remotely. TestFlight
+  requires the paid Apple Developer Program ($99/yr); a free Apple ID can
+  only self-sign a build that runs 7 days via a direct USB/Xcode connection
+  per device, not something shareable as a link. Nothing to build here until
+  that account exists.
+- **Android — fully free, not started.** Build a signed APK (`expo build`/
+  `eas build` free tier, or a local release build via the existing native
+  toolchain) and distribute it as a direct download — no Google account
+  needed, sideloading only.
+- **Web — free, needs a reachable instance.** No server is deployed
+  anywhere yet (see "Known limitations" below). Cheapest path: tunnel the
+  local Docker Compose stack out (e.g. a free ngrok static domain) rather
+  than standing up paid hosting just for this phase.
+- **Desktop (macOS/Windows) — free, mostly already possible.** The unsigned
+  Tauri build already produced this session installs today; testers just
+  click through one "unidentified developer" prompt. Needs packaging/
+  instructions, not new code.
+- **Browser extension — free, mostly already possible.** Chrome's "Load
+  unpacked" (Developer Mode) needs no account. Needs a zipped build +
+  instructions, not new code.
+- **Invite-gated sign-up — not started.** A `signup_invites` table (admin
+  generates a code, optionally email-bound, single-use, sha256-hashed at
+  rest matching the `shareLinks.tokenHash` design already scaffolded in the
+  schema), a `SIGNUP_REQUIRES_INVITE` env flag, `POST /v1/admin/invites` +
+  an `apps/admin` "Invites" page (clone the existing merchants page
+  pattern), and `signUp()` validating/redeeming a code when the flag is on.
+  Full design already scoped via a codebase research pass — implementation
+  not started.
+
 ## Known limitations to fix before any real users touch this
 
 See `SECURITY.md` for the full picture (field-level encryption design/key
