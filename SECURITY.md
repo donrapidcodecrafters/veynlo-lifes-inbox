@@ -181,8 +181,15 @@ These are real gaps, not hedging:
 - **Consumer-side actions aren't all audited yet** — `audit_events` is
   written for admin support lookups and account deletion, but household
   changes, sharing changes, and corrections don't write to it yet.
-- **No CI security scanning** (dependency vulnerability scanning, SAST,
-  secret scanning in commits) is wired into `.github/workflows/ci.yml` yet.
+- **`pnpm audit` runs in CI but is informational, not blocking**
+  (`.github/workflows/ci.yml`) — as of this writing it reports 23 findings (0
+  critical after bumping `vitest` off a critical arbitrary-file-read CVE that
+  only mattered if `vitest --ui` were ever run, which nothing here does; the
+  rest are moderate/high findings in dev-only build tooling — Next.js/postcss,
+  Expo/metro's image parsing — not runtime attack surface for the deployed
+  API). Triage and clear these for real before a store submission or pentest;
+  run `pnpm audit` locally for the current list. No SAST or secret-scanning
+  in commits is wired in yet.
 - **Session refresh-token rotation is not implemented** — sessions are a
   single long-lived JWT re-checked against a revocable DB row per request
   (safe against revocation, not the full rotating-refresh-token flow a

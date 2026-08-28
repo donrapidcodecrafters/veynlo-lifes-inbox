@@ -46,6 +46,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Informational, not blocking: today's findings are all in dev-only build tooling (Next.js/postcss,
+      # Expo/metro's image parsing), not runtime attack surface for the deployed API — a hard gate here
+      # would break every build on a pre-existing transitive-dependency vuln nobody's triaged yet. Findings
+      # still show up in every CI run so they don't silently rot; see SECURITY.md for the pre-submission
+      # checklist this should be resolved against before a real store submission or pentest.
+      - name: Dependency vulnerability scan (informational)
+        run: pnpm audit --audit-level=high || true
+
       - name: Build shared packages
         run: pnpm --filter "@veynlo/core" --filter "@veynlo/design-tokens" --filter "@veynlo/db" --filter "@veynlo/authz" run build
 
