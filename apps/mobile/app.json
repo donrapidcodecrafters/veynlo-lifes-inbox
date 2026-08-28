@@ -12,7 +12,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "app.veynlo.mobile",
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Veynlo uses Face ID to keep your inbox locked when you're not using the app."
+        "NSFaceIDUsageDescription": "Veynlo uses Face ID to keep your inbox locked when you're not using the app.",
+        "NSCameraUsageDescription": "Veynlo uses the camera to scan receipts and other documents.",
+        "NSPhotoLibraryUsageDescription": "Veynlo uses your photo library so you can attach an existing photo as a document."
       }
     },
     "android": {
@@ -29,6 +31,17 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication"]
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Veynlo uses your photo library so you can attach an existing photo as a document.",
+          "cameraPermission": "Veynlo uses the camera to scan receipts and other documents."
+        }
+      ]
+    ]
   }
 }

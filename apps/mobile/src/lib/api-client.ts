@@ -64,4 +64,42 @@ export const api = {
   get: <T>(path: string) => request<T>(path, { method: "GET" }),
   post: <T>(path: string, data?: unknown) => request<T>(path, { method: "POST", body: data ? JSON.stringify(data) : undefined }),
   put: <T>(path: string, data?: unknown) => request<T>(path, { method: "PUT", body: data ? JSON.stringify(data) : undefined }),
+  /**
+   * Multipart upload. On native, React Native's fetch/FormData specially recognizes a `{ uri, name, type }`
+   * object appended in place of a web `File`/`Blob` and builds the multipart part from it directly. Under
+   * `expo start --web` this is a real browser FormData, which silently stringifies a plain object instead
+   * of attaching it as a file part (confirmed live — the request reached the server with no file at all) —
+   * so the web branch fetches the picker's blob: URL into a real Blob first. Field order matters (same
+   * note as apps/web's identical helper): @fastify/multipart's request.file() only captures fields that
+   * arrive BEFORE the file part, so the file must be appended last.
+   */
+  async upload<T>(path: string, fields: Record<string, string>, file: { uri: string; name: string; type: string }): Promise<T> {
+    const token = await tokenStore.get();
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(fields)) formData.append(key, value);
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(file.uri)).blob();
+      formData.append("file", blob, file.name);
+    } else {
+      formData.append("file", file as unknown as Blob);
+    }
+
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "x-veynlo-platform": Platform.OS,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    const isJson = res.headers.get("content-type")?.includes("application/json");
+    const body = isJson ? await res.json() : await res.text();
+    if (!res.ok) {
+      const message = typeof body === "object" && body?.message ? body.message : "Upload failed.";
+      const code = typeof body === "object" && body?.code ? body.code : "UPLOAD_FAILED";
+      throw new ApiError(message, code, res.status);
+    }
+    return body as T;
+  },
 };
