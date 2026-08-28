@@ -2,8 +2,12 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { tokenStore } from "./token-store";
 
-const API_BASE_URL =
-  Constants.expoConfig?.extra?.apiUrl ?? process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
+// The Android emulator's "localhost" refers to the emulator itself, not the host machine running the API —
+// 10.0.2.2 is the documented loopback alias Android provides for reaching the host. iOS Simulator and web
+// share the host's network namespace directly, so plain localhost works there.
+const DEFAULT_API_BASE_URL = Platform.OS === "android" ? "http://10.0.2.2:4000" : "http://localhost:4000";
+
+const API_BASE_URL = Constants.expoConfig?.extra?.apiUrl ?? process.env.EXPO_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
 
 export class ApiError extends Error {
   constructor(

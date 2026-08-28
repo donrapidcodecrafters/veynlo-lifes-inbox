@@ -22,3 +22,11 @@ export function formatMoneyMinorUnits(minorUnits: number | null | undefined, cur
   if (minorUnits == null || !currency) return null;
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minorUnits / 100);
 }
+
+export function daysUntil(value: TemporalValueLike | null | undefined): number | null {
+  if (!value) return null;
+  const target = value.instantUtc ?? (value.date ? `${value.date}T00:00:00` : null);
+  if (!target) return null;
+  const diffMs = new Date(target).getTime() - Date.now();
+  return Math.ceil(diffMs / 86_400_000);
+}

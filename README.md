@@ -105,15 +105,19 @@ isn't:
   (accounts are created via a CLI script), most of Phase 2+ domains
   (home/vehicle/travel/family/school/etc.).
 
-The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
-loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme
-— talking to the real API over a bearer-token session (native has no
-browser cookie jar; see docs/ARCHITECTURE.md's auth section). Verified via
-Playwright against `expo start --web` (a real Chromium instance driving
-the actual React Native codebase): sign-up, session persistence across a
-full reload, tab navigation, and the dark-mode toggle all confirmed live.
-Real device/simulator builds haven't been produced — that needs Xcode/
-Android Studio or EAS Build, neither available in this environment.
+The mobile app (`apps/mobile`, Expo + expo-router) has full screen parity
+with web — Home, Inbox, Ask, Life, Settings, Timeline, Documents,
+Connections — talking to the real API over a bearer-token session (native
+has no browser cookie jar; see docs/ARCHITECTURE.md's auth section). A
+real native iOS build (`expo run:ios`) has been produced and verified on
+a real iPhone 16 Pro Simulator — see docs/ARCHITECTURE.md's "Native
+mobile build" section for the three genuine upstream Expo/Xcode-26 bugs
+it took to get there, all fixed via `pnpm patch`. Every screen and nav
+path was also verified interactively via Playwright against
+`expo start --web` (a real Chromium instance driving the actual React
+Native codebase). Android native build (tooling is present — Android
+Studio, SDK, an AVD — not yet attempted) and real device builds (only
+simulator so far) are next.
 
 The browser extension (`apps/browser-extension`, Manifest V3, any
 Chromium-based browser) saves the current page or a text selection to your

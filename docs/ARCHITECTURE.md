@@ -196,6 +196,66 @@ signing/notarization + a Windows build for the desktop app (macOS/arm64
 only was built here). The browser extension (`apps/browser-extension`)
 and desktop app (`apps/desktop`) are both built — see their READMEs.
 
+## Native mobile build
+
+`apps/mobile` compiles to a real native app via `expo run:ios`/`expo run:android`
+(not just the `expo start --web` preview). Getting a real iOS build green
+surfaced — and fixed, via `pnpm patch` — three genuine upstream bugs that
+`expo start --web` can never exercise, since it doesn't compile any native
+Objective-C++/Swift/C++ code at all:
+
+1. **Swift/C++ interop, `expo-modules-jsi`**: `RuntimeScheduler.h` annotated
+   both of `RuntimeScheduler`'s constructors `SWIFT_RETURNS_RETAINED`, which
+   Xcode 26.2's stricter Swift/C++ interop checker rejects outright
+   (`'RuntimeScheduler' cannot be annotated ... because it is not returning
+   a SWIFT_SHARED_REFERENCE type`). Confirmed against an Expo SDK 58 canary
+   release that the real upstream fix is simply removing the annotation
+   from both constructors — applied as a two-line patch
+   (`patches/expo-modules-jsi@57.0.6.patch`).
+2. **Unquoted path, `expo-constants`**: `get-app-config-ios.sh` did
+   `PROJECT_DIR_BASENAME=$(basename $PROJECT_DIR)` — unquoted, so Xcode's
+   own `$PROJECT_DIR` build setting (which resolves to the project's real
+   filesystem path, not however it was invoked, so a symlink workaround
+   doesn't help here) breaks on a path containing spaces. One-line fix:
+   quote the variable (`patches/expo-constants@57.0.15.patch`).
+3. **API version skew, `expo-modules-core` vs. `react-native-worklets`**:
+   `react-native-reanimated@4.6.0` hard-requires `react-native-worklets@0.12.x`,
+   but `expo-modules-core@57.0.14` (latest stable at the time) still calls
+   the pre-0.12 `WorkletRuntime::executeSync` API, which 0.12.x renamed to
+   `runSync` (identical signature/semantics). This is a genuine, pre-existing
+   version conflict between two Expo-ecosystem packages, not something this
+   project's dependency choices caused — the mismatch was visible as a
+   `pnpm install` peer-dependency warning from the very first install in
+   this repo's history, but never surfaced as a hard failure until a real
+   native build actually compiled the code that calls it. Fixed by renaming
+   the call at both its iOS and Android sites
+   (`patches/expo-modules-core@57.0.14.patch`).
+
+A fourth blocker had nothing to do with Expo: this repository's own path
+(`/Volumes/Mac Projects and Files/VEYNLO Lifes Inbox`) contains spaces,
+and beyond the one `expo-constants` script above, other CocoaPods-generated
+`rsync`/XCFramework-copy build phases also broke on it. Rather than
+patching an unbounded number of third-party scripts one at a time, the
+working native-build copy lives at `~/veynlo-src` — a full copy of this
+repository at a space-free path, kept in sync manually. `~/veynlo-src` is
+local-machine-only, not something this repository's own files reference;
+if you hit `No such file or directory: /Volumes/...`-style errors on a
+different space-containing path, the fix is the same: build from a
+space-free copy.
+
+Every fix above is a `pnpm patch` (registered in `pnpm-workspace.yaml`'s
+`patchedDependencies`, applied automatically on `pnpm install` — nothing
+manual required beyond having the `patches/` directory), so a real
+`expo run:ios` build should work out of the box from a space-free checkout.
+Verified live: `expo run:ios` built and installed on a real iPhone 16 Pro
+Simulator (Xcode 26.2), launched to the real branded sign-in screen
+(screenshotted via `xcrun simctl io ... screenshot`), Metro bundled all
+1716 modules with no runtime errors. Every screen (including the new
+Life/Timeline/Documents/Connections ones) and nav path was also verified
+interactively via Playwright driving `expo start --web`. Android has real
+tooling available in this environment (Android Studio, SDK, an existing
+AVD) but hasn't been attempted yet — see ROADMAP.
+
 ## Desktop app
 
 Tauri 2, native macOS/Windows/Linux shell. Deliberately not a separate

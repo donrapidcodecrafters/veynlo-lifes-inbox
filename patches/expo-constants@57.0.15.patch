@@ -1,0 +1,13 @@
+diff --git a/scripts/get-app-config-ios.sh b/scripts/get-app-config-ios.sh
+index b612e095ea509f92dac967540f50353507a8ff51..d416e082d219a99ac732e1ae9802bc6cd0de0bfb 100755
+--- a/scripts/get-app-config-ios.sh	
++++ b/scripts/get-app-config-ios.sh
+@@ -11,7 +11,7 @@ EXPO_CONSTANTS_PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+ # `$PROJECT_DIR` is passed by Xcode as the directory to the xcodeproj file.
+ # in classic main project setup it is something like /path/to/app/ios
+ # in new style pod project setup it is something like /path/to/app/ios/Pods
+-PROJECT_DIR_BASENAME=$(basename $PROJECT_DIR)
++PROJECT_DIR_BASENAME=$(basename "$PROJECT_DIR")
+ if [ "x$PROJECT_DIR_BASENAME" != "xPods" ]; then
+   exit 0
+ fi

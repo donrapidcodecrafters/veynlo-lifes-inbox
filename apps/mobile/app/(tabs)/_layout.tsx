@@ -45,6 +45,10 @@ export default function TabsLayout() {
         options={{ title: "Ask", tabBarIcon: ({ focused, color }) => <TabIcon label="💬" focused={focused} color={color} /> }}
       />
       <Tabs.Screen
+        name="life"
+        options={{ title: "Life", tabBarIcon: ({ focused, color }) => <TabIcon label="🗂️" focused={focused} color={color} /> }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{ title: "Settings", tabBarIcon: ({ focused, color }) => <TabIcon label="⚙️" focused={focused} color={color} /> }}
       />
