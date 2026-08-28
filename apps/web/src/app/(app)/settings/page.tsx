@@ -137,6 +137,14 @@ export default function SettingsPage() {
               checked={prefs?.weeklyBriefEnabled ?? true}
               onCheckedChange={(v) => updatePrefs({ weeklyBriefEnabled: v })}
             />
+            <div className="flex items-center justify-between border-t border-border-subtle pt-4">
+              <p className="text-sm text-tertiary">See everything Veynlo has sent you.</p>
+              <Link href="/settings/notifications">
+                <Button variant="secondary" size="sm">
+                  View history
+                </Button>
+              </Link>
+            </div>
           </CardBody>
         </Card>
       </section>

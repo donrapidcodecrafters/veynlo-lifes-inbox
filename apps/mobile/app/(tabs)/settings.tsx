@@ -96,6 +96,13 @@ export default function SettingsScreen() {
         </Button>
       </View>
 
+      <View style={{ gap: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Notifications</Text>
+        <Button variant="secondary" onPress={() => router.push("/notifications")}>
+          Notification history
+        </Button>
+      </View>
+
       <Button variant="secondary" onPress={onSignOut}>
         Sign out
       </Button>
