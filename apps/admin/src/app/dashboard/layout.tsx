@@ -9,6 +9,7 @@ import { api } from "@/lib/api-client";
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/dashboard/merchants", label: "Merchants" },
+  { href: "/dashboard/admins", label: "Admins", superadminOnly: true },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -40,7 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </span>
           </div>
           <nav className="flex items-center gap-1">
-            {NAV_LINKS.map((link) => (
+            {NAV_LINKS.filter((link) => !("superadminOnly" in link && link.superadminOnly) || admin?.role === "superadmin").map((link) => (
               <Link
                 key={link.href}
                 href={link.href}

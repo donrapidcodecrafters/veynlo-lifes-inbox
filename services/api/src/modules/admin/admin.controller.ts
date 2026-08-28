@@ -3,12 +3,14 @@ import { Throttle } from "@nestjs/throttler";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 import { AdminGuard } from "./admin.guard";
+import { SuperAdminGuard } from "./super-admin.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminService } from "./admin.service";
 import { CurrentAdmin } from "./current-admin.decorator";
 import type { AuthenticatedAdmin } from "./admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
+import { CreateAdminDtoSchema, type CreateAdminDto } from "./dto";
 
 const ADMIN_SESSION_COOKIE = "veynlo_admin_session";
 
@@ -104,5 +106,26 @@ export class AdminController {
   @UseGuards(AdminGuard)
   unmergeMerchants(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("lineageId") lineageId: string) {
     return this.admin.unmergeMerchants(lineageId, admin.id);
+  }
+
+  // Superadmin-only — creating/revoking operator accounts is exactly the concrete action ROADMAP.md's
+  // own RBAC note said role: "support"|"superadmin" was waiting for.
+  @Get("admins")
+  @UseGuards(AdminGuard, SuperAdminGuard)
+  listAdmins() {
+    return this.admin.listAdmins();
+  }
+
+  @Post("admins")
+  @UseGuards(AdminGuard, SuperAdminGuard)
+  @UsePipes(new ZodValidationPipe(CreateAdminDtoSchema))
+  createAdmin(@CurrentAdmin() admin: AuthenticatedAdmin, @Body() dto: CreateAdminDto) {
+    return this.admin.createAdmin(dto, admin.id);
+  }
+
+  @Post("admins/:id/revoke")
+  @UseGuards(AdminGuard, SuperAdminGuard)
+  revokeAdmin(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("id") id: string) {
+    return this.admin.revokeAdmin(id, admin.id);
   }
 }

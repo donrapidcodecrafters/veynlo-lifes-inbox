@@ -1,9 +1,12 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { randomBytes } from "node:crypto";
+import * as argon2 from "argon2";
 import { desc, eq, isNull, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import type { CreateAdminDto } from "./dto";
 
 /** Strips punctuation/casing/common corporate suffixes so "Amazon.com", "AMAZON MKTPLACE PMTS", and "Amazon, Inc." group together. */
 function normalizeMerchantName(name: string): string {
@@ -156,6 +159,66 @@ export class AdminService {
     await this.recordAccess(actorAdminId, "admin.merchant_unmerge", "merchant", lineage.mergedMerchantId);
 
     return { restoredPurchaseCount: lineage.repointedPurchaseIds.length };
+  }
+
+  /**
+   * Self-service replacement for the create-admin.ts CLI script's ongoing use case — that script stays,
+   * since it solves a different problem (bootstrapping the *first* admin, before any admin session exists
+   * to authenticate this endpoint with). Same one-time-visible-temporary-password pattern as the script.
+   * Guarded to superadmin-only at the controller (SuperAdminGuard) — one operator account creating another
+   * is exactly the kind of action the schema's role split was meant for.
+   */
+  async listAdmins() {
+    return this.db
+      .select({
+        id: schema.adminUsers.id,
+        email: schema.adminUsers.email,
+        displayName: schema.adminUsers.displayName,
+        role: schema.adminUsers.role,
+        createdAt: schema.adminUsers.createdAt,
+        lastLoginAt: schema.adminUsers.lastLoginAt,
+        revokedAt: schema.adminUsers.revokedAt,
+      })
+      .from(schema.adminUsers)
+      .orderBy(desc(schema.adminUsers.createdAt));
+  }
+
+  async createAdmin(dto: CreateAdminDto, actorAdminId: string) {
+    const [existing] = await this.db.select().from(schema.adminUsers).where(eq(schema.adminUsers.email, dto.email)).limit(1);
+    if (existing) {
+      throw new ConflictException({ code: "ADMIN_ALREADY_EXISTS", message: "An admin account already exists for this email." });
+    }
+    const temporaryPassword = randomBytes(12).toString("base64url");
+    const passwordHash = await argon2.hash(temporaryPassword);
+    const id = generateId("adminUser");
+    await this.db.insert(schema.adminUsers).values({
+      id,
+      email: dto.email,
+      displayName: dto.displayName,
+      passwordHash,
+      role: dto.role,
+    });
+    await this.recordAccess(actorAdminId, "admin.admin_create", "admin_user", id);
+    // Shown once — same as create-admin.ts's CLI output; there is no "forgot password" flow for admin
+    // accounts by design (§45 no self-serve admin sign-up), so this is the only time it's ever visible.
+    return { id, temporaryPassword };
+  }
+
+  async revokeAdmin(targetAdminId: string, actorAdminId: string) {
+    if (targetAdminId === actorAdminId) {
+      throw new BadRequestException({ code: "CANNOT_REVOKE_SELF", message: "You can't revoke your own admin account." });
+    }
+    const [target] = await this.db.select().from(schema.adminUsers).where(eq(schema.adminUsers.id, targetAdminId)).limit(1);
+    if (!target) throw new NotFoundException({ code: "ADMIN_NOT_FOUND", message: "Admin account not found." });
+    await this.db.update(schema.adminUsers).set({ revokedAt: new Date() }).where(eq(schema.adminUsers.id, targetAdminId));
+    // Revoking access must take effect immediately, not at next token expiry — same principle as AdminGuard
+    // re-checking the session row on every request; without this, a revoked admin's live session/JWT would
+    // keep working until it naturally expired.
+    await this.db
+      .update(schema.adminSessions)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.adminSessions.adminUserId, targetAdminId));
+    await this.recordAccess(actorAdminId, "admin.admin_revoke", "admin_user", targetAdminId);
   }
 
   private async recordAccess(actingAdminId: string, action: string, resourceType: string, resourceId: string): Promise<void> {

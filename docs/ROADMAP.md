@@ -22,7 +22,7 @@ this repository, not an aspirational plan.
 | Notifications | ✅ Preferences, daily/weekly brief composition, per-item email delivery, quiet-hours + intensity suppression — all real, running in the worker process (SMTP via Mailhog in dev). Push/desktop channels not implemented (no APNs/FCM integration yet — only `channel: "email"` actually sends). |
 | Background workers | ✅ Separate worker process (`services/api/src/worker-main.ts`, BullMQ + Redis) runs connector sync and notification dispatch/delivery durably — survives a process restart, retries with backoff, dedupes by job ID. |
 | Billing/entitlements | ✅ Stripe checkout + webhook + entitlement resolution, plus a real RevenueCat webhook handler (`revenuecat.service.ts`) normalizing App Store/Play Store/web entitlements into the same table — live-tested including a real bug found and fixed via a synthetic webhook call. Not built: the mobile IAP SDK/paywall UI itself (deliberately deferred — see `SECURITY.md`/roadmap testing-distribution section, since it can't be meaningfully tested without the paid Apple/Google developer accounts either way). |
-| Admin console | ✅ Separate app (`apps/admin`, its own port/origin) with real per-operator RBAC: sign-in, user lookup, connector health, audit log — all live, all audited. Break-glass/elevated-access workflow and role-scoped endpoints (`support` vs `superadmin` don't differ in practice yet) are not built. |
+| Admin console | ✅ Separate app (`apps/admin`, its own port/origin) with real per-operator RBAC: sign-in, user lookup, connector health, audit log — all live, all audited. Now includes self-service admin account management (create/list/revoke, `/dashboard/admins`), gated to `superadmin` only via a real `SuperAdminGuard` — the first place `support` vs `superadmin` actually differs. Break-glass/elevated-access workflow is still not built. |
 | Web app (Home/Inbox/Ask/Life/Connections/Settings) | ✅ Built, responsive, light/dark theme, real API integration. |
 | Mobile (iOS/Android) | ✅ Full screen parity with web: Home, Inbox, Ask, Life, Settings (tabs) plus Timeline, Documents, Connections (pushed screens) — Expo + expo-router (`apps/mobile`), light/dark theme, real API via bearer-token auth. **Real native builds produced and verified on both platforms**: `expo run:ios` on a real iPhone 16 Pro Simulator (Xcode 26.2) and `expo run:android` on a real Android emulator (API 36) — see docs/ARCHITECTURE.md's "Native mobile build" section for the three real upstream bugs found and fixed (all apply to both platforms) to get there. Every screen and nav path (Life → Timeline/Documents, Settings → Connections) also verified live via Playwright driving `expo start --web`, including real empty-state rendering for a fresh account. **Not done**: real device builds (only simulator/emulator so far); no share extension, widgets, biometrics, or push notifications; OAuth connect from mobile opens the system browser and finishes there rather than deep-linking back into the app. Theme preference now persists locally via `expo-secure-store` (`src/lib/theme-store.ts`) — verified live end-to-end through `expo start --web` (sign in, set Dark, reload the page, confirm it's still Dark) — but is not synced across devices via the account's `users.themePreference` column, which nothing on either platform writes to yet. |
 | Desktop (macOS/Windows) | ✅ Built (`apps/desktop`, Tauri 2). A native window loading the real `apps/web` app — no duplicated frontend. A Rust toolchain was installed (none was available at the start of this project) and both `tauri dev` and a real unsigned `tauri build` (.app + .dmg, ad-hoc signed) were run successfully. Not yet: production signing/notarization, Windows build (only macOS/arm64 built here), auto-update, system tray/native menu bar. |
@@ -291,8 +291,18 @@ still open:
   no sharing feature exists yet (Phase 2), and Inbox "correct" was added
   without an audit write since it's a lower-stakes, easily-undone action
   compared to household ACL/ownership changes.
-- No admin *management* UI/API yet — creating/revoking operator accounts is
-  a CLI script (`create-admin`), not a self-service superadmin console.
+- Admin management is now a real self-service superadmin console
+  (`/dashboard/admins` — list, create with a one-time-shown temporary
+  password, revoke) alongside the `create-admin` CLI script, which stays
+  for its actual purpose: bootstrapping the very first admin before any
+  admin session exists to authenticate a UI with. First role-scoped
+  endpoints in the app — a new `SuperAdminGuard` — since managing other
+  operators' accounts was the concrete superadmin-only action the schema's
+  role split was waiting for. Verified live: a support-role admin gets a
+  clean 403 from the management routes but keeps normal access elsewhere;
+  revoking an admin cuts off their already-open session immediately (not
+  at next token expiry) and blocks a fresh sign-in with the same
+  credentials; self-revoke and duplicate-email are both rejected.
 - Session refresh-token rotation is not implemented — the current session
   cookie is a single long-lived JWT re-checked against a revocable DB row
   per request (safe against revocation, but not the full rotating-refresh-
