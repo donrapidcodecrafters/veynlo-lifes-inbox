@@ -63,6 +63,11 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
     { key: "warrantyLengthMonths", label: "Warranty length (months)", numeric: true },
     { key: "expirationDateIso", label: "Expiration date (YYYY-MM-DD)" },
   ],
+  subscription: [
+    { key: "serviceLabel", label: "Service name" },
+    { key: "typicalAmountMinorUnits", label: "Amount (in cents)", numeric: true },
+    { key: "typicalAmountCurrency", label: "Currency (e.g. USD)" },
+  ],
 };
 
 export default function InboxScreen() {
@@ -70,6 +75,7 @@ export default function InboxScreen() {
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
 
   const load = useCallback(async () => {
     const res = await api.get<InboxItem[]>("/v1/inbox?reviewState=new");
@@ -104,10 +110,26 @@ export default function InboxScreen() {
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
-      <View>
-        <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }}>Inbox</Text>
-        <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>Newly discovered information to review.</Text>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }}>Inbox</Text>
+          <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>Newly discovered information to review.</Text>
+        </View>
+        <Button variant="secondary" onPress={() => setCapturing((v) => !v)}>
+          {capturing ? "Cancel" : "Add manually"}
+        </Button>
       </View>
+
+      {capturing && (
+        <Card style={{ gap: 12 }}>
+          <CaptureForm
+            onDone={() => {
+              setCapturing(false);
+              load();
+            }}
+          />
+        </Card>
+      )}
 
       {items?.length === 0 && (
         <EmptyState
@@ -176,6 +198,63 @@ export default function InboxScreen() {
         </View>
       )}
     </Screen>
+  );
+}
+
+/** Mirrors the web Inbox page's identical form — pastes a receipt/bill/confirmation email's text through the same pipeline a real connected inbox uses. */
+function CaptureForm({ onDone }: { onDone: () => void }) {
+  const { theme } = useAppTheme();
+  const [subject, setSubject] = useState("");
+  const [fromAddress, setFromAddress] = useState("");
+  const [bodyText, setBodyText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/ingestion/manual", { subject, bodyText, fromAddress: fromAddress || undefined });
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <View style={{ gap: 10 }}>
+        <Text style={{ fontSize: 15, color: theme.colors.textPrimary }}>
+          Submitted. If Veynlo finds something worth reviewing in it, a card will appear here shortly.
+        </Text>
+        <Button onPress={onDone}>Done</Button>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+        Paste the text of a receipt, bill, confirmation, or other email — or just describe what happened.
+      </Text>
+      <TextField label="Subject" value={subject} onChangeText={setSubject} />
+      <TextField label="From (optional)" value={fromAddress} onChangeText={setFromAddress} autoCapitalize="none" keyboardType="email-address" />
+      <TextField
+        label="Content"
+        value={bodyText}
+        onChangeText={setBodyText}
+        multiline
+        numberOfLines={6}
+        style={{ height: 140, paddingTop: 12, textAlignVertical: "top" }}
+      />
+      {error && <Text style={{ color: theme.colors.critical, fontSize: 13 }}>{error}</Text>}
+      <Button onPress={onSubmit} loading={submitting} disabled={!subject || !bodyText}>
+        Submit
+      </Button>
+    </View>
   );
 }
 

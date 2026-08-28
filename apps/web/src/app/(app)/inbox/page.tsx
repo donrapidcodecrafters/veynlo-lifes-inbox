@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
-import { Input, Label, FieldError } from "@/components/ui/input";
+import { Input, Label, FieldError, Textarea } from "@/components/ui/input";
 
 interface InboxItem {
   id: string;
@@ -63,11 +63,17 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
     { key: "warrantyLengthMonths", label: "Warranty length (months)", type: "number" },
     { key: "expirationDateIso", label: "Expiration date", type: "date" },
   ],
+  subscription: [
+    { key: "serviceLabel", label: "Service name", type: "text" },
+    { key: "typicalAmountMinorUnits", label: "Amount (in cents)", type: "number" },
+    { key: "typicalAmountCurrency", label: "Currency (e.g. USD)", type: "text" },
+  ],
 };
 
 export default function InboxPage() {
   const [filter, setFilter] = useState<"new" | "all">("new");
   const [correctingId, setCorrectingId] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
   const { data, isLoading, mutate } = useSWR<InboxItem[]>(
     filter === "new" ? "/v1/inbox?reviewState=new" : "/v1/inbox",
     swrFetcher,
@@ -86,25 +92,40 @@ export default function InboxPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-primary">Inbox</h1>
           <p className="mt-1 text-sm text-tertiary">Newly discovered information to review.</p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-subtle p-1">
-          {(["new", "all"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
-                filter === f ? "bg-surface text-primary shadow-xs" : "text-tertiary"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 rounded-lg bg-subtle p-1">
+            {(["new", "all"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                  filter === f ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => setCapturing((v) => !v)}>
+            {capturing ? "Cancel" : "Add manually"}
+          </Button>
         </div>
       </header>
+
+      {capturing && (
+        <CaptureForm
+          onDone={() => {
+            setCapturing(false);
+            mutate();
+          }}
+          onCancel={() => setCapturing(false)}
+        />
+      )}
 
       {isLoading && (
         <div className="space-y-3">
@@ -180,6 +201,109 @@ export default function InboxPage() {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * §CAP-005/006 forward + quick-text capture — pastes a receipt/bill/confirmation email's text (or any
+ * plain description) through the same pipeline a real connected inbox uses. Submitting always succeeds;
+ * whether it produces a new Inbox item depends on what Veynlo's extraction actually finds in the text
+ * (nothing configured in this environment means it's filed with no card — same as a genuinely irrelevant
+ * email would be), so the confirmation is deliberately non-committal about what happens next.
+ */
+function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [subject, setSubject] = useState("");
+  const [fromAddress, setFromAddress] = useState("");
+  const [bodyText, setBodyText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/ingestion/manual", {
+        subject,
+        bodyText,
+        fromAddress: fromAddress || undefined,
+      });
+      setDone(true);
+      setSubject("");
+      setFromAddress("");
+      setBodyText("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <Card>
+        <CardBody className="space-y-3">
+          <p className="text-[0.9375rem] text-primary">
+            Submitted. If Veynlo finds something worth reviewing in it, a card will appear here shortly.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setDone(false)}>
+              Add another
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onDone}>
+              Done
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardBody>
+        <form onSubmit={onSubmit} className="space-y-3" noValidate>
+          <p className="text-sm text-tertiary">
+            Paste the text of a receipt, bill, confirmation, or other email — or just describe what happened.
+          </p>
+          <div>
+            <Label htmlFor="capture-subject">Subject</Label>
+            <Input id="capture-subject" value={subject} onChange={(e) => setSubject(e.target.value)} required maxLength={500} />
+          </div>
+          <div>
+            <Label htmlFor="capture-from">From (optional)</Label>
+            <Input
+              id="capture-from"
+              type="email"
+              value={fromAddress}
+              onChange={(e) => setFromAddress(e.target.value)}
+              placeholder="billing@example.com"
+            />
+          </div>
+          <div>
+            <Label htmlFor="capture-body">Content</Label>
+            <Textarea
+              id="capture-body"
+              rows={8}
+              value={bodyText}
+              onChange={(e) => setBodyText(e.target.value)}
+              required
+              maxLength={50_000}
+            />
+          </div>
+          <FieldError>{error ?? undefined}</FieldError>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" loading={submitting}>
+              Submit
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
   );
 }
 
