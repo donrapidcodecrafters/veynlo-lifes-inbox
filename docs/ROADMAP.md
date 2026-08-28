@@ -441,6 +441,34 @@ rotation, account deletion, network hardening, and an honest pre-submission
 checklist for the App Store/Play Store/a real pentest). Summary of what's
 still open:
 
+- **Fixed a real, session-wide bug**: none of the three frontends (web,
+  mobile, admin) had a global 401 handler. A revoked/expired session (sign
+  out everywhere from another device, a session naturally expiring, an
+  invalid token) meant every subsequent fetch on that screen just failed
+  silently forever — SWR-based web pages render blank (`data` stays
+  `undefined`, matching neither the loading nor empty-state branch) and
+  `useEffect`+`.then().finally()` pages (no `.catch`) render an empty state
+  indistinguishable from a genuinely empty account. All three
+  `api-client.ts` files now redirect to sign-in on any 401 *except* from
+  the sign-in/sign-up endpoints themselves (those legitimately 401 on wrong
+  credentials, which the sign-in page needs to show inline, not have this
+  silently redirect away from — verified live on both web and mobile-web
+  that a wrong-password attempt stays on the sign-in screen with the real
+  inline error, while an invalid/expired session on any other screen
+  correctly redirects). Also fixed a related mobile bug found in the same
+  pass: five screens' pull-to-refresh handlers (`(tabs)/index.tsx`,
+  `(tabs)/inbox.tsx`, `(tabs)/life.tsx`, `connections.tsx`,
+  `documents.tsx`) called `setRefreshing(false)` without a `try/finally`,
+  so any failed request (exactly the 401 case above, or a plain network
+  error) left the pull-to-refresh spinner spinning forever with no way out
+  short of force-quitting the screen. Not fixed in this pass, a broader
+  and more design-heavy gap: most data-fetching screens still show no
+  error message at all for a failed fetch (distinct from the 401 case
+  above, which now at least redirects) — a transient 500 or network error
+  on `/timeline`, `/inbox`, etc. still just renders an empty state with no
+  "something went wrong, retry" affordance. Worth a dedicated pass once
+  the app has real users generating real transient failures to design
+  around, rather than speculatively wiring error UI into every screen now.
 - Real malware scanning now exists for document uploads: a ClamAV service
   (`infrastructure/docker/docker-compose.yml`) and `MalwareScannerService`
   (`services/api/src/modules/documents/malware-scanner.service.ts`) speaking

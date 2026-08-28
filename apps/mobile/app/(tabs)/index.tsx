@@ -50,8 +50,11 @@ export default function HomeScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function resolve(id: string) {

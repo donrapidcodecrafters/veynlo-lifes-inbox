@@ -87,8 +87,11 @@ export default function LifeScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   return (

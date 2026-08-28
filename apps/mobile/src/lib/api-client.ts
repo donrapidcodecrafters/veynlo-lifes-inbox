@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+import { router } from "expo-router";
 import { tokenStore } from "./token-store";
 
 // The Android emulator's "localhost" refers to the emulator itself, not the host machine running the API —
@@ -43,6 +44,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = isJson ? await res.json() : await res.text();
 
   if (!res.ok) {
+    // Same reasoning as apps/web/src/lib/api-client.ts's identical check: a 401 from any endpoint other
+    // than sign-in/sign-up itself means the stored token is invalid/revoked/expired, not "wrong
+    // credentials" (which sign-in/sign-up need to show inline). Without this, a screen with a stale token
+    // just failed every fetch forever with no visible error and no way back to sign-in short of
+    // force-quitting the app.
+    if (res.status === 401 && !path.startsWith("/v1/auth/sign-in") && !path.startsWith("/v1/auth/sign-up")) {
+      await tokenStore.clear();
+      router.replace("/sign-in");
+    }
     const message = typeof body === "object" && body?.message ? body.message : "Something went wrong.";
     const code = typeof body === "object" && body?.code ? body.code : "UNKNOWN_ERROR";
     throw new ApiError(message, code, res.status, typeof body === "object" ? body?.fieldErrors : undefined);

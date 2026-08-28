@@ -26,6 +26,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = isJson ? await res.json() : await res.text();
 
   if (!res.ok) {
+    // Same reasoning as apps/web/src/lib/api-client.ts's identical check: a 401 from any endpoint other
+    // than the admin sign-in endpoint itself means the admin session cookie is missing/revoked/expired,
+    // not "wrong credentials" (which the sign-in page needs to show inline).
+    if (res.status === 401 && !path.startsWith("/v1/admin/auth/sign-in") && typeof window !== "undefined") {
+      window.location.href = "/sign-in";
+    }
     const message = typeof body === "object" && body?.message ? body.message : "Something went wrong.";
     const code = typeof body === "object" && body?.code ? body.code : "UNKNOWN_ERROR";
     throw new ApiError(message, code, res.status);

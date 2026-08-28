@@ -53,8 +53,11 @@ export default function ConnectionsScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {

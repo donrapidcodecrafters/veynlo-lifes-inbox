@@ -44,8 +44,11 @@ export default function DocumentsScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function openDocument(id: string) {

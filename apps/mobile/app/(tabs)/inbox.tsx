@@ -84,8 +84,11 @@ export default function InboxScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function act(id: string, action: "confirm" | "archive" | "dismiss") {

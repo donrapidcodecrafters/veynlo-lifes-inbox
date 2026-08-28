@@ -29,6 +29,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = isJson ? await res.json() : await res.text();
 
   if (!res.ok) {
+    // A 401 from any endpoint OTHER than sign-in/sign-up itself means the session cookie is missing/
+    // revoked/expired, not "wrong credentials" (sign-in/sign-up legitimately 401 on bad input, which the
+    // caller needs to show inline, not have this silently redirect away from). Without this, every screen
+    // that lost its session just failed every subsequent fetch forever with no visible error — SWR pages
+    // render blank (data stays undefined, matching neither the loading nor empty-state branch) and pages
+    // using useEffect+.then().finally() (no .catch) render an empty state indistinguishable from a
+    // genuinely empty account.
+    if (res.status === 401 && !path.startsWith("/v1/auth/sign-in") && !path.startsWith("/v1/auth/sign-up") && typeof window !== "undefined") {
+      window.location.href = "/sign-in";
+    }
     const message = typeof body === "object" && body?.message ? body.message : "Something went wrong.";
     const code = typeof body === "object" && body?.code ? body.code : "UNKNOWN_ERROR";
     throw new ApiError(message, code, res.status, typeof body === "object" ? body?.fieldErrors : undefined);
@@ -45,7 +55,10 @@ export const api = {
   upload: <T>(path: string, formData: FormData) =>
     fetch(`${API_BASE_URL}${path}`, { method: "POST", credentials: "include", body: formData }).then(async (res) => {
       const body = await res.json();
-      if (!res.ok) throw new ApiError(body.message ?? "Upload failed.", body.code ?? "UPLOAD_FAILED", res.status);
+      if (!res.ok) {
+        if (res.status === 401 && typeof window !== "undefined") window.location.href = "/sign-in";
+        throw new ApiError(body.message ?? "Upload failed.", body.code ?? "UPLOAD_FAILED", res.status);
+      }
       return body as T;
     }),
 };
