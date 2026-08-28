@@ -6,7 +6,7 @@ import { DATABASE } from "../../database/database.module";
 
 export interface TimelineItem {
   id: string;
-  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case";
+  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case" | "warranty";
   title: string;
   occurredAt: string;
   resourceType: string;
@@ -98,6 +98,18 @@ export class TimelineService {
           d.id as resource_id
         from documents d
         where d.owner_user_id = ${ownerUserId} and d.deleted_at is null
+
+        union all
+
+        select
+          w.id as id,
+          'warranty' as kind,
+          w.product_label as title,
+          w.expiration_date_sort as occurred_at,
+          'warranty' as resource_type,
+          w.id as resource_id
+        from warranties w
+        where w.owner_user_id = ${ownerUserId} and w.expiration_date_sort is not null
       ) timeline
       where ${beforeTimestamp}::timestamptz is null or occurred_at < ${beforeTimestamp}
       order by occurred_at desc
@@ -108,11 +120,11 @@ export class TimelineService {
     const hasMore = rows.length > PAGE_SIZE;
     const page = hasMore ? rows.slice(0, PAGE_SIZE) : rows;
 
-    // Raw sql`...` bypasses Drizzle's customType decode, so calendar_events.title, bills.biller_label, and
-    // documents.title (all encrypted — see their schema definitions) come back as ciphertext here and need
-    // manual decryption. purchases' title (merchant name / order number) and return_cases' literal
-    // "Return deadline" are never encrypted, so those pass through unchanged.
-    const ENCRYPTED_TITLE_KINDS = new Set(["calendar_event", "bill", "document"]);
+    // Raw sql`...` bypasses Drizzle's customType decode, so calendar_events.title, bills.biller_label,
+    // warranties.product_label, and documents.title (all encrypted — see their schema definitions) come back
+    // as ciphertext here and need manual decryption. purchases' title (merchant name / order number) and
+    // return_cases' literal "Return deadline" are never encrypted, so those pass through unchanged.
+    const ENCRYPTED_TITLE_KINDS = new Set(["calendar_event", "bill", "document", "warranty"]);
     const items: TimelineItem[] = page.map((row) => ({
       id: row.id,
       kind: row.kind as TimelineItem["kind"],

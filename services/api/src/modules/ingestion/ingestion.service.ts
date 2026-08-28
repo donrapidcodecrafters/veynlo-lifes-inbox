@@ -14,6 +14,7 @@ import {
   ShipmentExtractionSchema,
   BillExtractionSchema,
   CalendarEventExtractionSchema,
+  WarrantyExtractionSchema,
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender } from "../intelligence/deterministic-prefilter";
 import { parseGmailMessage, type ParsedEmail } from "./gmail-message-parser";
@@ -201,6 +202,9 @@ export class IngestionService {
     }
     if (domains.includes("calendar_event") || domains.includes("travel")) {
       filedAny = (await this.extractCalendarEvent(ctx)) || filedAny;
+    }
+    if (domains.includes("warranty")) {
+      filedAny = (await this.extractWarranty(ctx)) || filedAny;
     }
 
     await this.markProcessed(ctx.sourceEventId, filedAny ? "needs_review" : "filed");
@@ -499,6 +503,53 @@ export class IngestionService {
       linkedResourceId: eventId,
       sourceEventId: ctx.sourceEventId,
       suggestedActions: ["confirm", "add_to_calendar", "dismiss"],
+      confidenceBand,
+    });
+    return true;
+  }
+
+  private async extractWarranty(ctx: {
+    sourceEventId: string;
+    ownerUserId: string;
+    householdId: string | null;
+    parsed: ReturnType<typeof parseGmailMessage>;
+  }): Promise<boolean> {
+    if (!this.ai.isConfigured()) return false;
+    const result = await this.ai.extractStructured({
+      extractorName: "warranty_extraction_v1",
+      model: "cheap",
+      systemPrompt:
+        "Extract structured product warranty data from this email for Veynlo. Never invent an expiration date " +
+        "or warranty length that is not clearly stated — use null and confidenceNotes instead.",
+      userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
+      schema: WarrantyExtractionSchema,
+      toolDescription: "Emit the extracted warranty fields.",
+    });
+    if (!result || !result.data.productLabel) return false;
+
+    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const expirationDate = toTemporalValue(result.data.warrantyExpirationDate);
+    const warrantyId = generateId("warranty");
+    await this.db.insert(schema.warranties).values({
+      id: warrantyId,
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      productLabel: result.data.productLabel,
+      warrantyLengthMonths: result.data.warrantyLengthMonths,
+      expirationDate,
+      expirationDateSort: temporalToSortDate(expirationDate),
+      registrationConfirmed: result.data.registrationConfirmed,
+    });
+
+    await this.fileInboxItem({
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      category: "warranty",
+      summary: `${result.data.productLabel} warranty detected`,
+      linkedResourceType: "warranty",
+      linkedResourceId: warrantyId,
+      sourceEventId: ctx.sourceEventId,
+      suggestedActions: ["confirm", "correct", "dismiss"],
       confidenceBand,
     });
     return true;

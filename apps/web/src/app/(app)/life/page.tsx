@@ -43,6 +43,13 @@ interface BillRow {
   };
 }
 
+interface Warranty {
+  id: string;
+  productLabel: string;
+  expirationDate: TemporalValueLike;
+  registrationConfirmed: boolean | null;
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
@@ -57,6 +64,7 @@ export default function LifePage() {
   const { data: returns, isLoading: loadingReturns } = useSWR<ReturnRow[]>("/v1/returns", swrFetcher);
   const { data: subscriptions, isLoading: loadingSubs } = useSWR<SubscriptionRow[]>("/v1/subscriptions", swrFetcher);
   const { data: bills, isLoading: loadingBills } = useSWR<BillRow[]>("/v1/bills", swrFetcher);
+  const { data: warranties, isLoading: loadingWarranties } = useSWR<Warranty[]>("/v1/warranties", swrFetcher);
 
   return (
     <div className="space-y-8">
@@ -152,6 +160,32 @@ export default function LifePage() {
                     {due && <p className="text-xs text-tertiary">Due {due}</p>}
                   </div>
                   {amount && <p className="text-sm font-medium text-primary">{amount}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Warranties">
+        {loadingWarranties && <div className="h-16 animate-pulse rounded-xl bg-subtle" />}
+        {!loadingWarranties && (!warranties || warranties.length === 0) && (
+          <EmptyState title="No warranties tracked yet" description="Warranties found in email will show up here with their expiration date." />
+        )}
+        {warranties && warranties.length > 0 && (
+          <div className="divide-y divide-border-subtle rounded-xl border border-border-subtle bg-surface">
+            {warranties.map((w) => {
+              const days = daysUntil(w.expirationDate);
+              const expires = formatTemporal(w.expirationDate);
+              return (
+                <div key={w.id} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-primary">{w.productLabel}</p>
+                    {expires && <p className="text-xs text-tertiary">Expires {expires}</p>}
+                  </div>
+                  {days != null && (
+                    <Badge tone={days <= 30 ? "warning" : "neutral"}>{days > 0 ? `${days}d left` : "Expired"}</Badge>
+                  )}
                 </div>
               );
             })}

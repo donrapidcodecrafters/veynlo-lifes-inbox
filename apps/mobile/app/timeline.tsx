@@ -11,7 +11,7 @@ import { ScreenHeader } from "@/components/screen-header";
 
 interface TimelineItem {
   id: string;
-  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case";
+  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case" | "warranty";
   title: string;
   occurredAt: string;
 }
@@ -27,6 +27,7 @@ const KIND_LABEL: Record<TimelineItem["kind"], string> = {
   bill: "Bill",
   document: "Document",
   return_case: "Return",
+  warranty: "Warranty",
 };
 
 // Mobile's Badge only supports neutral/critical/warning/positive/brand (no "info") — calendar events use
@@ -37,6 +38,7 @@ const KIND_TONE: Record<TimelineItem["kind"], "brand" | "positive" | "warning" |
   bill: "warning",
   document: "neutral",
   return_case: "critical",
+  warranty: "neutral",
 };
 
 function groupByDay(items: TimelineItem[]): Array<[string, TimelineItem[]]> {

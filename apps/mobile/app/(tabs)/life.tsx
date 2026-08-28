@@ -38,6 +38,13 @@ interface BillRow {
   bill: { id: string; billerLabel: string; amountDueMinorUnits: number | null; amountDueCurrency: string | null; dueDate: TemporalValueLike };
 }
 
+interface Warranty {
+  id: string;
+  productLabel: string;
+  expirationDate: TemporalValueLike;
+  registrationConfirmed: boolean | null;
+}
+
 function SectionHeading({ title }: { title: string }) {
   const { theme } = useAppTheme();
   return (
@@ -54,19 +61,22 @@ export default function LifeScreen() {
   const [returns, setReturns] = useState<ReturnRow[] | null>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [bills, setBills] = useState<BillRow[] | null>(null);
+  const [warranties, setWarranties] = useState<Warranty[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [p, r, s, b] = await Promise.all([
+    const [p, r, s, b, w] = await Promise.all([
       api.get<Purchase[]>("/v1/purchases"),
       api.get<ReturnRow[]>("/v1/returns"),
       api.get<SubscriptionRow[]>("/v1/subscriptions"),
       api.get<BillRow[]>("/v1/bills"),
+      api.get<Warranty[]>("/v1/warranties"),
     ]);
     setPurchases(p);
     setReturns(r);
     setSubscriptions(s);
     setBills(b);
+    setWarranties(w);
   }, []);
 
   useFocusEffect(
@@ -192,6 +202,42 @@ export default function LifeScreen() {
                     {due && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Due {due}</Text>}
                   </View>
                   {amount && <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{amount}</Text>}
+                </View>
+              );
+            })}
+          </Card>
+        )}
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <SectionHeading title="Warranties" />
+        {!warranties && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
+        {warranties?.length === 0 && (
+          <EmptyState title="No warranties tracked yet" description="Warranties found in email will show up here with their expiration date." />
+        )}
+        {warranties && warranties.length > 0 && (
+          <Card style={{ padding: 0 }}>
+            {warranties.map((w, i) => {
+              const days = daysUntil(w.expirationDate);
+              const expires = formatTemporal(w.expirationDate);
+              return (
+                <View
+                  key={w.id}
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: theme.colors.borderSubtle,
+                  }}
+                >
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{w.productLabel}</Text>
+                    {expires && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Expires {expires}</Text>}
+                  </View>
+                  {days != null && <Badge tone={days <= 30 ? "warning" : "neutral"}>{days > 0 ? `${days}d left` : "Expired"}</Badge>}
                 </View>
               );
             })}

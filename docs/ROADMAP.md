@@ -12,7 +12,7 @@ this repository, not an aspirational plan.
 | Data protection at rest | ✅ Field-level AES-256-GCM encryption on ~40 sensitive columns across every domain, transparent via a Drizzle `customType`, with explicit operator-set key versioning for rotation. See `SECURITY.md` for what's covered/not and why. |
 | Household + dependents | ✅ Built (create/invite/leave/dependents/caregiver delegations — grant/list/revoke, `POST/GET /v1/households/:id/delegations`, `:id/revoke`). Delegation grants require the delegate to already be an active household member (a delegation adds a scoped capability to someone already trusted, not a way to admit an outsider), scopes are validated against a fixed enum (`schedule:read`/`documents:read`/`commerce:read`/`household:read`), and both grant/revoke are audited. **Not done**: nothing outside HouseholdService actually checks a caller's delegation scopes yet — the grant/list/revoke API exists and is enforced for itself, but schedule/documents/commerce endpoints don't consult delegations before serving data to a non-owner. |
 | Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
-| Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events. Travel/warranty/school/home/vehicle extractors not started. |
+| Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events, and warranties (`extractWarranty`, `warranties` table, `GET /v1/warranties`, surfaced on Life and Timeline). Travel is partially covered by the calendar extractor; school/home/vehicle extractors not started. |
 | Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`; the owner-scoped `canonical_entities` knowledge-graph layer remains unwritten (see below). |
 | Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built. "Correct" (editing extracted fields) and "merge" are not yet implemented — only confirm/archive/dismiss/snooze. |
 | Home "Needs You" + caught-up state | ✅ Built, reads real attention_items. Nothing populates attention_items automatically yet from the pipeline — currently only seed data and (implicitly) future automation-rule output would. |
@@ -210,6 +210,41 @@ this repository, not an aspirational plan.
     environment is macOS/arm64 only) — the Tauri config is
     platform-agnostic, so that should be a CI/cross-compile concern rather
     than a code change.
+
+11. ~~**Warranty extractor**~~ — done. `WarrantyExtractionSchema` (in
+    `extraction-schemas.ts`) and the `"warranty"` domain-classification
+    label already existed but were unconsumed dead code — nothing called
+    the extractor and no table existed to hold its output. Added a
+    dedicated `warranties` table (mirrors `bills`'/`return_cases`' shape:
+    encrypted `productLabel`, `expirationDate`/`expirationDateSort` as the
+    sortable `TemporalValue` pair, plus `warrantyLengthMonths` and
+    `registrationConfirmed`, with an optional FK to the `purchaseLineId`
+    it belongs to — left unpopulated for now since no product-label
+    matching between a warranty email and an existing purchase line
+    exists yet), `IngestionService.extractWarranty` (mirrors `extractBill`
+    exactly: calls `AnthropicExtractionService.extractStructured`, files
+    an Inbox item with `suggestedActions: ["confirm", "correct",
+    "dismiss"]`), and wired the `classifyAndExtract` dispatcher's missing
+    `domains.includes("warranty")` branch — previously an email classified
+    warranty-only silently fell through and got marked "filed" with
+    nothing actually filed. Also added `GET /v1/warranties`
+    (`CommerceService.warranties`), a Timeline `UNION ALL` branch (with
+    `"warranty"` added to `ENCRYPTED_TITLE_KINDS` — the one easy-to-miss
+    step, since a raw-SQL timeline query bypasses Drizzle's transparent
+    decryption), and a "Warranties" section on both the web and mobile
+    Life screens (using the same `daysUntil` urgency-badge pattern as
+    Returns, since an expiring warranty is closer to that than to a bill's
+    plain due date). Deliberately skipped: no automatic linking from a
+    warranty to the purchase it belongs to (no established product-label-
+    matching mechanism exists elsewhere in the pipeline to build on
+    safely). Verified live end-to-end against the real running API and
+    Postgres: confirmed the row is genuinely encrypted at rest
+    (`product_label` reads back as ciphertext via `psql`), that
+    `GET /v1/warranties` and `GET /v1/timeline` both correctly decrypt and
+    return the plaintext product label, and — via a real headless-browser
+    Playwright session — that the Life page's new Warranties section and
+    the Timeline's new "Warranty" badge both render correctly with no
+    console errors.
 
 ## Phase 2 — financially sticky + household-ready
 

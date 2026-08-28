@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 
 interface TimelineItem {
   id: string;
-  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case";
+  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case" | "warranty";
   title: string;
   occurredAt: string;
   resourceType: string;
@@ -27,6 +27,7 @@ const KIND_LABEL: Record<TimelineItem["kind"], string> = {
   bill: "Bill",
   document: "Document",
   return_case: "Return",
+  warranty: "Warranty",
 };
 
 const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | "neutral" | "critical"> = {
@@ -35,6 +36,7 @@ const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | 
   bill: "warning",
   document: "neutral",
   return_case: "critical",
+  warranty: "neutral",
 };
 
 function groupByDay(items: TimelineItem[]): Array<[string, TimelineItem[]]> {

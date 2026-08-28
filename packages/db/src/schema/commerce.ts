@@ -182,6 +182,28 @@ export const bills = pgTable(
   (t) => [index("bills_due_date_idx").on(t.dueDateSort)],
 );
 
+export const warranties = pgTable(
+  "warranties",
+  {
+    id: text("id").primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
+    purchaseLineId: text("purchase_line_id").references(() => purchaseLines.id, { onDelete: "set null" }),
+    // Encrypted — note this is read via raw SQL in TimelineService, which bypasses the customType's
+    // transparent decryption; that service manually decrypts it after the query (see timeline.service.ts).
+    productLabel: encryptedText("product_label").notNull(),
+    warrantyLengthMonths: integer("warranty_length_months"),
+    expirationDate: jsonb("expiration_date").$type<TemporalValue>().notNull(),
+    expirationDateSort: timestamp("expiration_date_sort", { withTimezone: true }),
+    registrationConfirmed: boolean("registration_confirmed"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("warranties_expiration_date_idx").on(t.expirationDateSort)],
+);
+
 export const priceObservations = pgTable("price_observations", {
   id: text("id").primaryKey(),
   subjectEntityId: text("subject_entity_id").notNull(),

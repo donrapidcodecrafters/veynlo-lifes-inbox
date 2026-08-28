@@ -50,4 +50,12 @@ export class CommerceService {
       .where(eq(schema.bills.ownerUserId, userId))
       .orderBy(asc(schema.bills.dueDateSort));
   }
+
+  warranties(userId: string) {
+    return this.db
+      .select()
+      .from(schema.warranties)
+      .where(eq(schema.warranties.ownerUserId, userId))
+      .orderBy(asc(schema.warranties.expirationDateSort));
+  }
 }

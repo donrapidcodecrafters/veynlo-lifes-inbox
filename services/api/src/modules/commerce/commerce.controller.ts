@@ -33,4 +33,9 @@ export class CommerceController {
   bills(@CurrentUser() user: AuthenticatedUser) {
     return this.commerce.bills(user.userId);
   }
+
+  @Get("warranties")
+  warranties(@CurrentUser() user: AuthenticatedUser) {
+    return this.commerce.warranties(user.userId);
+  }
 }

@@ -30,6 +30,7 @@ export const ID_PREFIXES = {
   shipment: "shp",
   subscription: "sub",
   bill: "bil",
+  warranty: "war",
   recurringStream: "rec",
   calendarEvent: "evt",
   task: "tsk",
