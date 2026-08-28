@@ -699,10 +699,11 @@ export class IngestionService {
   }
 
   /**
-   * ICS calendar-feed sync entry point — structurally different from every other ingest*Message method:
-   * a VEVENT is already a calendar event, full stop, so there's no relevance prefilter, no AI domain
-   * classification, no structured extraction. Deterministic sync, not an AI inference, so the resulting
-   * inbox item only ever offers "dismiss" (there's nothing to "confirm" — the event is already live).
+   * Shared sync entry point for every "the source already IS a calendar event" connector — ICS feeds and
+   * the Google Calendar API adapter alike — structurally different from every other ingest*Message method:
+   * there's no relevance prefilter, no AI domain classification, no structured extraction. Deterministic
+   * sync, not an AI inference, so the resulting inbox item only ever offers "dismiss" (there's nothing to
+   * "confirm" — the event is already live).
    *
    * Idempotency is content-hash-based rather than the plain per-item dedup every other ingest*Message
    * method uses, because a feed resync must be a no-op for an UNCHANGED event but must actually update an
@@ -711,7 +712,8 @@ export class IngestionService {
    * different content" is treated as a fresh event to file. The calendar_events row itself is looked up
    * and updated in place by (ownerUserId, providerEventId) rather than ever inserting a duplicate.
    */
-  async ingestIcsEvent(params: {
+  async ingestFeedCalendarEvent(params: {
+    provider: string;
     ownerUserId: string;
     householdId: string | null;
     connectionId: string;
@@ -725,7 +727,7 @@ export class IngestionService {
     const contentHash = createHash("sha256")
       .update(JSON.stringify({ title: params.title, start: params.start, end: params.end, location: params.location, isAllDay: params.isAllDay }))
       .digest("hex");
-    const idempotencyKey = `ics:${params.connectionId}:${params.uid}:${contentHash}`;
+    const idempotencyKey = `${params.provider}:${params.connectionId}:${params.uid}:${contentHash}`;
 
     const [existingSourceEvent] = await this.db
       .select({ id: schema.sourceEvents.id })

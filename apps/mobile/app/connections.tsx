@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { TextField } from "@/components/text-field";
 
-const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed" };
+const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed", google_calendar: "Google Calendar" };
 
 interface Connection {
   id: string;
@@ -35,6 +35,7 @@ const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral
 const AVAILABLE_CONNECTORS = [
   { provider: "gmail", name: "Gmail", description: "Receipts, bills, appointments, and more from your inbox." },
   { provider: "outlook", name: "Outlook", description: "The same, from a Microsoft 365 or Outlook.com inbox." },
+  { provider: "google-calendar", name: "Google Calendar", description: "Sync your Google Calendar events directly." },
 ] as const;
 
 export default function ConnectionsScreen() {

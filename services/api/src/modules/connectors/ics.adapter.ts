@@ -26,7 +26,7 @@ function textValue(v: string | { val: string } | undefined | null): string | nul
  * A calendar-feed-by-URL subscription — structurally nothing like Gmail/Outlook (no OAuth, no per-message
  * extraction pipeline; a VEVENT already *is* a calendar event). No deployment-wide config to gate on, so
  * `isConfigured()` is always true — what varies is per-connection (the feed URL/credentials), not a
- * platform-wide API key. See `IngestionService.ingestIcsEvent` for the actual write path.
+ * platform-wide API key. See `IngestionService.ingestFeedCalendarEvent` for the actual write path.
  */
 @Injectable()
 export class IcsAdapter {
@@ -94,7 +94,7 @@ export class IcsAdapter {
   }
 
   /** No protocol-level delta mechanism exists for a plain ICS feed — every "incremental" sync is really a
-   * full refetch, deduped/updated by each VEVENT's own UID via IngestionService.ingestIcsEvent. */
+   * full refetch, deduped/updated by each VEVENT's own UID via IngestionService.ingestFeedCalendarEvent. */
   async incrementalSync(connectionId: string): Promise<{ itemCount: number }> {
     return this.sync(connectionId);
   }
@@ -122,7 +122,8 @@ export class IcsAdapter {
           : { precision: "instant", instantUtc: component.end.toISOString(), date: null, timezone: component.end.tz ?? null, sourceText: null }
         : null;
 
-      const filed = await this.ingestion.ingestIcsEvent({
+      const filed = await this.ingestion.ingestFeedCalendarEvent({
+        provider: "ics",
         ownerUserId: connection.ownerUserId,
         householdId: connection.householdId,
         connectionId,

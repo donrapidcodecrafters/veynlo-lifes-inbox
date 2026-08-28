@@ -9,6 +9,7 @@ import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
+import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { IcsConnectDtoSchema, type IcsConnectDto } from "./dto";
 
 @Controller("v1/connectors")
@@ -19,6 +20,7 @@ export class ConnectorsController {
     private readonly gmail: GmailAdapter,
     private readonly outlook: OutlookAdapter,
     private readonly ics: IcsAdapter,
+    private readonly googleCalendar: GoogleCalendarAdapter,
   ) {}
 
   @Get()
@@ -112,6 +114,53 @@ export class ConnectorsController {
         householdId: null,
       });
       return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=outlook` };
+    } catch (err) {
+      if (err instanceof ConnectorNotConfiguredError) {
+        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
+      }
+      throw err;
+    }
+  }
+
+  @Get("google-calendar/authorize")
+  async googleCalendarAuthorize(@CurrentUser() user: AuthenticatedUser) {
+    if (!this.googleCalendar.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message:
+          "Google Calendar isn't configured on this deployment yet. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/google-calendar/callback`;
+    const state = await new SignJWT({ sub: user.userId })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("10m")
+      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const authorizationUrl = this.googleCalendar.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("google-calendar/callback")
+  async googleCalendarCallback(@Query("code") code: string, @Query("state") state: string) {
+    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+    const env = loadEnv();
+    let userId: string;
+    try {
+      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
+      userId = (verified.payload as { sub: string }).sub;
+    } catch {
+      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
+    }
+    try {
+      const result = await this.googleCalendar.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/google-calendar/callback`,
+        ownerUserId: userId,
+        householdId: null,
+      });
+      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=google_calendar` };
     } catch (err) {
       if (err instanceof ConnectorNotConfiguredError) {
         throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });

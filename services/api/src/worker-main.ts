@@ -24,6 +24,7 @@ import {
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { IcsAdapter } from "./modules/connectors/ics.adapter";
+import { GoogleCalendarAdapter } from "./modules/connectors/google-calendar.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { StorageService } from "./modules/documents/storage.service";
@@ -51,6 +52,7 @@ async function bootstrap() {
   const gmailAdapter = appContext.get(GmailAdapter);
   const outlookAdapter = appContext.get(OutlookAdapter);
   const icsAdapter = appContext.get(IcsAdapter);
+  const googleCalendarAdapter = appContext.get(GoogleCalendarAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get(StorageService);
@@ -70,7 +72,13 @@ async function bootstrap() {
           .limit(1);
         if (!connection) throw new Error(`Connection ${connectionId} not found`);
         const adapter =
-          connection.provider === "outlook" ? outlookAdapter : connection.provider === "ics" ? icsAdapter : gmailAdapter;
+          connection.provider === "outlook"
+            ? outlookAdapter
+            : connection.provider === "ics"
+              ? icsAdapter
+              : connection.provider === "google_calendar"
+                ? googleCalendarAdapter
+                : gmailAdapter;
         if (kind === "incremental") {
           await adapter.incrementalSync(connectionId);
         } else {
@@ -88,9 +96,10 @@ async function bootstrap() {
   );
 
   // Recurring tick (see QueueProducerService.scheduleRecurringConnectorScan): finds every healthy,
-  // still-connected direct-API email connection (Gmail, Outlook) and enqueues one incremental sync per
-  // connection. Deduplicated by enqueueConnectorSync's jobId (`${connectionId}-incremental`), so a
-  // connection already mid-sync when this tick fires is just skipped rather than double-queued.
+  // still-connected direct-API/feed connection (Gmail, Outlook, ICS, Google Calendar) and enqueues one
+  // incremental sync per connection. Deduplicated by enqueueConnectorSync's jobId
+  // (`${connectionId}-incremental`), so a connection already mid-sync when this tick fires is just skipped
+  // rather than double-queued.
   const connectorScanWorker = new Worker<ConnectorScanJobData>(
     QUEUE_NAMES.connectorScan,
     async () => {
@@ -99,7 +108,7 @@ async function bootstrap() {
         .from(schema.connections)
         .where(
           and(
-            inArray(schema.connections.provider, ["gmail", "outlook", "ics"]),
+            inArray(schema.connections.provider, ["gmail", "outlook", "ics", "google_calendar"]),
             eq(schema.connections.health, "healthy"),
             isNull(schema.connections.disconnectedAt),
           ),
