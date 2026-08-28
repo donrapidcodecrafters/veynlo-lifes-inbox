@@ -7,9 +7,11 @@ import { HouseholdService } from "./household.service";
 import {
   CreateDependentDtoSchema,
   CreateHouseholdDtoSchema,
+  GrantDelegationDtoSchema,
   InviteMemberDtoSchema,
   type CreateDependentDto,
   type CreateHouseholdDto,
+  type GrantDelegationDto,
   type InviteMemberDto,
 } from "./dto";
 
@@ -62,5 +64,29 @@ export class HouseholdController {
   @Post(":householdId/leave")
   leave(@CurrentUser() user: AuthenticatedUser, @Param("householdId") householdId: string) {
     return this.households.leave(householdId, user.userId);
+  }
+
+  @Get(":householdId/delegations")
+  delegations(@CurrentUser() user: AuthenticatedUser, @Param("householdId") householdId: string) {
+    return this.households.listDelegations(householdId, user.userId);
+  }
+
+  @Post(":householdId/delegations")
+  @UsePipes(new ZodValidationPipe(GrantDelegationDtoSchema))
+  grantDelegation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("householdId") householdId: string,
+    @Body() dto: GrantDelegationDto,
+  ) {
+    return this.households.grantDelegation(householdId, user.userId, dto);
+  }
+
+  @Post(":householdId/delegations/:delegationId/revoke")
+  revokeDelegation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("householdId") householdId: string,
+    @Param("delegationId") delegationId: string,
+  ) {
+    return this.households.revokeDelegation(householdId, delegationId, user.userId);
   }
 }

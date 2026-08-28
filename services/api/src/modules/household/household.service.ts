@@ -1,10 +1,10 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
-import type { CreateDependentDto, CreateHouseholdDto, InviteMemberDto } from "./dto";
+import type { CreateDependentDto, CreateHouseholdDto, GrantDelegationDto, InviteMemberDto } from "./dto";
 
 @Injectable()
 export class HouseholdService {
@@ -150,6 +150,73 @@ export class HouseholdService {
       .where(eq(schema.householdMemberships.id, membership.id));
     await this.recordAudit(userId, "household.leave", "household", householdId, {
       beforeJson: { role: membership.role, status: membership.status },
+    });
+  }
+
+  /**
+   * FAM-006 "time-bound, revocable, scoped access; never blanket household access." The delegate must
+   * already be an active member of the household — a delegation grants an *additional*, scoped capability
+   * to someone already trusted enough to be in the household, not a way to hand access to an outsider.
+   */
+  async grantDelegation(householdId: string, requestingUserId: string, dto: GrantDelegationDto) {
+    const membership = await this.assertOwnerOrAdult(householdId, requestingUserId);
+    if (membership.role !== "household_owner" && membership.role !== "adult_member") {
+      throw new ForbiddenException({ code: "INSUFFICIENT_ROLE", message: "Only adult members can grant delegations." });
+    }
+    const [delegateMembership] = await this.db
+      .select()
+      .from(schema.householdMemberships)
+      .where(
+        and(
+          eq(schema.householdMemberships.householdId, householdId),
+          eq(schema.householdMemberships.userId, dto.delegateUserId),
+          eq(schema.householdMemberships.status, "active"),
+        ),
+      )
+      .limit(1);
+    if (!delegateMembership) {
+      throw new BadRequestException({ code: "NOT_A_MEMBER", message: "The delegate must be an active member of this household." });
+    }
+    const id = generateId("caregiverDelegation");
+    await this.db.insert(schema.caregiverDelegations).values({
+      id,
+      householdId,
+      delegateUserId: dto.delegateUserId,
+      scopes: dto.scopes,
+      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+      grantedByUserId: requestingUserId,
+    });
+    await this.recordAudit(requestingUserId, "household.delegation_grant", "caregiver_delegation", id, {
+      afterJson: { delegateUserId: dto.delegateUserId, scopes: dto.scopes, expiresAt: dto.expiresAt ?? null },
+    });
+    return { id };
+  }
+
+  async listDelegations(householdId: string, requestingUserId: string) {
+    await this.assertOwnerOrAdult(householdId, requestingUserId);
+    return this.db.select().from(schema.caregiverDelegations).where(eq(schema.caregiverDelegations.householdId, householdId));
+  }
+
+  async revokeDelegation(householdId: string, delegationId: string, requestingUserId: string) {
+    const membership = await this.assertOwnerOrAdult(householdId, requestingUserId);
+    if (membership.role !== "household_owner" && membership.role !== "adult_member") {
+      throw new ForbiddenException({ code: "INSUFFICIENT_ROLE", message: "Only adult members can revoke delegations." });
+    }
+    const [delegation] = await this.db
+      .select()
+      .from(schema.caregiverDelegations)
+      .where(and(eq(schema.caregiverDelegations.id, delegationId), eq(schema.caregiverDelegations.householdId, householdId)))
+      .limit(1);
+    if (!delegation) throw new NotFoundException({ code: "DELEGATION_NOT_FOUND", message: "Not found." });
+    if (delegation.revokedAt) {
+      throw new BadRequestException({ code: "ALREADY_REVOKED", message: "This delegation was already revoked." });
+    }
+    await this.db
+      .update(schema.caregiverDelegations)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.caregiverDelegations.id, delegationId));
+    await this.recordAudit(requestingUserId, "household.delegation_revoke", "caregiver_delegation", delegationId, {
+      beforeJson: { delegateUserId: delegation.delegateUserId, scopes: delegation.scopes },
     });
   }
 }

@@ -9,6 +9,7 @@ export const ID_PREFIXES = {
   membership: "mem",
   identityLink: "idl",
   dependentProfile: "dep",
+  caregiverDelegation: "cgd",
   connection: "conn",
   credential: "cred",
   sourceEvent: "src",
