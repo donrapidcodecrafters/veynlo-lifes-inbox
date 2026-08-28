@@ -9,6 +9,7 @@ import {
   type NotificationDispatchJobData,
   type AccountDeletionJobData,
   type InboxUnsnoozeScanJobData,
+  type AttentionScanJobData,
 } from "./queue-names";
 
 /**
@@ -36,6 +37,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly inboxUnsnoozeQueue = new Queue<InboxUnsnoozeScanJobData>(QUEUE_NAMES.inboxUnsnooze, {
+    connection: getRedisConnection(),
+  });
+  private readonly attentionScanQueue = new Queue<AttentionScanJobData>(QUEUE_NAMES.attentionScan, {
     connection: getRedisConnection(),
   });
 
@@ -92,6 +96,16 @@ export class QueueProducerService implements OnModuleDestroy {
     await this.inboxUnsnoozeQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "inbox-unsnooze-scan" });
   }
 
+  /**
+   * Registers the recurring tick that finds upcoming bill/return/warranty deadlines and files
+   * attention_items for them (§HOME-001/004 — previously nothing wrote to that table outside seed data).
+   * Hourly rather than the 15-minute cadence of connector-scan/inbox-unsnooze: deadlines here move in
+   * days, not minutes, so there's no value in polling more often, just more load.
+   */
+  async scheduleRecurringAttentionScan(): Promise<void> {
+    await this.attentionScanQueue.add("scan", {}, { repeat: { every: 60 * 60 * 1000 }, jobId: "attention-scan" });
+  }
+
   async enqueueNotificationDelivery(data: NotificationDeliveryJobData, delayMs = 0): Promise<void> {
     await this.notificationDeliveryQueue.add("deliver", data, {
       // Quiet-hours reschedules add a numeric suffix so they don't collide with the (by-then-completed)
@@ -130,6 +144,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.notificationDeliveryQueue.close(),
       this.accountDeletionQueue.close(),
       this.inboxUnsnoozeQueue.close(),
+      this.attentionScanQueue.close(),
     ]);
   }
 }

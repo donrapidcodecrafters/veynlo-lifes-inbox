@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   notificationDelivery: "notification-delivery",
   accountDeletion: "account-deletion",
   inboxUnsnooze: "inbox-unsnooze",
+  attentionScan: "attention-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -37,3 +38,6 @@ export interface AccountDeletionJobData {
 
 /** Recurring tick with no payload — its processor finds due snoozed items itself (see worker-main.ts). */
 export type InboxUnsnoozeScanJobData = Record<string, never>;
+
+/** Recurring tick with no payload — its processor (AttentionService.scanAndFileDeadlines) finds upcoming bill/return/warranty deadlines itself. */
+export type AttentionScanJobData = Record<string, never>;

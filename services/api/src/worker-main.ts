@@ -15,6 +15,7 @@ import {
   type ConnectorScanJobData,
   type ConnectorSyncJobData,
   type InboxUnsnoozeScanJobData,
+  type AttentionScanJobData,
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
 } from "./queue/queue-names";
@@ -23,6 +24,7 @@ import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { StorageService } from "./modules/documents/storage.service";
+import { AttentionService } from "./modules/attention/attention.service";
 import { QueueProducerService } from "./queue/queue-producer.service";
 
 const logger = new Logger("Worker");
@@ -47,6 +49,7 @@ async function bootstrap() {
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get(StorageService);
+  const attention = appContext.get(AttentionService);
   const queueProducer = appContext.get(QueueProducerService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
@@ -212,6 +215,14 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  const attentionScanWorker = new Worker<AttentionScanJobData>(
+    QUEUE_NAMES.attentionScan,
+    async () => {
+      await attention.scanAndFileDeadlines();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
@@ -219,6 +230,7 @@ async function bootstrap() {
     notificationDeliveryWorker,
     accountDeletionWorker,
     inboxUnsnoozeWorker,
+    attentionScanWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
@@ -229,9 +241,10 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringNotificationDispatch();
   await queueProducer.scheduleRecurringConnectorScan();
   await queueProducer.scheduleRecurringInboxUnsnooze();
+  await queueProducer.scheduleRecurringAttentionScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, inbox-unsnooze",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, inbox-unsnooze, attention-scan",
   );
 
   const shutdown = async () => {
@@ -243,6 +256,7 @@ async function bootstrap() {
       notificationDeliveryWorker.close(),
       accountDeletionWorker.close(),
       inboxUnsnoozeWorker.close(),
+      attentionScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);
