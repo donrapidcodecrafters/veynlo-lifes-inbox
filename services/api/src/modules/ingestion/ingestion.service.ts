@@ -15,6 +15,7 @@ import {
   BillExtractionSchema,
   CalendarEventExtractionSchema,
   WarrantyExtractionSchema,
+  SubscriptionExtractionSchema,
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender } from "../intelligence/deterministic-prefilter";
 import { parseGmailMessage, type ParsedEmail } from "./gmail-message-parser";
@@ -203,8 +204,11 @@ export class IngestionService {
     if (domains.includes("shipment")) {
       filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null)) || filedAny;
     }
-    if (domains.includes("bill") || domains.includes("subscription")) {
+    if (domains.includes("bill")) {
       filedAny = (await this.extractBill(ctx)) || filedAny;
+    }
+    if (domains.includes("subscription")) {
+      filedAny = (await this.extractSubscription(ctx)) || filedAny;
     }
     if (domains.includes("calendar_event") || domains.includes("travel")) {
       filedAny = (await this.extractCalendarEvent(ctx)) || filedAny;
@@ -516,6 +520,72 @@ export class IngestionService {
       summary: `${result.data.billerName} bill detected`,
       linkedResourceType: "bill",
       linkedResourceId: billId,
+      sourceEventId: ctx.sourceEventId,
+      suggestedActions: ["confirm", "correct", "dismiss"],
+      confidenceBand,
+    });
+    return true;
+  }
+
+  private async extractSubscription(ctx: {
+    sourceEventId: string;
+    ownerUserId: string;
+    householdId: string | null;
+    parsed: ReturnType<typeof parseGmailMessage>;
+  }): Promise<boolean> {
+    if (!this.ai.isConfigured()) return false;
+    const result = await this.ai.extractStructured({
+      extractorName: "subscription_extraction_v1",
+      model: "cheap",
+      systemPrompt:
+        "Extract structured recurring-subscription data from this email for Veynlo (trial started, renewal " +
+        "confirmed, price changed, etc). Never invent a billing date or amount that is not clearly stated — " +
+        "use null and confidenceNotes instead.",
+      userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
+      schema: SubscriptionExtractionSchema,
+      toolDescription: "Emit the extracted subscription fields.",
+    });
+    if (!result || !result.data.serviceLabel) return false;
+
+    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    // Unlike extractReceipt's merchant resolution, this is best-effort only — a subscription email doesn't
+    // always name the billing merchant separately from the service itself (e.g. "Netflix" is both).
+    const merchantId = result.data.merchantName ? await this.findOrCreateMerchant(result.data.merchantName) : null;
+    const nextExpectedDate = toTemporalValue(result.data.nextBillingDate);
+    const trialEndsAt = toTemporalValue(result.data.trialEndsDate);
+
+    // No dedup against an existing recurring stream — same precedent as extractBill just above, which also
+    // creates a fresh row per extraction rather than matching an existing one. (serviceLabel is encrypted
+    // too, so it couldn't be looked up by equality anyway — see every other encrypted-column comment.)
+    const recurringStreamId = generateId("recurringStream");
+    await this.db.insert(schema.recurringStreams).values({
+      id: recurringStreamId,
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      merchantId,
+      serviceLabel: result.data.serviceLabel,
+      cadence: result.data.cadence ?? "irregular",
+      typicalAmountMinorUnits: result.data.amountMinorUnits,
+      typicalAmountCurrency: result.data.currency,
+      nextExpectedDate,
+    });
+
+    const subscriptionId = generateId("subscription");
+    await this.db.insert(schema.subscriptions).values({
+      id: subscriptionId,
+      recurringStreamId,
+      state: result.data.isTrial ? "trial" : "candidate",
+      trialEndsAt,
+      cancellationInstructionsUrl: result.data.cancellationInstructionsUrl,
+    });
+
+    await this.fileInboxItem({
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      category: "subscription",
+      summary: `${result.data.serviceLabel} subscription detected`,
+      linkedResourceType: "subscription",
+      linkedResourceId: subscriptionId,
       sourceEventId: ctx.sourceEventId,
       suggestedActions: ["confirm", "correct", "dismiss"],
       confidenceBand,

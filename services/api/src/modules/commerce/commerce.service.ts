@@ -125,8 +125,7 @@ export class CommerceService {
       .where(eq(schema.subscriptions.id, subscriptionId))
       .limit(1);
     if (!row || !(await this.assertCommerceAccess(row.stream.ownerUserId, row.stream.householdId, userId))) return null;
-    // No ingestion path currently creates subscriptions at all (see ROADMAP) — never any evidence to show.
-    return { subscription: row.subscription, stream: row.stream, evidence: null };
+    return { subscription: row.subscription, stream: row.stream, evidence: await this.evidenceViaInboxItem("subscription", subscriptionId) };
   }
 
   async returns(userId: string) {

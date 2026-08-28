@@ -63,6 +63,8 @@ export class InboxService {
         return this.correctShipment(item.linkedResourceId, dto);
       case "warranty":
         return this.correctWarranty(item.linkedResourceId, dto);
+      case "subscription":
+        return this.correctSubscription(item.linkedResourceId, dto);
       default:
         throw new BadRequestException({
           code: "UNSUPPORTED_RESOURCE_TYPE",
@@ -150,6 +152,45 @@ export class InboxService {
       patch.expirationDateSort = temporalToSortDate(temporal);
     }
     await this.db.update(schema.warranties).set(patch).where(eq(schema.warranties.id, warrantyId));
+  }
+
+  /** Spans two tables — serviceLabel/cadence/amount live on the recurring stream, cancellation info on the subscription itself. */
+  private async correctSubscription(subscriptionId: string, dto: CorrectInboxItemDto) {
+    const [subscription] = await this.db
+      .select({ recurringStreamId: schema.subscriptions.recurringStreamId })
+      .from(schema.subscriptions)
+      .where(eq(schema.subscriptions.id, subscriptionId))
+      .limit(1);
+    if (!subscription) return;
+
+    const streamPatch: Partial<typeof schema.recurringStreams.$inferInsert> = { updatedAt: new Date() };
+    let hasStreamPatch = false;
+    if (dto.serviceLabel !== undefined) {
+      streamPatch.serviceLabel = dto.serviceLabel;
+      hasStreamPatch = true;
+    }
+    if (dto.cadence !== undefined) {
+      streamPatch.cadence = dto.cadence;
+      hasStreamPatch = true;
+    }
+    if (dto.typicalAmountMinorUnits !== undefined) {
+      streamPatch.typicalAmountMinorUnits = dto.typicalAmountMinorUnits;
+      hasStreamPatch = true;
+    }
+    if (dto.typicalAmountCurrency !== undefined) {
+      streamPatch.typicalAmountCurrency = dto.typicalAmountCurrency;
+      hasStreamPatch = true;
+    }
+    if (hasStreamPatch) {
+      await this.db.update(schema.recurringStreams).set(streamPatch).where(eq(schema.recurringStreams.id, subscription.recurringStreamId));
+    }
+
+    if (dto.cancellationInstructionsUrl !== undefined) {
+      await this.db
+        .update(schema.subscriptions)
+        .set({ cancellationInstructionsUrl: dto.cancellationInstructionsUrl, updatedAt: new Date() })
+        .where(eq(schema.subscriptions.id, subscriptionId));
+    }
   }
 
   async archive(id: string, userId: string) {

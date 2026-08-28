@@ -37,5 +37,11 @@ export const CorrectInboxItemDtoSchema = z.object({
   warrantyLengthMonths: z.number().int().nullable().optional(),
   expirationDateIso: z.string().min(1).optional(),
   registrationConfirmed: z.boolean().nullable().optional(),
+  // subscription
+  serviceLabel: z.string().min(1).max(200).optional(),
+  cadence: z.enum(["weekly", "monthly", "quarterly", "annual", "irregular"]).optional(),
+  typicalAmountMinorUnits: z.number().int().nullable().optional(),
+  typicalAmountCurrency: z.string().length(3).optional(),
+  cancellationInstructionsUrl: z.string().max(500).nullable().optional(),
 });
 export type CorrectInboxItemDto = z.infer<typeof CorrectInboxItemDtoSchema>;

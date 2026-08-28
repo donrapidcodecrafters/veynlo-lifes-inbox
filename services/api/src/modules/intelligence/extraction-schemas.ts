@@ -89,6 +89,20 @@ export const CalendarEventExtractionSchema = z.object({
 });
 export type CalendarEventExtraction = z.infer<typeof CalendarEventExtractionSchema>;
 
+export const SubscriptionExtractionSchema = z.object({
+  serviceLabel: z.string().nullable().describe("The subscribed service's name, e.g. 'Netflix', 'New York Times digital'"),
+  merchantName: z.string().nullable(),
+  cadence: z.enum(["weekly", "monthly", "quarterly", "annual", "irregular"]).nullable(),
+  amountMinorUnits: z.number().int().nullable().describe("The recurring charge amount, in minor currency units (cents)"),
+  currency: z.string().length(3).default("USD"),
+  nextBillingDate: ExtractedDateSchema,
+  isTrial: z.boolean().nullable().describe("True if this email is about a free trial, not a paid renewal"),
+  trialEndsDate: ExtractedDateSchema,
+  cancellationInstructionsUrl: z.string().nullable(),
+  confidenceNotes: z.string(),
+});
+export type SubscriptionExtraction = z.infer<typeof SubscriptionExtractionSchema>;
+
 export const WarrantyExtractionSchema = z.object({
   productLabel: z.string().nullable(),
   warrantyLengthMonths: z.number().int().nullable(),
