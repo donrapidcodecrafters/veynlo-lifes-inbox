@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { generateId, type DocumentType } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
+import { HouseholdService } from "../household/household.service";
 import { StorageService } from "./storage.service";
 import { MalwareScannerService } from "./malware-scanner.service";
 
@@ -22,7 +24,20 @@ export class DocumentsService {
     private readonly storage: StorageService,
     private readonly ai: AnthropicExtractionService,
     private readonly malwareScanner: MalwareScannerService,
+    private readonly households: HouseholdService,
   ) {}
+
+  /**
+   * FAM-006 enforcement, mirroring CommerceService/ScheduleService's identically-named helper. A
+   * delegated household's documents additionally exclude `visibility: "private"` — a member's explicitly
+   * private document shouldn't leak to a caregiver just because they hold a household-wide grant; the
+   * owner's own documents are never filtered by visibility.
+   */
+  private async ownerOrDelegatedHousehold(userId: string, ownerCol: AnyPgColumn, householdCol: AnyPgColumn, visibilityCol: AnyPgColumn) {
+    const householdIds = await this.households.delegatedHouseholdIds(userId, "documents:read");
+    if (householdIds.length === 0) return eq(ownerCol, userId);
+    return or(eq(ownerCol, userId), and(inArray(householdCol, householdIds), ne(visibilityCol, "private")))!;
+  }
 
   async upload(params: {
     ownerUserId: string;
@@ -170,13 +185,22 @@ export class DocumentsService {
   }
 
   async list(userId: string) {
-    return this.db.select().from(schema.documents).where(eq(schema.documents.ownerUserId, userId));
+    return this.db
+      .select()
+      .from(schema.documents)
+      .where(await this.ownerOrDelegatedHousehold(userId, schema.documents.ownerUserId, schema.documents.householdId, schema.documents.visibility));
   }
 
   async signedUrl(documentId: string, userId: string): Promise<string> {
     const [doc] = await this.db.select().from(schema.documents).where(eq(schema.documents.id, documentId)).limit(1);
     if (!doc) throw new NotFoundException({ code: "DOCUMENT_NOT_FOUND", message: "Not found." });
-    if (doc.ownerUserId !== userId) throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
+    if (doc.ownerUserId !== userId) {
+      const householdIds =
+        doc.householdId && doc.visibility !== "private" ? await this.households.delegatedHouseholdIds(userId, "documents:read") : [];
+      if (!doc.householdId || !householdIds.includes(doc.householdId)) {
+        throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
+      }
+    }
     if (!doc.currentVersionId) throw new NotFoundException({ code: "NO_VERSION", message: "No file version available." });
     const [version] = await this.db
       .select()
