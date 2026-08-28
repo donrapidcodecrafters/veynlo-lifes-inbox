@@ -1,0 +1,46 @@
+node_modules
+**/node_modules
+.pnpm-store
+dist
+**/dist
+build
+**/build
+.next
+**/.next
+.turbo
+**/.turbo
+out
+coverage
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+# Bare patterns only match the build context ROOT in .dockerignore (unlike
+# .gitignore, which matches at any depth by default) — every nested exclusion
+# needs its own **/ form, or it silently leaks into the build context.
+**/*.tsbuildinfo
+.vscode
+.idea
+.git
+.github
+
+# Large workspaces the API/worker image never needs — keeping these out of the
+# build context is the difference between a multi-second and multi-minute
+# `docker build` on this monorepo.
+apps/mobile
+apps/desktop
+apps/admin/.next
+apps/web/.next
+infrastructure/docker/volumes
+
+ios/build
+android/build
+android/.gradle
+.expo
+apps/mobile/.expo
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
+
+*.pem
+*.key
