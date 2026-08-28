@@ -16,6 +16,9 @@ import { loadEnv } from "../config/env";
  * `encryptionKeyId` records which key version encrypted a given row so
  * rotation is possible without a hard cutover.
  */
+const AUTH_TAG_LENGTH = 16;
+const HEADER_LENGTH = 12 + AUTH_TAG_LENGTH; // iv + authTag, before any ciphertext bytes
+
 @Injectable()
 export class CredentialVault {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -27,7 +30,9 @@ export class CredentialVault {
 
   private encrypt(plaintext: string): string {
     const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.key(), iv);
+    // Explicit authTagLength (not just relying on AES-GCM's 16-byte default) closes the class of attack
+    // where a shorter, forgeable tag could otherwise be accepted — flagged by this file's own SAST scan.
+    const cipher = createCipheriv("aes-256-gcm", this.key(), iv, { authTagLength: AUTH_TAG_LENGTH });
     const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
     return Buffer.concat([iv, tag, ciphertext]).toString("base64");
@@ -35,10 +40,16 @@ export class CredentialVault {
 
   private decrypt(payload: string): string {
     const buf = Buffer.from(payload, "base64");
+    if (buf.length < HEADER_LENGTH) {
+      // Rejects outright rather than letting a too-short buffer silently clamp `tag` below
+      // AUTH_TAG_LENGTH via subarray — the same short-tag-forgery class the explicit
+      // authTagLength option below guards against, just triggered by malformed input instead.
+      throw new Error(`Malformed credential-vault payload: expected at least ${HEADER_LENGTH} bytes, got ${buf.length}.`);
+    }
     const iv = buf.subarray(0, 12);
-    const tag = buf.subarray(12, 28);
-    const ciphertext = buf.subarray(28);
-    const decipher = createDecipheriv("aes-256-gcm", this.key(), iv);
+    const tag = buf.subarray(12, HEADER_LENGTH);
+    const ciphertext = buf.subarray(HEADER_LENGTH);
+    const decipher = createDecipheriv("aes-256-gcm", this.key(), iv, { authTagLength: AUTH_TAG_LENGTH });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
   }

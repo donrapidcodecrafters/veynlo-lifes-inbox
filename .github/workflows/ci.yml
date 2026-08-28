@@ -71,3 +71,70 @@ jobs:
 
       - name: Build remaining apps/services
         run: pnpm --filter "@veynlo/api" --filter "@veynlo/web" --filter "@veynlo/admin" run build
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs full history, not just the latest commit
+
+      # Blocking, not informational — verified 0 findings against the current codebase (2026-08-28), so
+      # there's no pre-existing noise to grandfather. A new finding here is a new problem, not old debt.
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+      # Same free, no-login Semgrep Registry rulesets verified locally (0 findings after fixing the two
+      # real GCM auth-tag-length issues these caught in field-encryption.ts/credential-vault.ts) — blocking
+      # for the same reason as gitleaks above: nothing pre-existing to grandfather.
+      - name: SAST (semgrep)
+        run: |
+          pip install semgrep
+          semgrep --config=p/security-audit --config=p/secrets --config=p/owasp-top-ten \
+            --exclude=node_modules --exclude='**/node_modules' --exclude=dist --exclude='**/dist' \
+            --error services/api packages apps/web apps/admin
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Builds both images on every PR — this is what actually caught three real, reproducible bugs
+      # (a leaking .tsbuildinfo file, pnpm v10's deploy default, an unused-patch failure) that typechecking
+      # alone never would have; a broken Dockerfile should fail CI the same day it breaks, not at the next
+      # real deploy attempt. No registry push configured yet — see docs/DEPLOYMENT.md once ECR exists.
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          target: api
+          push: false
+          tags: veynlo-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          target: worker
+          push: false
+          tags: veynlo-worker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Archived per build, not gated on — an SBOM is evidence for the pre-submission checklist in
+      # SECURITY.md, not something with a pass/fail threshold of its own.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: veynlo-api:ci
+          format: cyclonedx-json
+          output-file: sbom-api.cyclonedx.json
+          upload-artifact: true

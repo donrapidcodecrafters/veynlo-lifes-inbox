@@ -5,10 +5,14 @@ import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { BillingService } from "./billing.service";
+import { RevenueCatService } from "./revenuecat.service";
 
 @Controller("v1/billing")
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly revenueCat: RevenueCatService,
+  ) {}
 
   @Get("entitlements")
   @UseGuards(AuthGuard)
@@ -28,6 +32,13 @@ export class BillingController {
     const rawBody = (req as FastifyRequest & { rawBody?: Buffer }).rawBody;
     if (!rawBody) throw new Error("Raw body capture is not configured for this route.");
     await this.billing.handleWebhook(rawBody, signature);
+    return { received: true };
+  }
+
+  // No AuthGuard — RevenueCat calls this directly; authenticity comes from the shared auth header, not a session.
+  @Post("revenuecat-webhook")
+  async revenueCatWebhook(@Body() body: unknown, @Headers("authorization") authHeader: string | undefined) {
+    await this.revenueCat.handleWebhook(authHeader, body);
     return { received: true };
   }
 }

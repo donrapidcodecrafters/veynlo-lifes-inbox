@@ -46,6 +46,11 @@ const EnvSchema = z.object({
   // Billing
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // RevenueCat normalizes Apple/Google/web subscription entitlements (§SEC-BILLING). Unset in dev —
+  // the webhook route returns a clear "not configured" state rather than pretending to work, same as
+  // the Google/Microsoft connectors above. RevenueCat webhook auth is a static shared header value it
+  // echoes back on every call (configured in its dashboard), not an HMAC signature like Stripe's.
+  REVENUECAT_WEBHOOK_AUTH_HEADER: z.string().optional(),
 
   // Outbound email (notification delivery + daily/weekly briefs). Defaults target the local Mailhog
   // container so email genuinely sends in dev — visible at http://localhost:8025 — without any real
@@ -94,6 +99,10 @@ export function loadEnv(): Env {
 
   cached = parsed.data;
   return cached;
+}
+
+export function isRevenueCatConfigured(): boolean {
+  return Boolean(loadEnv().REVENUECAT_WEBHOOK_AUTH_HEADER);
 }
 
 export function isConnectorConfigured(provider: "google" | "microsoft"): boolean {
