@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
+import fastifyHelmet from "@fastify/helmet";
 import { AppModule } from "./app.module";
 import { loadEnv } from "./config/env";
 import { GlobalExceptionFilter } from "./common/http-exception.filter";
@@ -40,6 +41,10 @@ async function bootstrap() {
   // in the Fastify ecosystem. Runtime behavior (register() wiring the plugin) is unaffected.
   await app.register(fastifyCookie as any);
   await app.register(fastifyMultipart as any, { limits: { fileSize: 25 * 1024 * 1024 } });
+  // Baseline security headers (HSTS, X-Content-Type-Options, X-Frame-Options, etc.) — a pentest-checklist
+  // basic that was simply missing. CSP is disabled: this is a pure JSON API with no HTML views of its own
+  // to protect, and a default CSP would just add noise to every response without defending anything real.
+  await app.register(fastifyHelmet as any, { contentSecurityPolicy: false });
 
   // Native (iOS/Android) requests aren't subject to CORS at all — it's a browser-only mechanism, enforced
   // here only for the two real browser-based clients (web, admin) plus, in development, any localhost origin

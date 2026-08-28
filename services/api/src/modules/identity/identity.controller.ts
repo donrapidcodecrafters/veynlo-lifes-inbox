@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
@@ -21,7 +22,10 @@ const SESSION_COOKIE = "veynlo_session";
 export class IdentityController {
   constructor(private readonly identity: IdentityService) {}
 
+  // Tighter than the global 300/60s default — credential-guessing and mass account creation are the
+  // realistic abuse patterns on these two routes specifically, so they get their own, much stricter caps.
   @Post("sign-up")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @UsePipes(new ZodValidationPipe(SignUpDtoSchema))
   async signUp(@Body() dto: SignUpDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
     const platform = detectPlatform(req);
@@ -31,6 +35,7 @@ export class IdentityController {
   }
 
   @Post("sign-in")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UsePipes(new ZodValidationPipe(SignInDtoSchema))
   async signIn(@Body() dto: SignInDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
     const platform = detectPlatform(req);
@@ -56,6 +61,7 @@ export class IdentityController {
   }
 
   @Post("delete-account")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(AuthGuard)
   @UsePipes(new ZodValidationPipe(DeleteAccountDtoSchema))
   async deleteAccount(

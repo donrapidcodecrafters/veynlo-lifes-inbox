@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 import { AdminGuard } from "./admin.guard";
@@ -24,7 +25,10 @@ export class AdminController {
     private readonly adminAuth: AdminAuthService,
   ) {}
 
+  // Stricter than the global 300/60s default — admin credentials are the highest-value target in the
+  // whole system, so brute-forcing this route specifically gets a much tighter cap.
   @Post("auth/sign-in")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UsePipes(new ZodValidationPipe(SignInDtoSchema))
   async signIn(@Body() dto: SignInDto, @Res({ passthrough: true }) res: FastifyReply) {
     const session = await this.adminAuth.signIn(dto.email, dto.password);
