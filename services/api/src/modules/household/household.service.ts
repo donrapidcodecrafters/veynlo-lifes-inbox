@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -61,6 +61,27 @@ export class HouseholdService {
       .from(schema.householdMemberships)
       .innerJoin(schema.households, eq(schema.households.id, schema.householdMemberships.householdId))
       .where(and(eq(schema.householdMemberships.userId, userId), eq(schema.householdMemberships.status, "active")));
+  }
+
+  /**
+   * FAM-006 enforcement point — the actual consumer of a granted delegation, not just the grant/list/
+   * revoke API around it (see docs/ROADMAP.md: delegations previously existed but nothing checked them).
+   * Household-scoped, not member-scoped: a delegation grants the delegate visibility into every current
+   * member's data within a scope for that household, not one specific person's — matching how
+   * grantDelegation itself has no per-member target field. Filtered in JS rather than a jsonb `@>` SQL
+   * operator/expiry SQL comparison — a delegate has at most a handful of active delegations, and this
+   * keeps the expiry/scope logic in one obviously-correct place instead of duplicated across callers.
+   */
+  async delegatedHouseholdIds(delegateUserId: string, scope: string): Promise<string[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.caregiverDelegations)
+      .where(and(eq(schema.caregiverDelegations.delegateUserId, delegateUserId), isNull(schema.caregiverDelegations.revokedAt)));
+    const now = Date.now();
+    return rows
+      .filter((r) => r.scopes.includes(scope))
+      .filter((r) => !r.expiresAt || r.expiresAt.getTime() > now)
+      .map((r) => r.householdId);
   }
 
   private async assertOwnerOrAdult(householdId: string, userId: string) {
