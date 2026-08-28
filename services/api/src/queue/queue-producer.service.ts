@@ -8,6 +8,7 @@ import {
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
   type AccountDeletionJobData,
+  type InboxUnsnoozeScanJobData,
 } from "./queue-names";
 
 /**
@@ -32,6 +33,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly accountDeletionQueue = new Queue<AccountDeletionJobData>(QUEUE_NAMES.accountDeletion, {
+    connection: getRedisConnection(),
+  });
+  private readonly inboxUnsnoozeQueue = new Queue<InboxUnsnoozeScanJobData>(QUEUE_NAMES.inboxUnsnooze, {
     connection: getRedisConnection(),
   });
 
@@ -78,6 +82,16 @@ export class QueueProducerService implements OnModuleDestroy {
     );
   }
 
+  /**
+   * Registers the recurring tick that resurfaces snoozed Inbox items once their `snoozedUntil` passes
+   * (§INB-002 — snooze is "come back to this later," not "hide this forever"). Mirrors
+   * scheduleRecurringConnectorScan's shape: one repeatable tick whose processor (worker-main.ts) does the
+   * actual lookup, rather than scheduling a per-item delayed job for every snooze.
+   */
+  async scheduleRecurringInboxUnsnooze(): Promise<void> {
+    await this.inboxUnsnoozeQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "inbox-unsnooze-scan" });
+  }
+
   async enqueueNotificationDelivery(data: NotificationDeliveryJobData, delayMs = 0): Promise<void> {
     await this.notificationDeliveryQueue.add("deliver", data, {
       // Quiet-hours reschedules add a numeric suffix so they don't collide with the (by-then-completed)
@@ -115,6 +129,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.notificationDispatchQueue.close(),
       this.notificationDeliveryQueue.close(),
       this.accountDeletionQueue.close(),
+      this.inboxUnsnoozeQueue.close(),
     ]);
   }
 }

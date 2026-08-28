@@ -32,5 +32,10 @@ export const CorrectInboxItemDtoSchema = z.object({
   trackingNumber: z.string().max(200).optional(),
   status: z.string().max(50).optional(),
   estimatedDeliveryIso: z.string().nullable().optional(),
+  // warranty
+  productLabel: z.string().min(1).max(200).optional(),
+  warrantyLengthMonths: z.number().int().nullable().optional(),
+  expirationDateIso: z.string().min(1).optional(),
+  registrationConfirmed: z.boolean().nullable().optional(),
 });
 export type CorrectInboxItemDto = z.infer<typeof CorrectInboxItemDtoSchema>;

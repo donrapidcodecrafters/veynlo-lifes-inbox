@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Worker } from "bullmq";
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
 import { AppModule } from "./app.module";
@@ -13,6 +13,7 @@ import {
   type AccountDeletionJobData,
   type ConnectorScanJobData,
   type ConnectorSyncJobData,
+  type InboxUnsnoozeScanJobData,
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
 } from "./queue/queue-names";
@@ -194,24 +195,41 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
+  // Recurring tick (see QueueProducerService.scheduleRecurringInboxUnsnooze): resurfaces every snoozed
+  // Inbox item whose snoozedUntil has passed by flipping it back to reviewState "new" — snooze() itself
+  // only ever sets reviewState to "snoozed", so without this tick a snoozed item would stay hidden
+  // forever instead of coming back for review as the user intended.
+  const inboxUnsnoozeWorker = new Worker<InboxUnsnoozeScanJobData>(
+    QUEUE_NAMES.inboxUnsnooze,
+    async () => {
+      await db
+        .update(schema.inboxItems)
+        .set({ reviewState: "new", snoozedUntil: null, updatedAt: new Date() })
+        .where(and(eq(schema.inboxItems.reviewState, "snoozed"), lte(schema.inboxItems.snoozedUntil, new Date())));
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
     notificationDispatchWorker,
     notificationDeliveryWorker,
     accountDeletionWorker,
+    inboxUnsnoozeWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
   }
 
-  // Registers the repeatable daily/weekly brief jobs and the connector incremental-scan tick
-  // (idempotent — BullMQ dedupes repeat jobs by jobId).
+  // Registers the repeatable daily/weekly brief jobs, the connector incremental-scan tick, and the inbox
+  // unsnooze tick (idempotent — BullMQ dedupes repeat jobs by jobId).
   await queueProducer.scheduleRecurringNotificationDispatch();
   await queueProducer.scheduleRecurringConnectorScan();
+  await queueProducer.scheduleRecurringInboxUnsnooze();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, inbox-unsnooze",
   );
 
   const shutdown = async () => {
@@ -222,6 +240,7 @@ async function bootstrap() {
       notificationDispatchWorker.close(),
       notificationDeliveryWorker.close(),
       accountDeletionWorker.close(),
+      inboxUnsnoozeWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);

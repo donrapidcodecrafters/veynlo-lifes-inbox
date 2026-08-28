@@ -14,7 +14,7 @@ this repository, not an aspirational plan.
 | Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events, and warranties (`extractWarranty`, `warranties` table, `GET /v1/warranties`, surfaced on Life and Timeline). Travel is partially covered by the calendar extractor; school/home/vehicle extractors not started. |
 | Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`; the owner-scoped `canonical_entities` knowledge-graph layer remains unwritten (see below). |
-| Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built. "Correct" (editing extracted fields) and "merge" are not yet implemented — only confirm/archive/dismiss/snooze. |
+| Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built, including "correct" for all five linkable domains (purchase/bill/calendar_event/shipment/warranty — warranty was a gap introduced alongside the warranty extractor itself, since `correct()`'s switch had no case for it; fixed the same day). Snooze is now a real user-facing action on both web and mobile (previously the backend method existed with zero UI entry point, and — more importantly — nothing ever resurfaced a snoozed item once its `snoozedUntil` passed; added a recurring `inbox-unsnooze` worker tick, mirroring the existing `connector-scan` tick's shape, that flips due snoozed items back to `reviewState: "new"`). "Merge" was assessed and deliberately not built — see below. |
 | Home "Needs You" + caught-up state | ✅ Built, reads real attention_items. Nothing populates attention_items automatically yet from the pipeline — currently only seed data and (implicitly) future automation-rule output would. |
 | Ask / structured search | ✅ Built — grounded synthesis with evidence citations, `insufficientEvidence` flag. Semantic/vector search not wired (pgvector column exists, unused). |
 | Timeline | ✅ Built — `TimelineController`/`TimelineService` (unified chronological read projection via `UNION ALL` across canonical tables), web route at `/timeline`, mobile screen at `app/timeline.tsx`. This line was stale (said "not built") until corrected 2026-08-28 — verify against the actual code before trusting a status line rather than the other way around. |
@@ -245,6 +245,41 @@ this repository, not an aspirational plan.
     Playwright session — that the Life page's new Warranties section and
     the Timeline's new "Warranty" badge both render correctly with no
     console errors.
+
+12. ~~**Inbox "merge" — assessed, deliberately not built**~~. "Merge" was
+    listed as an unbuilt `suggestedActions` value, but it turns out to be
+    purely aspirational — grepping every call site that builds
+    `suggestedActions` (all in `ingestion.service.ts`) shows "merge" is
+    never actually suggested to a user; it existed only as a sentence in
+    this file. Investigated what it would mean: Inbox items link to a
+    purchase/bill/shipment/calendar_event/warranty via
+    `linkedResourceType`/`linkedResourceId`, and purchases/shipments
+    already auto-dedupe deterministically (`findExistingPurchase` on exact
+    `merchantId`+`orderNumber`, `findExistingShipment` on exact tracking
+    number) — the only real gap is a purchase duplicated across two source
+    emails where the order number is missing or differs, which the
+    existing auto-merge can't catch. A manual two-item-picker merge
+    UI/backend (reassigning `purchaseLines`/`shipments`/`returnCases`,
+    recording lineage — the only existing pattern to copy is
+    `AdminService.mergeMerchants`, which is admin-only and merges a
+    different, global-reference-table kind of row) is disproportionately
+    complex for that narrow a scenario, and there's no established
+    domain-level "merge" concept for a receipt-tracking app's per-user
+    records to build on safely. Decided against building it now — the
+    better fix for the actual gap, if duplicate purchases turn out to be a
+    real problem in practice, is a fuzzy fallback in `findExistingPurchase`
+    (merchant + total + purchase-date proximity, when order number is
+    absent) rather than new user-facing merge UI. Also surfaced two smaller,
+    unrelated facts while investigating: `dismiss` only marks the *inbox
+    item* deleted, not the underlying linked resource, so a genuine
+    duplicate purchase would stay in the Purchases list with no cleanup
+    path even after dismissal; and the backend already suggests
+    `"add_to_calendar"` for calendar-event discoveries, but neither web nor
+    mobile renders a button for it (both hardcode Confirm/Correct/Snooze/
+    Archive/Dismiss instead of reading `item.suggestedActions`) — low
+    priority since a discovered calendar event is already written to
+    `calendar_events` on confirm, so "add to calendar" wouldn't do anything
+    a plain Confirm doesn't already do today.
 
 ## Phase 2 — financially sticky + household-ready
 

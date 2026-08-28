@@ -61,6 +61,8 @@ export class InboxService {
         return this.correctCalendarEvent(item.linkedResourceId, dto);
       case "shipment":
         return this.correctShipment(item.linkedResourceId, dto);
+      case "warranty":
+        return this.correctWarranty(item.linkedResourceId, dto);
       default:
         throw new BadRequestException({
           code: "UNSUPPORTED_RESOURCE_TYPE",
@@ -135,6 +137,19 @@ export class InboxService {
       patch.estimatedDelivery = dto.estimatedDeliveryIso === null ? null : dateTemporal(dto.estimatedDeliveryIso);
     }
     await this.db.update(schema.shipments).set(patch).where(eq(schema.shipments.id, shipmentId));
+  }
+
+  private async correctWarranty(warrantyId: string, dto: CorrectInboxItemDto) {
+    const patch: Partial<typeof schema.warranties.$inferInsert> = { updatedAt: new Date() };
+    if (dto.productLabel !== undefined) patch.productLabel = dto.productLabel;
+    if (dto.warrantyLengthMonths !== undefined) patch.warrantyLengthMonths = dto.warrantyLengthMonths;
+    if (dto.registrationConfirmed !== undefined) patch.registrationConfirmed = dto.registrationConfirmed;
+    if (dto.expirationDateIso !== undefined) {
+      const temporal = dateTemporal(dto.expirationDateIso);
+      patch.expirationDate = temporal;
+      patch.expirationDateSort = temporalToSortDate(temporal);
+    }
+    await this.db.update(schema.warranties).set(patch).where(eq(schema.warranties.id, warrantyId));
   }
 
   async archive(id: string, userId: string) {

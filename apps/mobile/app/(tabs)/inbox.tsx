@@ -58,6 +58,11 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
     { key: "trackingNumber", label: "Tracking number" },
     { key: "status", label: "Status" },
   ],
+  warranty: [
+    { key: "productLabel", label: "Product" },
+    { key: "warrantyLengthMonths", label: "Warranty length (months)", numeric: true },
+    { key: "expirationDateIso", label: "Expiration date (YYYY-MM-DD)" },
+  ],
 };
 
 export default function InboxScreen() {
@@ -85,6 +90,12 @@ export default function InboxScreen() {
 
   async function act(id: string, action: "confirm" | "archive" | "dismiss") {
     await api.post(`/v1/inbox/${id}/${action}`);
+    load();
+  }
+
+  async function snooze(id: string) {
+    const until = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    await api.post(`/v1/inbox/${id}/snooze`, { until });
     load();
   }
 
@@ -128,6 +139,11 @@ export default function InboxScreen() {
                         </Button>
                       </View>
                     )}
+                    <View style={{ flex: 1, minWidth: 90 }}>
+                      <Button variant="secondary" onPress={() => snooze(item.id)}>
+                        Snooze 1w
+                      </Button>
+                    </View>
                     <View style={{ flex: 1, minWidth: 90 }}>
                       <Button variant="secondary" onPress={() => act(item.id, "archive")}>
                         Archive
