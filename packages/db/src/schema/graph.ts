@@ -20,6 +20,15 @@ export const sourceEvents = pgTable(
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
     rawContentRef: encryptedText("raw_content_ref"),
+    // Deliberately NOT full body text — the spec's "evidence view" ("why am I seeing this?") only needs
+    // enough to recognize the source, not a durable copy of the whole message, which would meaningfully
+    // grow this table's privacy/retention surface for no proportionate benefit. Populated at ingest time
+    // from ParsedEmail (services/api/src/modules/ingestion/gmail-message-parser.ts) — previously parsed
+    // into memory and then discarded once classification finished, so no evidence was ever retrievable
+    // after the fact.
+    subjectLine: encryptedText("subject_line"),
+    snippet: encryptedText("snippet"),
+    fromAddress: encryptedText("from_address"),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     processingState: text("processing_state").notNull().default("queued"),
     idempotencyKey: text("idempotency_key").notNull(),

@@ -43,6 +43,13 @@
       "when": 1787941821069,
       "tag": "0005_lumpy_hammerhead",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787951698405,
+      "tag": "0006_giant_payback",
+      "breakpoints": true
     }
   ]
 }

@@ -103,6 +103,9 @@ export class IngestionService {
       occurredAt: parsed.dateHeader ? new Date(parsed.dateHeader) : new Date(),
       idempotencyKey,
       processingState: "understanding",
+      subjectLine: parsed.subject || null,
+      snippet: parsed.snippet || null,
+      fromAddress: parsed.fromAddress || null,
     });
 
     const relevance = evaluateRelevance({
@@ -140,6 +143,9 @@ export class IngestionService {
       occurredAt: new Date(),
       idempotencyKey,
       processingState: "understanding",
+      subjectLine: params.subject || null,
+      snippet: params.bodyText.slice(0, 200) || null,
+      fromAddress: params.fromAddress || null,
     });
     await this.classifyAndExtract({
       sourceEventId,
@@ -669,6 +675,8 @@ export class IngestionService {
       occurredAt: new Date(),
       idempotencyKey,
       processingState: "needs_review",
+      subjectLine: params.title || null,
+      snippet: params.location || null,
     });
 
     const [existingEvent] = await this.db

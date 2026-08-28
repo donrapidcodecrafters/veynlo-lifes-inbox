@@ -100,17 +100,19 @@ export default function LifePage() {
               const days = daysUntil(r.returnCase.deadline);
               const value = formatMoneyMinorUnits(r.returnCase.valueAtStakeMinorUnits, r.returnCase.valueAtStakeCurrency);
               return (
-                <Card key={r.returnCase.id}>
-                  <CardBody className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-primary">Order {r.purchase.orderNumber ?? "—"}</p>
-                      {days != null && (
-                        <Badge tone={days <= 3 ? "critical" : "warning"}>{days > 0 ? `${days}d left` : "Due today"}</Badge>
-                      )}
-                    </div>
-                    {value && <p className="text-lg font-semibold text-primary">{value}</p>}
-                  </CardBody>
-                </Card>
+                <Link key={r.returnCase.id} href={`/life/returns/${r.returnCase.id}`}>
+                  <Card className="transition-colors hover:bg-subtle">
+                    <CardBody className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-primary">Order {r.purchase.orderNumber ?? "—"}</p>
+                        {days != null && (
+                          <Badge tone={days <= 3 ? "critical" : "warning"}>{days > 0 ? `${days}d left` : "Due today"}</Badge>
+                        )}
+                      </div>
+                      {value && <p className="text-lg font-semibold text-primary">{value}</p>}
+                    </CardBody>
+                  </Card>
+                </Link>
               );
             })}
           </div>
@@ -127,7 +129,11 @@ export default function LifePage() {
             {subscriptions.map((s) => {
               const amount = formatMoneyMinorUnits(s.stream.typicalAmountMinorUnits, s.stream.typicalAmountCurrency);
               return (
-                <div key={s.subscription.id} className="flex items-center justify-between px-4 py-3">
+                <Link
+                  key={s.subscription.id}
+                  href={`/life/subscriptions/${s.subscription.id}`}
+                  className="flex items-center justify-between px-4 py-3 hover:bg-subtle"
+                >
                   <div>
                     <p className="text-sm font-medium text-primary">{s.stream.serviceLabel}</p>
                     <p className="text-xs text-tertiary capitalize">{s.stream.cadence}</p>
@@ -136,7 +142,7 @@ export default function LifePage() {
                     {amount && <p className="text-sm font-medium text-primary">{amount}</p>}
                     {s.subscription.state === "price_changed" && <Badge tone="warning">Price changed</Badge>}
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -154,13 +160,13 @@ export default function LifePage() {
               const due = formatTemporal(b.bill.dueDate);
               const amount = formatMoneyMinorUnits(b.bill.amountDueMinorUnits, b.bill.amountDueCurrency);
               return (
-                <div key={b.bill.id} className="flex items-center justify-between px-4 py-3">
+                <Link key={b.bill.id} href={`/life/bills/${b.bill.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-subtle">
                   <div>
                     <p className="text-sm font-medium text-primary">{b.bill.billerLabel}</p>
                     {due && <p className="text-xs text-tertiary">Due {due}</p>}
                   </div>
                   {amount && <p className="text-sm font-medium text-primary">{amount}</p>}
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -178,7 +184,7 @@ export default function LifePage() {
               const days = daysUntil(w.expirationDate);
               const expires = formatTemporal(w.expirationDate);
               return (
-                <div key={w.id} className="flex items-center justify-between px-4 py-3">
+                <Link key={w.id} href={`/life/warranties/${w.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-subtle">
                   <div>
                     <p className="text-sm font-medium text-primary">{w.productLabel}</p>
                     {expires && <p className="text-xs text-tertiary">Expires {expires}</p>}
@@ -186,7 +192,7 @@ export default function LifePage() {
                   {days != null && (
                     <Badge tone={days <= 30 ? "warning" : "neutral"}>{days > 0 ? `${days}d left` : "Expired"}</Badge>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -204,13 +210,13 @@ export default function LifePage() {
               const date = formatTemporal(p.purchaseDate);
               const total = formatMoneyMinorUnits(p.totalMinorUnits, p.totalCurrency);
               return (
-                <div key={p.id} className="flex items-center justify-between px-4 py-3">
+                <Link key={p.id} href={`/life/purchases/${p.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-subtle">
                   <div>
                     <p className="text-sm font-medium text-primary">Order {p.orderNumber ?? "—"}</p>
                     {date && <p className="text-xs text-tertiary">{date}</p>}
                   </div>
                   {total && <p className="text-sm font-medium text-primary">{total}</p>}
-                </div>
+                </Link>
               );
             })}
           </div>

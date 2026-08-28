@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { RefreshControl, Text, View } from "react-native";
+import { Pressable, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -123,15 +123,17 @@ export default function LifeScreen() {
               const days = daysUntil(r.returnCase.deadline);
               const value = formatMoneyMinorUnits(r.returnCase.valueAtStakeMinorUnits, r.returnCase.valueAtStakeCurrency);
               return (
-                <Card key={r.returnCase.id} style={{ gap: 6 }}>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
-                      Order {r.purchase.orderNumber ?? "—"}
-                    </Text>
-                    {days != null && <Badge tone={days <= 3 ? "critical" : "warning"}>{days > 0 ? `${days}d left` : "Due today"}</Badge>}
-                  </View>
-                  {value && <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary }}>{value}</Text>}
-                </Card>
+                <Pressable key={r.returnCase.id} onPress={() => router.push(`/return-case/${r.returnCase.id}`)}>
+                  <Card style={{ gap: 6 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
+                        Order {r.purchase.orderNumber ?? "—"}
+                      </Text>
+                      {days != null && <Badge tone={days <= 3 ? "critical" : "warning"}>{days > 0 ? `${days}d left` : "Due today"}</Badge>}
+                    </View>
+                    {value && <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary }}>{value}</Text>}
+                  </Card>
+                </Pressable>
               );
             })}
           </View>
@@ -149,8 +151,9 @@ export default function LifeScreen() {
             {subscriptions.map((s, i) => {
               const amount = formatMoneyMinorUnits(s.stream.typicalAmountMinorUnits, s.stream.typicalAmountCurrency);
               return (
-                <View
+                <Pressable
                   key={s.subscription.id}
+                  onPress={() => router.push(`/subscription/${s.subscription.id}`)}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -169,7 +172,7 @@ export default function LifeScreen() {
                     {amount && <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{amount}</Text>}
                     {s.subscription.state === "price_changed" && <Badge tone="warning">Price changed</Badge>}
                   </View>
-                </View>
+                </Pressable>
               );
             })}
           </Card>
@@ -188,8 +191,9 @@ export default function LifeScreen() {
               const due = formatTemporal(b.bill.dueDate);
               const amount = formatMoneyMinorUnits(b.bill.amountDueMinorUnits, b.bill.amountDueCurrency);
               return (
-                <View
+                <Pressable
                   key={b.bill.id}
+                  onPress={() => router.push(`/bill/${b.bill.id}`)}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -205,7 +209,7 @@ export default function LifeScreen() {
                     {due && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Due {due}</Text>}
                   </View>
                   {amount && <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{amount}</Text>}
-                </View>
+                </Pressable>
               );
             })}
           </Card>
@@ -224,8 +228,9 @@ export default function LifeScreen() {
               const days = daysUntil(w.expirationDate);
               const expires = formatTemporal(w.expirationDate);
               return (
-                <View
+                <Pressable
                   key={w.id}
+                  onPress={() => router.push(`/warranty/${w.id}`)}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -241,7 +246,7 @@ export default function LifeScreen() {
                     {expires && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Expires {expires}</Text>}
                   </View>
                   {days != null && <Badge tone={days <= 30 ? "warning" : "neutral"}>{days > 0 ? `${days}d left` : "Expired"}</Badge>}
-                </View>
+                </Pressable>
               );
             })}
           </Card>
@@ -260,8 +265,9 @@ export default function LifeScreen() {
               const date = formatTemporal(p.purchaseDate);
               const total = formatMoneyMinorUnits(p.totalMinorUnits, p.totalCurrency);
               return (
-                <View
+                <Pressable
                   key={p.id}
+                  onPress={() => router.push(`/purchase/${p.id}`)}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -277,7 +283,7 @@ export default function LifeScreen() {
                     {date && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{date}</Text>}
                   </View>
                   {total && <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{total}</Text>}
-                </View>
+                </Pressable>
               );
             })}
           </Card>

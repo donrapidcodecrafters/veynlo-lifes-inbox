@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -43,7 +43,90 @@ export class CommerceService {
     const lines = await this.db.select().from(schema.purchaseLines).where(eq(schema.purchaseLines.purchaseId, purchaseId));
     const returns = await this.db.select().from(schema.returnCases).where(eq(schema.returnCases.purchaseId, purchaseId));
     const shipments = await this.db.select().from(schema.shipments).where(eq(schema.shipments.purchaseId, purchaseId));
-    return { purchase, lines, returns, shipments };
+    const evidence = await this.evidenceForSourceEvent(purchase.sourceEventId);
+    return { purchase, lines, returns, shipments, evidence };
+  }
+
+  /**
+   * §39.2/Absolute Product Rule "Evidence before assertion" — "why am I seeing this?" needs at least
+   * enough of the original source to recognize it. `source_events` deliberately never stores the full
+   * body (see its schema comment), only what was captured at ingest time: subject/snippet/sender and
+   * which connection it came from. Returns null when there's genuinely nothing to show (no sourceEventId
+   * at all, e.g. seed data or a domain nothing currently traces back to a source) rather than a fake
+   * placeholder.
+   */
+  private async evidenceForSourceEvent(sourceEventId: string | null) {
+    if (!sourceEventId) return null;
+    const [row] = await this.db
+      .select({ event: schema.sourceEvents, connection: schema.connections })
+      .from(schema.sourceEvents)
+      .leftJoin(schema.connections, eq(schema.connections.id, schema.sourceEvents.connectionId))
+      .where(eq(schema.sourceEvents.id, sourceEventId))
+      .limit(1);
+    if (!row) return null;
+    return {
+      sourceEventId: row.event.id,
+      kind: row.event.kind,
+      subjectLine: row.event.subjectLine,
+      snippet: row.event.snippet,
+      fromAddress: row.event.fromAddress,
+      occurredAt: row.event.occurredAt,
+      provider: row.connection?.provider ?? null,
+    };
+  }
+
+  /** Bills/warranties have no direct sourceEventId column — traced indirectly via the inbox_items row that filed them (every successful extraction files one; see IngestionService.fileInboxItem). */
+  private async evidenceViaInboxItem(linkedResourceType: string, linkedResourceId: string) {
+    const [inboxItem] = await this.db
+      .select({ sourceEventId: schema.inboxItems.sourceEventId })
+      .from(schema.inboxItems)
+      .where(and(eq(schema.inboxItems.linkedResourceType, linkedResourceType), eq(schema.inboxItems.linkedResourceId, linkedResourceId)))
+      .limit(1);
+    return this.evidenceForSourceEvent(inboxItem?.sourceEventId ?? null);
+  }
+
+  private async assertCommerceAccess(ownerUserId: string, householdId: string | null, userId: string): Promise<boolean> {
+    if (ownerUserId === userId) return true;
+    if (!householdId) return false;
+    const householdIds = await this.households.delegatedHouseholdIds(userId, "commerce:read");
+    return householdIds.includes(householdId);
+  }
+
+  async billDetail(billId: string, userId: string) {
+    const [bill] = await this.db.select().from(schema.bills).where(eq(schema.bills.id, billId)).limit(1);
+    if (!bill || !(await this.assertCommerceAccess(bill.ownerUserId, bill.householdId, userId))) return null;
+    return { bill, evidence: await this.evidenceViaInboxItem("bill", billId) };
+  }
+
+  async warrantyDetail(warrantyId: string, userId: string) {
+    const [warranty] = await this.db.select().from(schema.warranties).where(eq(schema.warranties.id, warrantyId)).limit(1);
+    if (!warranty || !(await this.assertCommerceAccess(warranty.ownerUserId, warranty.householdId, userId))) return null;
+    return { warranty, evidence: await this.evidenceViaInboxItem("warranty", warrantyId) };
+  }
+
+  async returnDetail(returnCaseId: string, userId: string) {
+    const [row] = await this.db
+      .select({ returnCase: schema.returnCases, purchase: schema.purchases })
+      .from(schema.returnCases)
+      .innerJoin(schema.purchases, eq(schema.purchases.id, schema.returnCases.purchaseId))
+      .where(eq(schema.returnCases.id, returnCaseId))
+      .limit(1);
+    if (!row || !(await this.assertCommerceAccess(row.purchase.ownerUserId, row.purchase.householdId, userId))) return null;
+    // No direct evidence trail of its own — a return case is created inside extractReceipt from the same
+    // email as its parent purchase, so the parent's source event IS the evidence for the return too.
+    return { returnCase: row.returnCase, purchase: row.purchase, evidence: await this.evidenceForSourceEvent(row.purchase.sourceEventId) };
+  }
+
+  async subscriptionDetail(subscriptionId: string, userId: string) {
+    const [row] = await this.db
+      .select({ subscription: schema.subscriptions, stream: schema.recurringStreams })
+      .from(schema.subscriptions)
+      .innerJoin(schema.recurringStreams, eq(schema.recurringStreams.id, schema.subscriptions.recurringStreamId))
+      .where(eq(schema.subscriptions.id, subscriptionId))
+      .limit(1);
+    if (!row || !(await this.assertCommerceAccess(row.stream.ownerUserId, row.stream.householdId, userId))) return null;
+    // No ingestion path currently creates subscriptions at all (see ROADMAP) — never any evidence to show.
+    return { subscription: row.subscription, stream: row.stream, evidence: null };
   }
 
   async returns(userId: string) {

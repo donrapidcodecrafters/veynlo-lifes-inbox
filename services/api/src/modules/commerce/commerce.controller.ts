@@ -24,9 +24,19 @@ export class CommerceController {
     return this.commerce.returns(user.userId);
   }
 
+  @Get("returns/:id")
+  returnDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.commerce.returnDetail(id, user.userId);
+  }
+
   @Get("subscriptions")
   subscriptions(@CurrentUser() user: AuthenticatedUser) {
     return this.commerce.subscriptions(user.userId);
+  }
+
+  @Get("subscriptions/:id")
+  subscriptionDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.commerce.subscriptionDetail(id, user.userId);
   }
 
   @Get("bills")
@@ -34,8 +44,18 @@ export class CommerceController {
     return this.commerce.bills(user.userId);
   }
 
+  @Get("bills/:id")
+  billDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.commerce.billDetail(id, user.userId);
+  }
+
   @Get("warranties")
   warranties(@CurrentUser() user: AuthenticatedUser) {
     return this.commerce.warranties(user.userId);
+  }
+
+  @Get("warranties/:id")
+  warrantyDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.commerce.warrantyDetail(id, user.userId);
   }
 }
