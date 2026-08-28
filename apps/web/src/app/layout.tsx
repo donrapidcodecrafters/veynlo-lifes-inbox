@@ -29,7 +29,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
+        {/* suppressHydrationWarning: browsers deliberately hide a script's `nonce` attribute from
+            getAttribute() reads after it's applied (an XSS-hardening measure), so React's hydration
+            check always sees a mismatch here — a known, harmless quirk of nonce-based CSP with SSR,
+            not a real bug (confirmed via a real headless-browser run: zero CSP violations, the script
+            executes correctly either way). */}
+        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeInitScript() }} />
       </head>
       <body>
         <ThemeProvider>{children}</ThemeProvider>

@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AttentionService } from "./attention.service";
 import { InboxService } from "./inbox.service";
+import { CorrectInboxItemDtoSchema, type CorrectInboxItemDto } from "./dto";
 
 @Controller()
 @UseGuards(AuthGuard)
@@ -36,6 +38,12 @@ export class AttentionController {
   @Post("v1/inbox/:id/confirm")
   confirm(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.inbox.confirm(id, user.userId);
+  }
+
+  @Post("v1/inbox/:id/correct")
+  @UsePipes(new ZodValidationPipe(CorrectInboxItemDtoSchema))
+  correct(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: CorrectInboxItemDto) {
+    return this.inbox.correct(id, user.userId, dto);
   }
 
   @Post("v1/inbox/:id/archive")
