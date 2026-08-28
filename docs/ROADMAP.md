@@ -11,7 +11,7 @@ this repository, not an aspirational plan.
 | Auth (email/password, sessions, device list) | ✅ Built, plus in-app self-service account deletion (`POST /v1/auth/delete-account` + web Settings UI — App Store/Play Store §5.1.1(v) requirement). Passkeys/MFA/OAuth sign-in not yet. |
 | Data protection at rest | ✅ Field-level AES-256-GCM encryption on 50 sensitive columns across every domain (`grep -c "encryptedText(\|encryptedJsonb<" packages/db/src/schema/*.ts` — this line said "~40" until corrected 2026-08-28; count grows as new tables like `warranties` add encrypted columns, so re-verify rather than trust a stale count), transparent via a Drizzle `customType`, with explicit operator-set key versioning for rotation. See `SECURITY.md` for what's covered/not and why. |
 | Household + dependents | ✅ Built (create/invite/leave/dependents/caregiver delegations — grant/list/revoke, `POST/GET /v1/households/:id/delegations`, `:id/revoke`). Delegation grants require the delegate to already be an active household member (a delegation adds a scoped capability to someone already trusted, not a way to admit an outsider), scopes are validated against a fixed enum (`schedule:read`/`documents:read`/`commerce:read`/`household:read`), and both grant/revoke are audited. `commerce:read` is now actually enforced: `HouseholdService.delegatedHouseholdIds` is the first real consumer of a granted delegation (previously the grant/list/revoke API worked but nothing ever checked a delegation before serving data), and `CommerceController`'s five read paths (purchases/bills/returns/subscriptions/warranties, including the by-ID `purchaseDetail`) now widen from "my own rows" to "my own rows, plus any household I've been delegated `commerce:read` on" — household-scoped, not per-member, matching how a grant itself has no per-member target. Verified live end-to-end: a delegate saw zero purchases before the grant, the full household's purchases/bills after it, and zero again — including on the by-ID detail route, not just the list — the moment it was revoked. `schedule:read` and `documents:read` are now enforced too, the same day: `ScheduleService` (events/tasks) and `DocumentsService` (list + the by-ID `signedUrl`/download-url path) both gained an identically-shaped `ownerOrDelegatedHousehold` helper. These two domains have a wrinkle commerce didn't: `calendar_events` and `documents` both carry a `visibility` enum (default `"private"`) that was — and, for a household member, still is — never actually enforced anywhere; rather than let a household-wide delegation grant be the first code path to leak a `"private"`-flagged row to someone, the delegated-household branch specifically excludes `visibility: "private"` (the owner's own rows are never filtered by visibility). Verified live with one household-visible and one private calendar event/document each: before the grant neither was visible; after, the household-visible ones appeared in both list endpoints and the private ones stayed hidden, including on `documents`' by-ID `download-url` route (403 before reaching the missing-file-version check, proving the authorization check itself — not a downstream error — is what blocks it); after revoke, all of it disappeared again immediately. **Not done yet**: `household:read` (viewing another member's profile/dependent info directly) remains unenforced — lower priority since `HouseholdService`'s existing `assertOwnerOrAdult` already gates most of that surface by membership role, not by delegation. |
-| Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. |
+| Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. Disconnecting a connection with "delete derived data" now actually deletes data (see item 14 below) instead of being a no-op the Connections page's own copy claimed was possible. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events, and warranties (`extractWarranty`, `warranties` table, `GET /v1/warranties`, surfaced on Life and Timeline). Travel is partially covered by the calendar extractor; school/home/vehicle extractors not started. |
 | Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`. The owner-scoped `canonical_entities` knowledge-graph layer now has a real first writer (see item 13 below) — `extractReceipt` creates one `canonical_entities` row per purchase line and `extractWarranty` resolves back to it — but `relationships`/`facts`/`entity_merge_lineage` remain entirely unwritten (deliberately — see item 13). |
 | Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built, including "correct" for all five linkable domains (purchase/bill/calendar_event/shipment/warranty — warranty was a gap introduced alongside the warranty extractor itself, since `correct()`'s switch had no case for it; fixed the same day). Snooze is now a real user-facing action on both web and mobile (previously the backend method existed with zero UI entry point, and — more importantly — nothing ever resurfaced a snoozed item once its `snoozedUntil` passed; added a recurring `inbox-unsnooze` worker tick, mirroring the existing `connector-scan` tick's shape, that flips due snoozed items back to `reviewState: "new"`). "Merge" was assessed and deliberately not built — see below. |
@@ -336,6 +336,41 @@ this repository, not an aspirational plan.
     different-case, extra-whitespace product label ("  bosch 800 series
     dishwasher  " vs. "Bosch 800 Series Dishwasher") still correctly
     matched back to the same purchase line and entity.
+
+14. ~~**Connection "delete derived data" — actually implemented**~~ — done.
+    `ConnectorsService.disconnect` accepted a `deleteDerivedData` flag and
+    the Connections page's own header copy told users "you can disconnect
+    or delete it at any time," but the flag was a literal `// TODO` no-op
+    — a privacy promise the app wasn't keeping. (Not actively misleading
+    in practice: neither web nor mobile exposed a way to opt in, both
+    hardcoded `deleteDerivedData: false`, so no user could have hit the
+    dead code path — but the copy's claim was still false.) Now real, and
+    exposed: both Connections pages gained a "Disconnect & delete data"
+    action with an inline confirm step (mirrors the existing account-
+    deletion confirm pattern) alongside the existing data-preserving
+    "Disconnect." The actual deletion runs as a durable worker job
+    (`connection-data-deletion` queue, `worker-main.ts`), same
+    synchronous-mark/async-delete split as account deletion. Only
+    `purchases.sourceEventId` traces directly back to a connection;
+    bills/warranties/calendar_events/shipments have no such column, so
+    those are found indirectly via `inbox_items` (every successful
+    extraction files one, and nothing hard-deletes an inbox_item, so the
+    mapping holds). Deletes purchases first so `return_cases`/`shipments`/
+    `purchase_lines` FK-cascade away, captures
+    `purchaseLines.ownerAssetEntityId` beforehand since `canonical_entities`
+    has no matching cascade and would otherwise orphan, and clears any
+    `attention_items` pointing at something being deleted. Documents are
+    deliberately out of scope — they're user-uploaded, not
+    connector-derived, so a connection never has any. Verified live:
+    seeded a connection with one purchase (plus its line item and
+    canonical-entity asset) and one bill/warranty/calendar-event/shipment
+    each (filed via inbox_items, the indirect path), called the real
+    `disconnect` endpoint with `deleteDerivedData: true`, and confirmed
+    every table emptied to zero while the `connections` row itself
+    survived (marked `disconnected`, not deleted) and a real
+    `connection.delete_derived_data` audit event was written. Also
+    confirmed live via Playwright that the new confirm UI renders
+    correctly with no console errors.
 
 ## Phase 2 — financially sticky + household-ready
 

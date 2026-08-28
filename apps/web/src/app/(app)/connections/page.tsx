@@ -46,6 +46,7 @@ const AVAILABLE_CONNECTORS = [
 export default function ConnectionsPage() {
   const { data, isLoading, mutate } = useSWR<Connection[]>("/v1/connectors", swrFetcher);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {
     setConnectError(null);
@@ -61,8 +62,9 @@ export default function ConnectionsPage() {
     }
   }
 
-  async function disconnect(id: string) {
-    await api.post(`/v1/connectors/${id}/disconnect`, { deleteDerivedData: false });
+  async function disconnect(id: string, deleteDerivedData: boolean) {
+    await api.post(`/v1/connectors/${id}/disconnect`, { deleteDerivedData });
+    setConfirmingDeleteId(null);
     mutate();
   }
 
@@ -107,21 +109,46 @@ export default function ConnectionsPage() {
         <div className="space-y-3">
           {data.map((c) => (
             <Card key={c.id}>
-              <CardBody className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-[0.9375rem] font-medium capitalize text-primary">{c.provider}</p>
-                    <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace("_", " ")}</Badge>
+              <CardBody className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[0.9375rem] font-medium capitalize text-primary">{c.provider}</p>
+                      <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace("_", " ")}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-tertiary">
+                      {c.itemsDiscoveredCount} items discovered
+                      {c.lastSuccessfulSyncAt && ` · last synced ${new Date(c.lastSuccessfulSyncAt).toLocaleDateString()}`}
+                    </p>
+                    {c.healthDetail && <p className="mt-1 text-sm text-warning-subtle-text">{c.healthDetail}</p>}
                   </div>
-                  <p className="mt-1 text-sm text-tertiary">
-                    {c.itemsDiscoveredCount} items discovered
-                    {c.lastSuccessfulSyncAt && ` · last synced ${new Date(c.lastSuccessfulSyncAt).toLocaleDateString()}`}
-                  </p>
-                  {c.healthDetail && <p className="mt-1 text-sm text-warning-subtle-text">{c.healthDetail}</p>}
+                  {confirmingDeleteId !== c.id && (
+                    <div className="flex shrink-0 gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => disconnect(c.id, false)}>
+                        Disconnect
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(c.id)}>
+                        Disconnect &amp; delete data
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => disconnect(c.id)}>
-                  Disconnect
-                </Button>
+                {confirmingDeleteId === c.id && (
+                  <div className="space-y-3 rounded-lg border border-critical/40 bg-critical-subtle p-3">
+                    <p className="text-sm text-critical-subtle-text">
+                      This permanently deletes the purchases, bills, appointments, and other items found via this connection. It
+                      can&apos;t be undone.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => disconnect(c.id, true)}>
+                        Confirm delete
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardBody>
             </Card>
           ))}

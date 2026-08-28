@@ -10,6 +10,7 @@ import {
   type AccountDeletionJobData,
   type InboxUnsnoozeScanJobData,
   type AttentionScanJobData,
+  type ConnectionDataDeletionJobData,
 } from "./queue-names";
 
 /**
@@ -40,6 +41,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly attentionScanQueue = new Queue<AttentionScanJobData>(QUEUE_NAMES.attentionScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly connectionDataDeletionQueue = new Queue<ConnectionDataDeletionJobData>(QUEUE_NAMES.connectionDataDeletion, {
     connection: getRedisConnection(),
   });
 
@@ -106,6 +110,22 @@ export class QueueProducerService implements OnModuleDestroy {
     await this.attentionScanQueue.add("scan", {}, { repeat: { every: 60 * 60 * 1000 }, jobId: "attention-scan" });
   }
 
+  /**
+   * PRIV-002 — the actual destructive half of "disconnect and delete" (ConnectorsService.disconnect
+   * marks the connection disconnected synchronously; this finishes the real work in the background, same
+   * split as account deletion). No delay: disconnection already took effect the moment the request
+   * completed, so there's no user-facing grace window this job's timing needs to respect.
+   */
+  async enqueueConnectionDataDeletion(data: ConnectionDataDeletionJobData): Promise<void> {
+    await this.connectionDataDeletionQueue.add("delete", data, {
+      jobId: data.connectionId,
+      attempts: 5,
+      backoff: { type: "exponential", delay: 30_000 },
+      removeOnComplete: { count: 500 },
+      removeOnFail: { count: 1000 },
+    });
+  }
+
   async enqueueNotificationDelivery(data: NotificationDeliveryJobData, delayMs = 0): Promise<void> {
     await this.notificationDeliveryQueue.add("deliver", data, {
       // Quiet-hours reschedules add a numeric suffix so they don't collide with the (by-then-completed)
@@ -145,6 +165,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.accountDeletionQueue.close(),
       this.inboxUnsnoozeQueue.close(),
       this.attentionScanQueue.close(),
+      this.connectionDataDeletionQueue.close(),
     ]);
   }
 }

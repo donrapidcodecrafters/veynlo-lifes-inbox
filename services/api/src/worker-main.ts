@@ -16,6 +16,7 @@ import {
   type ConnectorSyncJobData,
   type InboxUnsnoozeScanJobData,
   type AttentionScanJobData,
+  type ConnectionDataDeletionJobData,
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
 } from "./queue/queue-names";
@@ -200,6 +201,76 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
+  /**
+   * PRIV-002 — the actual deletion half of "disconnect and delete" (ConnectorsService.disconnect marks
+   * the connection disconnected synchronously; this does the real work). Only two domain tables trace
+   * back to a connection directly (purchases.sourceEventId); bills/warranties/calendar_events/shipments
+   * have no such column, so they're found indirectly via inbox_items — every successful extraction files
+   * one (IngestionService.fileInboxItem), and nothing in the app hard-deletes an inbox_item, so that
+   * mapping is reliable. Deletes purchases first so return_cases/shipments/purchase_lines that FK to them
+   * cascade away automatically; captures purchaseLines.ownerAssetEntityId beforehand since
+   * canonical_entities has no matching cascade and would otherwise orphan. Also clears any attention_item
+   * pointing at something about to be deleted, so "Needs You" never shows a card for data that no longer
+   * exists. Documents are deliberately out of scope — they're user-uploaded (documents.service.ts's
+   * upload()), not connector-derived, so a connection has none to delete.
+   */
+  const connectionDataDeletionWorker = new Worker<ConnectionDataDeletionJobData>(
+    QUEUE_NAMES.connectionDataDeletion,
+    async (job) => {
+      const { connectionId, ownerUserId } = job.data;
+      const sourceEventRows = await db
+        .select({ id: schema.sourceEvents.id })
+        .from(schema.sourceEvents)
+        .where(eq(schema.sourceEvents.connectionId, connectionId));
+      const sourceEventIds = sourceEventRows.map((r) => r.id);
+      if (sourceEventIds.length === 0) return;
+
+      const purchases = await db.select({ id: schema.purchases.id }).from(schema.purchases).where(inArray(schema.purchases.sourceEventId, sourceEventIds));
+      const purchaseIds = purchases.map((p) => p.id);
+      if (purchaseIds.length > 0) {
+        const lines = await db
+          .select({ ownerAssetEntityId: schema.purchaseLines.ownerAssetEntityId })
+          .from(schema.purchaseLines)
+          .where(inArray(schema.purchaseLines.purchaseId, purchaseIds));
+        const entityIds = lines.map((l) => l.ownerAssetEntityId).filter((id): id is string => id != null);
+        await db.delete(schema.purchases).where(inArray(schema.purchases.id, purchaseIds));
+        if (entityIds.length > 0) await db.delete(schema.canonicalEntities).where(inArray(schema.canonicalEntities.id, entityIds));
+      }
+
+      const inboxRows = await db
+        .select({ linkedResourceType: schema.inboxItems.linkedResourceType, linkedResourceId: schema.inboxItems.linkedResourceId })
+        .from(schema.inboxItems)
+        .where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
+      const idsFor = (type: string) => inboxRows.filter((r) => r.linkedResourceType === type && r.linkedResourceId).map((r) => r.linkedResourceId as string);
+      const billIds = idsFor("bill");
+      const warrantyIds = idsFor("warranty");
+      const calendarEventIds = idsFor("calendar_event");
+      const shipmentIds = idsFor("shipment");
+      if (billIds.length > 0) await db.delete(schema.bills).where(inArray(schema.bills.id, billIds));
+      if (warrantyIds.length > 0) await db.delete(schema.warranties).where(inArray(schema.warranties.id, warrantyIds));
+      if (calendarEventIds.length > 0) await db.delete(schema.calendarEvents).where(inArray(schema.calendarEvents.id, calendarEventIds));
+      if (shipmentIds.length > 0) await db.delete(schema.shipments).where(inArray(schema.shipments.id, shipmentIds));
+
+      const allLinkedIds = [...purchaseIds, ...billIds, ...warrantyIds, ...calendarEventIds, ...shipmentIds];
+      if (allLinkedIds.length > 0) await db.delete(schema.attentionItems).where(inArray(schema.attentionItems.linkedResourceId, allLinkedIds));
+
+      await db.delete(schema.inboxItems).where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
+      await db.delete(schema.sourceEvents).where(inArray(schema.sourceEvents.id, sourceEventIds));
+
+      await db.insert(schema.auditEvents).values({
+        id: generateId("auditEvent"),
+        actorType: "user",
+        actorId: ownerUserId,
+        action: "connection.delete_derived_data",
+        resourceType: "connection",
+        resourceId: connectionId,
+        beforeJson: { sourceEventCount: sourceEventIds.length, purchaseCount: purchaseIds.length },
+        result: "success",
+      });
+    },
+    { connection: getRedisConnection(), concurrency: 2 },
+  );
+
   // Recurring tick (see QueueProducerService.scheduleRecurringInboxUnsnooze): resurfaces every snoozed
   // Inbox item whose snoozedUntil has passed by flipping it back to reviewState "new" — snooze() itself
   // only ever sets reviewState to "snoozed", so without this tick a snoozed item would stay hidden
@@ -229,6 +300,7 @@ async function bootstrap() {
     notificationDispatchWorker,
     notificationDeliveryWorker,
     accountDeletionWorker,
+    connectionDataDeletionWorker,
     inboxUnsnoozeWorker,
     attentionScanWorker,
   ]) {
@@ -244,7 +316,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringAttentionScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, inbox-unsnooze, attention-scan",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan",
   );
 
   const shutdown = async () => {
@@ -255,6 +327,7 @@ async function bootstrap() {
       notificationDispatchWorker.close(),
       notificationDeliveryWorker.close(),
       accountDeletionWorker.close(),
+      connectionDataDeletionWorker.close(),
       inboxUnsnoozeWorker.close(),
       attentionScanWorker.close(),
     ]);

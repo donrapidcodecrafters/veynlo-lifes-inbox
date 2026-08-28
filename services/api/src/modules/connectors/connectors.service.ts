@@ -3,10 +3,14 @@ import { and, eq } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { QueueProducerService } from "../../queue/queue-producer.service";
 
 @Injectable()
 export class ConnectorsService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly queueProducer: QueueProducerService,
+  ) {}
 
   async listForUser(userId: string) {
     return this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, userId));
@@ -28,11 +32,11 @@ export class ConnectorsService {
       .update(schema.connections)
       .set({ health: "disconnected", disconnectedAt: new Date() })
       .where(eq(schema.connections.id, connectionId));
-    // Deletion-of-derived-data workflow (facts/purchases/documents originating from this connection) is a
-    // durable, resumable job — see PRIV-002 in the roadmap. `deleteDerivedData` is threaded through once
-    // that workflow exists; for now the flag is accepted and recorded but not yet destructive.
+    // PRIV-002 — the actual deletion runs as a durable, resumable background job (worker-main.ts's
+    // connectionDataDeletionWorker), same split as account deletion: this call only needs to enqueue it,
+    // not block the request on however much data this connection produced.
     if (deleteDerivedData) {
-      // TODO(privacy-workflow): enqueue durable deletion-by-connection job.
+      await this.queueProducer.enqueueConnectionDataDeletion({ connectionId, ownerUserId: userId });
     }
   }
 

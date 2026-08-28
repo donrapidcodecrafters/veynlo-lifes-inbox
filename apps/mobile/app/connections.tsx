@@ -39,6 +39,7 @@ export default function ConnectionsScreen() {
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
@@ -73,8 +74,9 @@ export default function ConnectionsScreen() {
     }
   }
 
-  async function disconnect(id: string) {
-    await api.post(`/v1/connectors/${id}/disconnect`, { deleteDerivedData: false });
+  async function disconnect(id: string, deleteDerivedData: boolean) {
+    await api.post(`/v1/connectors/${id}/disconnect`, { deleteDerivedData });
+    setConfirmingDeleteId(null);
     load();
   }
 
@@ -119,12 +121,33 @@ export default function ConnectionsScreen() {
                   </Text>
                   <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace(/_/g, " ")}</Badge>
                 </View>
-                <Button variant="ghost" onPress={() => disconnect(c.id)}>
-                  Disconnect
-                </Button>
+                {confirmingDeleteId !== c.id && (
+                  <View style={{ flexDirection: "row", gap: 4 }}>
+                    <Button variant="ghost" onPress={() => disconnect(c.id, false)}>
+                      Disconnect
+                    </Button>
+                    <Button variant="ghost" onPress={() => setConfirmingDeleteId(c.id)}>
+                      Delete data
+                    </Button>
+                  </View>
+                )}
               </View>
               <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{c.itemsDiscoveredCount} items discovered</Text>
               {c.healthDetail && <Text style={{ fontSize: 12, color: theme.colors.warningSubtleText }}>{c.healthDetail}</Text>}
+              {confirmingDeleteId === c.id && (
+                <View style={{ backgroundColor: theme.colors.criticalSubtleBg, borderRadius: theme.radius.md, padding: 12, gap: 8 }}>
+                  <Text style={{ fontSize: 13, color: theme.colors.criticalSubtleText }}>
+                    This permanently deletes the purchases, bills, appointments, and other items found via this connection. It
+                    can&apos;t be undone.
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Button onPress={() => disconnect(c.id, true)}>Confirm delete</Button>
+                    <Button variant="ghost" onPress={() => setConfirmingDeleteId(null)}>
+                      Cancel
+                    </Button>
+                  </View>
+                </View>
+              )}
             </Card>
           ))}
         </View>

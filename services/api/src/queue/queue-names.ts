@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   accountDeletion: "account-deletion",
   inboxUnsnooze: "inbox-unsnooze",
   attentionScan: "attention-scan",
+  connectionDataDeletion: "connection-data-deletion",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -41,3 +42,8 @@ export type InboxUnsnoozeScanJobData = Record<string, never>;
 
 /** Recurring tick with no payload — its processor (AttentionService.scanAndFileDeadlines) finds upcoming bill/return/warranty deadlines itself. */
 export type AttentionScanJobData = Record<string, never>;
+
+export interface ConnectionDataDeletionJobData {
+  connectionId: string;
+  ownerUserId: string;
+}
