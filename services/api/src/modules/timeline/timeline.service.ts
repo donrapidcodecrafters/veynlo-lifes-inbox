@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
+import { decryptField } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 
 export interface TimelineItem {
@@ -107,10 +108,15 @@ export class TimelineService {
     const hasMore = rows.length > PAGE_SIZE;
     const page = hasMore ? rows.slice(0, PAGE_SIZE) : rows;
 
+    // Raw sql`...` bypasses Drizzle's customType decode, so calendar_events.title, bills.biller_label, and
+    // documents.title (all encrypted — see their schema definitions) come back as ciphertext here and need
+    // manual decryption. purchases' title (merchant name / order number) and return_cases' literal
+    // "Return deadline" are never encrypted, so those pass through unchanged.
+    const ENCRYPTED_TITLE_KINDS = new Set(["calendar_event", "bill", "document"]);
     const items: TimelineItem[] = page.map((row) => ({
       id: row.id,
       kind: row.kind as TimelineItem["kind"],
-      title: row.title,
+      title: ENCRYPTED_TITLE_KINDS.has(row.kind) ? decryptField(row.title) : row.title,
       occurredAt: new Date(row.occurred_at).toISOString(),
       resourceType: row.resource_type,
       resourceId: row.resource_id,

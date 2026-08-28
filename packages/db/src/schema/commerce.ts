@@ -4,10 +4,11 @@ import { users } from "./identity";
 import { households } from "./household";
 import { canonicalEntities } from "./graph";
 import { adminUsers } from "./admin";
+import { encryptedText } from "./encrypted-type";
 
 export const merchants = pgTable("merchants", {
   id: text("id").primaryKey(),
-  displayName: text("display_name").notNull(),
+  displayName: text("display_name").notNull(), // findOrCreateMerchant looks this up by exact match; also global/shared reference data, not owner-private
   domain: text("domain"),
   logoUrl: text("logo_url"),
   /** Set when an admin merges this merchant into another (see merchantMergeLineage) — the row stays queryable/undoable rather than being hard-deleted. */
@@ -54,7 +55,7 @@ export const purchases = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     merchantId: text("merchant_id").references(() => merchants.id),
-    orderNumber: text("order_number"),
+    orderNumber: text("order_number"), // dedup lookup key — see purchases_order_number_idx and findExistingPurchase
     purchaseDate: jsonb("purchase_date").$type<TemporalValue>().notNull(),
     /** Denormalized sortable instant derived from purchaseDate for range queries; nullable when precision is coarse. */
     purchaseDateSort: timestamp("purchase_date_sort", { withTimezone: true }),
@@ -62,7 +63,7 @@ export const purchases = pgTable(
     totalCurrency: text("total_currency"),
     taxMinorUnits: integer("tax_minor_units"),
     shippingMinorUnits: integer("shipping_minor_units"),
-    paymentMethodHint: text("payment_method_hint"),
+    paymentMethodHint: encryptedText("payment_method_hint"),
     state: text("state").notNull().default("candidate"),
     confidenceBand: text("confidence_band").notNull(),
     sourceEventId: text("source_event_id"),
@@ -80,13 +81,13 @@ export const purchaseLines = pgTable("purchase_lines", {
   purchaseId: text("purchase_id")
     .notNull()
     .references(() => purchases.id, { onDelete: "cascade" }),
-  productLabel: text("product_label").notNull(),
+  productLabel: encryptedText("product_label").notNull(),
   productMatchEntityId: text("product_match_entity_id").references(() => canonicalEntities.id),
   quantity: integer("quantity").notNull().default(1),
   unitPriceMinorUnits: integer("unit_price_minor_units"),
   lineTotalMinorUnits: integer("line_total_minor_units"),
   currency: text("currency"),
-  serialNumber: text("serial_number"),
+  serialNumber: encryptedText("serial_number"),
   ownerAssetEntityId: text("owner_asset_entity_id").references(() => canonicalEntities.id),
   giftFlag: boolean("gift_flag").notNull().default(false),
 });
@@ -105,9 +106,9 @@ export const returnCases = pgTable(
     valueAtStakeMinorUnits: integer("value_at_stake_minor_units"),
     valueAtStakeCurrency: text("value_at_stake_currency"),
     policyEvidenceId: text("policy_evidence_id"),
-    trackingNumber: text("tracking_number"),
+    trackingNumber: encryptedText("tracking_number"),
     refundExpectedBy: jsonb("refund_expected_by").$type<TemporalValue>(),
-    refundObservedTransactionId: text("refund_observed_transaction_id"),
+    refundObservedTransactionId: encryptedText("refund_observed_transaction_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -119,7 +120,7 @@ export const shipments = pgTable("shipments", {
   purchaseId: text("purchase_id").references(() => purchases.id, { onDelete: "cascade" }),
   returnCaseId: text("return_case_id").references(() => returnCases.id, { onDelete: "cascade" }),
   carrier: text("carrier").notNull(),
-  trackingNumber: text("tracking_number").notNull(),
+  trackingNumber: text("tracking_number").notNull(), // dedup lookup key — see findExistingShipment
   status: text("status").notNull().default("label_created"),
   estimatedDelivery: jsonb("estimated_delivery").$type<TemporalValue>(),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
@@ -135,7 +136,7 @@ export const recurringStreams = pgTable("recurring_streams", {
     .references(() => users.id, { onDelete: "cascade" }),
   householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
   merchantId: text("merchant_id").references(() => merchants.id),
-  serviceLabel: text("service_label").notNull(),
+  serviceLabel: encryptedText("service_label").notNull(),
   cadence: text("cadence").notNull(),
   typicalAmountMinorUnits: integer("typical_amount_minor_units"),
   typicalAmountCurrency: text("typical_amount_currency"),
@@ -152,7 +153,7 @@ export const subscriptions = pgTable("subscriptions", {
     .references(() => recurringStreams.id, { onDelete: "cascade" }),
   state: text("state").notNull().default("candidate"),
   trialEndsAt: jsonb("trial_ends_at").$type<TemporalValue>(),
-  cancellationInstructionsUrl: text("cancellation_instructions_url"),
+  cancellationInstructionsUrl: encryptedText("cancellation_instructions_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -166,13 +167,15 @@ export const bills = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     recurringStreamId: text("recurring_stream_id").references(() => recurringStreams.id, { onDelete: "set null" }),
-    billerLabel: text("biller_label").notNull(),
+    // Encrypted — note this is read via raw SQL in TimelineService, which bypasses the customType's
+    // transparent decryption; that service manually decrypts it after the query (see timeline.service.ts).
+    billerLabel: encryptedText("biller_label").notNull(),
     amountDueMinorUnits: integer("amount_due_minor_units"),
     amountDueCurrency: text("amount_due_currency"),
     dueDate: jsonb("due_date").$type<TemporalValue>().notNull(),
     dueDateSort: timestamp("due_date_sort", { withTimezone: true }),
     autopayBelieved: boolean("autopay_believed"),
-    paymentObservedTransactionId: text("payment_observed_transaction_id"),
+    paymentObservedTransactionId: encryptedText("payment_observed_transaction_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

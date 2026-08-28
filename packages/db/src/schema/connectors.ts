@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
 import { users } from "./identity";
 import { households } from "./household";
+import { encryptedText } from "./encrypted-type";
 
 export const connections = pgTable(
   "connections",
@@ -15,9 +16,9 @@ export const connections = pgTable(
     scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
     enabledCategories: jsonb("enabled_categories").$type<string[]>().notNull().default([]),
     health: text("health").notNull().default("initializing"),
-    healthDetail: text("health_detail"),
+    healthDetail: encryptedText("health_detail"),
     lastSuccessfulSyncAt: timestamp("last_successful_sync_at", { withTimezone: true }),
-    cursor: text("cursor"),
+    cursor: encryptedText("cursor"),
     historyDepthDays: integer("history_depth_days"),
     itemsDiscoveredCount: integer("items_discovered_count").notNull().default(0),
     /** Opaque pointer into the encrypted credential vault — the token itself never lives in this table. Null until the OAuth callback completes. */
@@ -68,7 +69,7 @@ export const syncRuns = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     itemsProcessed: integer("items_processed").notNull().default(0),
-    errorDetail: text("error_detail"),
+    errorDetail: encryptedText("error_detail"),
   },
   (t) => [index("sync_runs_connection_idx").on(t.connectionId)],
 );

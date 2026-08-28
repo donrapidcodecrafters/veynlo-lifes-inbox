@@ -3,6 +3,7 @@ import type { TemporalValue } from "@veynlo/core";
 import { users } from "./identity";
 import { households } from "./household";
 import { visibilityEnum } from "./common";
+import { encryptedText } from "./encrypted-type";
 
 export const calendarEvents = pgTable(
   "calendar_events",
@@ -12,14 +13,15 @@ export const calendarEvents = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
-    title: text("title").notNull(),
+    // Encrypted — read via raw SQL in TimelineService, which manually decrypts it after the query.
+    title: encryptedText("title").notNull(),
     start: jsonb("start").$type<TemporalValue>().notNull(),
     startSort: timestamp("start_sort", { withTimezone: true }),
     end: jsonb("end").$type<TemporalValue>(),
     isAllDay: boolean("is_all_day").notNull().default(false),
-    location: text("location"),
+    location: encryptedText("location"),
     source: text("source").notNull(),
-    providerEventId: text("provider_event_id"),
+    providerEventId: text("provider_event_id"), // sync dedup lookup key — see calendar_events_provider_idx
     recurrenceRule: text("recurrence_rule"),
     status: text("status").notNull().default("confirmed"),
     visibility: visibilityEnum("visibility").notNull().default("private"),
@@ -42,17 +44,17 @@ export const tasks = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     assignedToUserId: text("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
-    title: text("title").notNull(),
+    title: encryptedText("title").notNull(),
     dueCondition: jsonb("due_condition").$type<TemporalValue>(),
     dueSort: timestamp("due_sort", { withTimezone: true }),
-    consequence: text("consequence"),
+    consequence: encryptedText("consequence"),
     priority: text("priority").notNull().default("medium"),
     recurrenceRule: text("recurrence_rule"),
     state: text("state").notNull().default("open"),
     snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
     relatedEntityIds: jsonb("related_entity_ids").$type<string[]>().notNull().default([]),
     externalSyncProvider: text("external_sync_provider"),
-    externalSyncId: text("external_sync_id"),
+    externalSyncId: text("external_sync_id"), // likely a future sync dedup lookup key, kept plaintext defensively
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

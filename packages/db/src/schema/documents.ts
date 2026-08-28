@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, integer, real, jsonb, index } from "drizzle-o
 import { users } from "./identity";
 import { households } from "./household";
 import { sensitivityTierEnum, visibilityEnum } from "./common";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 export const documents = pgTable(
   "documents",
@@ -12,13 +13,14 @@ export const documents = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     documentType: text("document_type").notNull(),
-    title: text("title").notNull(),
+    // Encrypted — read via raw SQL in TimelineService, which manually decrypts it after the query.
+    title: encryptedText("title").notNull(),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     visibility: visibilityEnum("visibility").notNull().default("private"),
     processingState: text("processing_state").notNull().default("uploaded"),
     currentVersionId: text("current_version_id"),
     linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
-    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    tags: encryptedJsonb<string[]>("tags").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -36,7 +38,7 @@ export const documentVersions = pgTable("document_versions", {
   contentHash: text("content_hash").notNull(),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
-  ocrText: text("ocr_text"),
+  ocrText: encryptedText("ocr_text"),
   ocrConfidence: real("ocr_confidence"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

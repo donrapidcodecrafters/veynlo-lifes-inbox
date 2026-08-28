@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 /** Immutable audit trail (§ "AUDIT LOG"). Never mutated or deleted except by documented retention policy. */
 export const auditEvents = pgTable(
@@ -10,8 +11,8 @@ export const auditEvents = pgTable(
     action: text("action").notNull(),
     resourceType: text("resource_type").notNull(),
     resourceId: text("resource_id").notNull(),
-    beforeJson: jsonb("before_json"),
-    afterJson: jsonb("after_json"),
+    beforeJson: encryptedJsonb<unknown>("before_json"),
+    afterJson: encryptedJsonb<unknown>("after_json"),
     automationRuleId: text("automation_rule_id"),
     result: text("result").notNull(), // "success" | "failure" | "denied"
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
@@ -28,6 +29,6 @@ export const promptSecurityEvents = pgTable("prompt_security_events", {
   userId: text("user_id"),
   sourceEventId: text("source_event_id"),
   kind: text("kind").notNull(), // "instruction_like_content_blocked" | "agent_policy_violation_prevented"
-  detail: text("detail"),
+  detail: encryptedText("detail"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

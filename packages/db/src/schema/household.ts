@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, boolean, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
 import { users } from "./identity";
+import { encryptedText } from "./encrypted-type";
 
 export const principalRoleEnum = pgEnum("principal_role", [
   "individual_owner",
@@ -16,7 +17,7 @@ export const membershipStatusEnum = pgEnum("membership_status", ["invited", "act
 
 export const households = pgTable("households", {
   id: text("id").primaryKey(),
-  name: text("name").notNull(),
+  name: encryptedText("name").notNull(),
   billingOwnerUserId: text("billing_owner_user_id")
     .notNull()
     .references(() => users.id),
@@ -33,8 +34,10 @@ export const householdMemberships = pgTable(
       .references(() => households.id, { onDelete: "cascade" }),
     userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     role: principalRoleEnum("role").notNull(),
-    relationshipLabel: text("relationship_label"),
+    relationshipLabel: encryptedText("relationship_label"),
     status: membershipStatusEnum("status").notNull().default("invited"),
+    // Stays plaintext: looked up by equality when checking for an existing pending invite
+    // (household.service.ts) — same non-deterministic-encryption constraint as users.email.
     invitedEmail: text("invited_email"),
     joinedAt: timestamp("joined_at", { withTimezone: true }),
     leftAt: timestamp("left_at", { withTimezone: true }),
@@ -47,8 +50,8 @@ export const dependentProfiles = pgTable("dependent_profiles", {
   householdId: text("household_id")
     .notNull()
     .references(() => households.id, { onDelete: "cascade" }),
-  displayName: text("display_name").notNull(),
-  birthDate: text("birth_date"),
+  displayName: encryptedText("display_name").notNull(),
+  birthDate: encryptedText("birth_date"),
   guardianUserIds: jsonb("guardian_user_ids").$type<string[]>().notNull().default([]),
   hasOwnAccount: boolean("has_own_account").notNull().default(false),
   linkedUserId: text("linked_user_id").references(() => users.id, { onDelete: "set null" }),

@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, integer, boolean, jsonb, index } from "drizzl
 import type { TemporalValue } from "@veynlo/core";
 import { users } from "./identity";
 import { households } from "./household";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 export const inboxItems = pgTable(
   "inbox_items",
@@ -12,11 +13,11 @@ export const inboxItems = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     category: text("category").notNull(),
-    summary: text("summary").notNull(),
+    summary: encryptedText("summary").notNull(),
     linkedResourceType: text("linked_resource_type"),
     linkedResourceId: text("linked_resource_id"),
     sourceEventId: text("source_event_id").notNull(),
-    suggestedActions: jsonb("suggested_actions").$type<string[]>().notNull().default([]),
+    suggestedActions: encryptedJsonb<string[]>("suggested_actions").notNull().default([]),
     autoFiled: boolean("auto_filed").notNull().default(false),
     reviewState: text("review_state").notNull().default("new"),
     snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
@@ -36,7 +37,7 @@ export const attentionItems = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     reasonCode: text("reason_code").notNull(),
-    reasonText: text("reason_text").notNull(),
+    reasonText: encryptedText("reason_text").notNull(),
     urgency: text("urgency").notNull(),
     dueAt: jsonb("due_at").$type<TemporalValue>(),
     dueAtSort: timestamp("due_at_sort", { withTimezone: true }),
@@ -47,7 +48,7 @@ export const attentionItems = pgTable(
     linkedResourceId: text("linked_resource_id"),
     primaryActions: jsonb("primary_actions").$type<string[]>().notNull().default([]),
     resolved: boolean("resolved").notNull().default(false),
-    dismissedReason: text("dismissed_reason"),
+    dismissedReason: encryptedText("dismissed_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -64,8 +65,8 @@ export const notifications = pgTable(
     dedupeKey: text("dedupe_key").notNull(),
     priority: text("priority").notNull(),
     channel: text("channel").notNull(),
-    title: text("title").notNull(),
-    body: text("body").notNull(),
+    title: encryptedText("title").notNull(),
+    body: encryptedText("body").notNull(),
     linkedAttentionItemId: text("linked_attention_item_id"),
     state: text("state").notNull().default("queued"),
     suppressionReason: text("suppression_reason"),

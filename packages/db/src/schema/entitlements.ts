@@ -1,6 +1,7 @@
-import { pgTable, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { users } from "./identity";
 import { households } from "./household";
+import { encryptedJsonb } from "./encrypted-type";
 
 export const entitlements = pgTable("entitlements", {
   id: text("id").primaryKey(),
@@ -26,7 +27,7 @@ export const billingEvents = pgTable("billing_events", {
   source: text("source").notNull(), // "app_store" | "play_store" | "web_stripe"
   externalEventId: text("external_event_id").notNull(),
   eventType: text("event_type").notNull(),
-  payloadJson: jsonb("payload_json").notNull(),
+  payloadJson: encryptedJsonb<unknown>("payload_json").notNull(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

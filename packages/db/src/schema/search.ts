@@ -15,6 +15,13 @@ export const searchDocuments = pgTable(
     resourceType: text("resource_type").notNull(),
     resourceId: text("resource_id").notNull(),
     sensitivity: text("sensitivity").notNull(),
+    // title/bodyText are deliberately NOT encrypted, unlike their source-of-truth columns elsewhere
+    // (e.g. documents.title, purchases-derived titles) — this table exists specifically to be searched
+    // (Postgres full-text/trigram matching, plus pgvector similarity on `embedding`), and application-level
+    // encryption makes ciphertext opaque to exactly the operations search needs. Confidentiality for this
+    // table has to come from a different layer: strict authz (re-checked at fetch time, per the comment
+    // above), audit logging, and disk/volume-level encryption at rest (a standard managed-Postgres feature)
+    // rather than column-level encryption. See SECURITY.md.
     title: text("title").notNull(),
     bodyText: text("body_text").notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),

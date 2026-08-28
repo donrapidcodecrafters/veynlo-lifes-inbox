@@ -3,6 +3,7 @@ import { users } from "./identity";
 import { households } from "./household";
 import { connections } from "./connectors";
 import { sensitivityTierEnum, visibilityEnum, confidenceBandEnum, verificationStateEnum } from "./common";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 export const sourceEvents = pgTable(
   "source_events",
@@ -14,11 +15,11 @@ export const sourceEvents = pgTable(
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     connectionId: text("connection_id").references(() => connections.id, { onDelete: "set null" }),
     kind: text("kind").notNull(),
-    providerItemId: text("provider_item_id"),
-    contentHash: text("content_hash").notNull(),
+    providerItemId: encryptedText("provider_item_id"),
+    contentHash: text("content_hash").notNull(), // a hash, not content, and dedup logic doesn't compare it directly
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
-    rawContentRef: text("raw_content_ref"),
+    rawContentRef: encryptedText("raw_content_ref"),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     processingState: text("processing_state").notNull().default("queued"),
     idempotencyKey: text("idempotency_key").notNull(),
@@ -36,8 +37,8 @@ export const evidenceRefs = pgTable("evidence_refs", {
   sourceEventId: text("source_event_id")
     .notNull()
     .references(() => sourceEvents.id, { onDelete: "cascade" }),
-  locator: text("locator").notNull(),
-  excerpt: text("excerpt"),
+  locator: text("locator").notNull(), // a pointer/citation into the source, not quoted content itself
+  excerpt: encryptedText("excerpt"),
   capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -50,10 +51,10 @@ export const canonicalEntities = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
-    displayLabel: text("display_label").notNull(),
+    displayLabel: encryptedText("display_label").notNull(),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     visibility: visibilityEnum("visibility").notNull().default("private"),
-    aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+    aliases: encryptedJsonb<string[]>("aliases").notNull().default([]),
     lifecycleState: text("lifecycle_state").notNull(),
     mergedIntoEntityId: text("merged_into_entity_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -111,8 +112,8 @@ export const facts = pgTable(
     subjectEntityId: text("subject_entity_id")
       .notNull()
       .references(() => canonicalEntities.id, { onDelete: "cascade" }),
-    predicate: text("predicate").notNull(),
-    valueJson: jsonb("value_json").notNull(),
+    predicate: text("predicate").notNull(), // categorical/structural — part of the lookup index below
+    valueJson: encryptedJsonb<unknown>("value_json").notNull(),
     unit: text("unit"),
     extractionMethod: text("extraction_method").notNull(),
     extractorVersion: text("extractor_version").notNull(),

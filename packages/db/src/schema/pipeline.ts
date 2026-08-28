@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, integer, real, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, real } from "drizzle-orm/pg-core";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 export const extractorVersions = pgTable("extractor_versions", {
   id: text("id").primaryKey(),
@@ -20,8 +21,8 @@ export const extractionRuns = pgTable("extraction_runs", {
   status: text("status").notNull().default("pending"),
   costMinorUnits: integer("cost_minor_units"),
   latencyMs: integer("latency_ms"),
-  outputJson: jsonb("output_json"),
-  errorDetail: text("error_detail"),
+  outputJson: encryptedJsonb<unknown>("output_json"),
+  errorDetail: encryptedText("error_detail"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });

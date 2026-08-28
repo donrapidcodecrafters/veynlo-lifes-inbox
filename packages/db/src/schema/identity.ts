@@ -1,12 +1,16 @@
 import { pgTable, text, timestamp, boolean, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
+import { encryptedText } from "./encrypted-type";
 
 export const userStatusEnum = pgEnum("user_status", ["active", "suspended", "deletion_pending", "deleted"]);
 export const themePreferenceEnum = pgEnum("theme_preference", ["system", "light", "dark"]);
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
+  // Stays plaintext: login looks users up by exact email match (`WHERE email = ?`), and AES-GCM is
+  // non-deterministic (a fresh random IV every encryption), so an encrypted column can't support equality
+  // lookups without a separate deterministic/blind-index scheme — not implemented here (see SECURITY.md).
   email: text("email").unique(),
-  displayName: text("display_name").notNull(),
+  displayName: encryptedText("display_name").notNull(),
   locale: text("locale").notNull().default("en-US"),
   timezone: text("timezone").notNull().default("UTC"),
   currency: text("currency").notNull().default("USD"),
@@ -27,6 +31,9 @@ export const identityLinks = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(), // "google" | "microsoft" | "apple" | "passkey" | "email"
+    // Stays plaintext: this table's whole purpose is an equality lookup on (provider, providerSubject)
+    // during OAuth sign-in (see the index below) — same non-deterministic-encryption constraint as
+    // users.email above.
     providerSubject: text("provider_subject").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -57,8 +64,8 @@ export const devices = pgTable("devices", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   platform: text("platform").notNull(), // "ios" | "android" | "web" | "macos" | "windows"
-  displayName: text("display_name"),
-  pushToken: text("push_token"),
+  displayName: encryptedText("display_name"),
+  pushToken: encryptedText("push_token"),
   biometricLockEnabled: boolean("biometric_lock_enabled").notNull().default(false),
   trusted: boolean("trusted").notNull().default(false),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).notNull().defaultNow(),
@@ -71,8 +78,8 @@ export const passkeys = pgTable("passkeys", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  credentialId: text("credential_id").notNull().unique(),
-  publicKey: text("public_key").notNull(),
+  credentialId: text("credential_id").notNull().unique(), // lookup key during WebAuthn assertion — stays plaintext
+  publicKey: text("public_key").notNull(), // a WebAuthn *public* key — not confidential by design, nothing to encrypt
   counter: text("counter").notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
