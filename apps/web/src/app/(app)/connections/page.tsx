@@ -7,7 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, FieldError } from "@/components/ui/input";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+
+// Keyed by the lowercased `code` field of whatever exception the OAuth callback threw — see
+// connectors.controller.ts's connectorErrorRedirect.
+const CONNECT_ERROR_MESSAGE: Record<string, string> = {
+  connector_not_configured: "That connector isn't configured on this deployment yet.",
+  invalid_oauth_state: "That connection attempt expired or was invalid. Please try again.",
+  connector_failed: "Couldn't complete that connection. Please try again.",
+};
 
 interface Connection {
   id: string;
@@ -67,8 +75,21 @@ const AVAILABLE_CONNECTORS = [
 export default function ConnectionsPage() {
   const { data, isLoading, mutate } = useSWR<Connection[]>("/v1/connectors", swrFetcher);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+
+  // Reads the ?connected=/?error= params the OAuth callback redirects here with (a real browser
+  // navigation, not something this page's own JS ever sees mid-flow), then strips them from the URL so a
+  // refresh doesn't re-show the same message.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+    if (connected) setConnectedMessage(`${PROVIDER_LABEL[connected] ?? connected} connected.`);
+    if (error) setConnectError(CONNECT_ERROR_MESSAGE[error] ?? "Couldn't complete that connection. Please try again.");
+    if (connected || error) window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {
     setConnectError(null);
@@ -98,6 +119,12 @@ export default function ConnectionsPage() {
           Veynlo only reads what you connect, and you can disconnect or delete it at any time.
         </p>
       </header>
+
+      {connectedMessage && (
+        <p role="status" className="rounded-lg bg-positive-subtle px-3 py-2 text-sm text-positive-subtle-text">
+          {connectedMessage}
+        </p>
+      )}
 
       {connectError && (
         <p role="alert" className="rounded-lg bg-warning-subtle px-3 py-2 text-sm text-warning-subtle-text">

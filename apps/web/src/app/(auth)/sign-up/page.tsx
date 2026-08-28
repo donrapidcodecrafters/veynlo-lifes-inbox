@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldError } from "@/components/ui/input";
-import { api, ApiError } from "@/lib/api-client";
+import { api, ApiError, API_BASE_URL } from "@/lib/api-client";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -91,6 +91,19 @@ export default function SignUpPage() {
             Create account
           </Button>
         </form>
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-border-subtle" />
+          <span className="text-xs uppercase tracking-wide text-tertiary">or</span>
+          <div className="h-px flex-1 bg-border-subtle" />
+        </div>
+        <div className="space-y-2">
+          <Button variant="secondary" className="w-full" onClick={() => (window.location.href = `${API_BASE_URL}/v1/auth/google/authorize`)}>
+            Continue with Google
+          </Button>
+          <Button variant="secondary" className="w-full" onClick={() => (window.location.href = `${API_BASE_URL}/v1/auth/microsoft/authorize`)}>
+            Continue with Microsoft
+          </Button>
+        </div>
       </CardBody>
       <div className="border-t border-border-subtle px-6 py-4 text-center text-sm text-secondary">
         Already have an account?{" "}

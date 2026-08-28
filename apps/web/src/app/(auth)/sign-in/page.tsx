@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { api, ApiError } from "@/lib/api-client";
+import { api, ApiError, API_BASE_URL } from "@/lib/api-client";
+
+// Keyed by the lowercased `code` field of whatever exception the OAuth callback threw — see
+// identity.controller.ts's oauthErrorRedirect.
+const OAUTH_ERROR_MESSAGE: Record<string, string> = {
+  oauth_not_configured: "That sign-in method isn't configured on this deployment yet.",
+  email_already_registered: "An account with this email already exists. Sign in with your email and password instead.",
+  oauth_failed: "Couldn't complete that sign-in. Please try again.",
+};
 
 export default function SignInPage() {
   const router = useRouter();
@@ -14,6 +22,15 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    if (error) {
+      setFormError(OAUTH_ERROR_MESSAGE[error] ?? "Couldn't complete that sign-in. Please try again.");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -58,6 +75,19 @@ export default function SignInPage() {
             Sign in
           </Button>
         </form>
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-border-subtle" />
+          <span className="text-xs uppercase tracking-wide text-tertiary">or</span>
+          <div className="h-px flex-1 bg-border-subtle" />
+        </div>
+        <div className="space-y-2">
+          <Button variant="secondary" className="w-full" onClick={() => (window.location.href = `${API_BASE_URL}/v1/auth/google/authorize`)}>
+            Continue with Google
+          </Button>
+          <Button variant="secondary" className="w-full" onClick={() => (window.location.href = `${API_BASE_URL}/v1/auth/microsoft/authorize`)}>
+            Continue with Microsoft
+          </Button>
+        </div>
       </CardBody>
       <div className="border-t border-border-subtle px-6 py-4 text-center text-sm text-secondary">
         New to Veynlo?{" "}

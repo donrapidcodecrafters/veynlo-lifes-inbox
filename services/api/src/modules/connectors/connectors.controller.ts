@@ -1,5 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, ServiceUnavailableException, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Res, ServiceUnavailableException, UseGuards, UsePipes } from "@nestjs/common";
 import { SignJWT, jwtVerify } from "jose";
+import type { FastifyReply } from "fastify";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -50,30 +51,26 @@ export class ConnectorsController {
     return { authorizationUrl };
   }
 
+  /**
+   * A real browser navigation the whole way through (Google redirects the browser straight back here),
+   * so this must issue a real HTTP redirect — returning JSON here (as this route used to) would just
+   * render as raw text in the browser instead of landing the user back on the Connections page.
+   */
   @Get("gmail/callback")
-  async gmailCallback(@Query("code") code: string, @Query("state") state: string) {
-    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+  async gmailCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
     const env = loadEnv();
-    let userId: string;
     try {
-      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
-      userId = (verified.payload as { sub: string }).sub;
-    } catch {
-      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
-    }
-    try {
-      const result = await this.gmail.handleCallback({
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const userId = await verifyConnectState(state);
+      await this.gmail.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/gmail/callback`,
         ownerUserId: userId,
         householdId: null,
       });
-      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=gmail` };
+      return res.redirect(`${env.WEB_APP_URL}/connections?connected=gmail`, 302);
     } catch (err) {
-      if (err instanceof ConnectorNotConfiguredError) {
-        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
-      }
-      throw err;
+      return res.redirect(connectorErrorRedirect(env, err), 302);
     }
   }
 
@@ -98,29 +95,20 @@ export class ConnectorsController {
   }
 
   @Get("outlook/callback")
-  async outlookCallback(@Query("code") code: string, @Query("state") state: string) {
-    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+  async outlookCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
     const env = loadEnv();
-    let userId: string;
     try {
-      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
-      userId = (verified.payload as { sub: string }).sub;
-    } catch {
-      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
-    }
-    try {
-      const result = await this.outlook.handleCallback({
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const userId = await verifyConnectState(state);
+      await this.outlook.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/outlook/callback`,
         ownerUserId: userId,
         householdId: null,
       });
-      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=outlook` };
+      return res.redirect(`${env.WEB_APP_URL}/connections?connected=outlook`, 302);
     } catch (err) {
-      if (err instanceof ConnectorNotConfiguredError) {
-        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
-      }
-      throw err;
+      return res.redirect(connectorErrorRedirect(env, err), 302);
     }
   }
 
@@ -145,29 +133,20 @@ export class ConnectorsController {
   }
 
   @Get("google-calendar/callback")
-  async googleCalendarCallback(@Query("code") code: string, @Query("state") state: string) {
-    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+  async googleCalendarCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
     const env = loadEnv();
-    let userId: string;
     try {
-      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
-      userId = (verified.payload as { sub: string }).sub;
-    } catch {
-      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
-    }
-    try {
-      const result = await this.googleCalendar.handleCallback({
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const userId = await verifyConnectState(state);
+      await this.googleCalendar.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/google-calendar/callback`,
         ownerUserId: userId,
         householdId: null,
       });
-      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=google_calendar` };
+      return res.redirect(`${env.WEB_APP_URL}/connections?connected=google_calendar`, 302);
     } catch (err) {
-      if (err instanceof ConnectorNotConfiguredError) {
-        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
-      }
-      throw err;
+      return res.redirect(connectorErrorRedirect(env, err), 302);
     }
   }
 
@@ -192,29 +171,20 @@ export class ConnectorsController {
   }
 
   @Get("microsoft-calendar/callback")
-  async microsoftCalendarCallback(@Query("code") code: string, @Query("state") state: string) {
-    if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+  async microsoftCalendarCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
     const env = loadEnv();
-    let userId: string;
     try {
-      const verified = await jwtVerify(state, new TextEncoder().encode(env.SESSION_JWT_SECRET));
-      userId = (verified.payload as { sub: string }).sub;
-    } catch {
-      throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
-    }
-    try {
-      const result = await this.microsoftCalendar.handleCallback({
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const userId = await verifyConnectState(state);
+      await this.microsoftCalendar.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/microsoft-calendar/callback`,
         ownerUserId: userId,
         householdId: null,
       });
-      return { connectionId: result.connectionId, redirectTo: `${env.WEB_APP_URL}/connections?connected=microsoft_calendar` };
+      return res.redirect(`${env.WEB_APP_URL}/connections?connected=microsoft_calendar`, 302);
     } catch (err) {
-      if (err instanceof ConnectorNotConfiguredError) {
-        throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
-      }
-      throw err;
+      return res.redirect(connectorErrorRedirect(env, err), 302);
     }
   }
 
@@ -241,4 +211,27 @@ export class ConnectorsController {
     await this.connectors.disconnect(connectionId, user.userId, Boolean(deleteDerivedData));
     return { success: true };
   }
+}
+
+async function verifyConnectState(state: string): Promise<string> {
+  try {
+    const verified = await jwtVerify(state, new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
+    const userId = (verified.payload as { sub?: string }).sub;
+    if (!userId) throw new Error("missing sub");
+    return userId;
+  } catch {
+    throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
+  }
+}
+
+/** Maps a thrown error to a `/connections?error=...` code the Connections page can show a specific message for. */
+function connectorErrorRedirect(env: ReturnType<typeof loadEnv>, err: unknown): string {
+  let code = "connector_failed";
+  if (err instanceof ConnectorNotConfiguredError) {
+    code = "connector_not_configured";
+  } else if (err && typeof err === "object" && "getResponse" in err && typeof (err as { getResponse: unknown }).getResponse === "function") {
+    const response = (err as { getResponse: () => unknown }).getResponse();
+    if (response && typeof response === "object" && "code" in response) code = String((response as { code: unknown }).code).toLowerCase();
+  }
+  return `${env.WEB_APP_URL}/connections?error=${encodeURIComponent(code)}`;
 }

@@ -1,12 +1,13 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
+import { SignJWT, jwtVerify } from "jose";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
-import { IdentityService } from "./identity.service";
+import { IdentityService, OAuthNotConfiguredError } from "./identity.service";
 import {
   DeleteAccountDtoSchema,
   SignInDtoSchema,
@@ -42,6 +43,67 @@ export class IdentityController {
     const session = await this.identity.signIn(dto, { platform });
     setSessionCookie(res, session.token, session.expiresAt);
     return { userId: session.userId, ...nativeTokenPayload(platform, session) };
+  }
+
+  /**
+   * §Account/security "Google/Microsoft sign-in" — unlike sign-up/sign-in above, these are real browser
+   * navigations the whole way through (the browser leaves the SPA for Google/Microsoft, then gets
+   * redirected straight back here by them), so both routes issue real HTTP redirects rather than JSON
+   * bodies a full-page navigation would just render as raw text. Web-only for now: a native app would need
+   * to open this in the system browser and get a deep-link handback to receive the session, which nothing
+   * in this app does yet for ANY OAuth flow (see the identical, already-documented limitation on connector
+   * connect) — tracked as a follow-up, not attempted here.
+   */
+  @Get("google/authorize")
+  async googleAuthorize(@Res() res: FastifyReply) {
+    const env = loadEnv();
+    const state = await signOAuthState();
+    try {
+      const authorizationUrl = this.identity.googleAuthorizationUrl({ redirectUri: `${env.API_PUBLIC_URL}/v1/auth/google/callback`, state });
+      return res.redirect(authorizationUrl, 302);
+    } catch (err) {
+      return res.redirect(oauthErrorRedirect(env, err), 302);
+    }
+  }
+
+  @Get("google/callback")
+  async googleCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
+    const env = loadEnv();
+    try {
+      await verifyOAuthState(state);
+      if (!code) throw new Error("missing_code");
+      const session = await this.identity.handleGoogleCallback(code, `${env.API_PUBLIC_URL}/v1/auth/google/callback`, { platform: "web" });
+      setSessionCookie(res, session.token, session.expiresAt);
+      return res.redirect(`${env.WEB_APP_URL}/home`, 302);
+    } catch (err) {
+      return res.redirect(oauthErrorRedirect(env, err), 302);
+    }
+  }
+
+  @Get("microsoft/authorize")
+  async microsoftAuthorize(@Res() res: FastifyReply) {
+    const env = loadEnv();
+    const state = await signOAuthState();
+    try {
+      const authorizationUrl = this.identity.microsoftAuthorizationUrl({ redirectUri: `${env.API_PUBLIC_URL}/v1/auth/microsoft/callback`, state });
+      return res.redirect(authorizationUrl, 302);
+    } catch (err) {
+      return res.redirect(oauthErrorRedirect(env, err), 302);
+    }
+  }
+
+  @Get("microsoft/callback")
+  async microsoftCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
+    const env = loadEnv();
+    try {
+      await verifyOAuthState(state);
+      if (!code) throw new Error("missing_code");
+      const session = await this.identity.handleMicrosoftCallback(code, `${env.API_PUBLIC_URL}/v1/auth/microsoft/callback`, { platform: "web" });
+      setSessionCookie(res, session.token, session.expiresAt);
+      return res.redirect(`${env.WEB_APP_URL}/home`, 302);
+    } catch (err) {
+      return res.redirect(oauthErrorRedirect(env, err), 302);
+    }
   }
 
   @Post("sign-out")
@@ -90,6 +152,34 @@ export class IdentityController {
 function detectPlatform(req: FastifyRequest): string {
   const header = String(req.headers["x-veynlo-platform"] ?? "web");
   return ["ios", "android", "web", "macos", "windows", "extension"].includes(header) ? header : "web";
+}
+
+/** CSRF binding for the google/microsoft authorize→callback round trip — a short-lived signed nonce, not
+ * tied to any user (unlike the connector-connect flow's state, there's no signed-in user yet to embed). */
+async function signOAuthState(): Promise<string> {
+  const env = loadEnv();
+  return new SignJWT({ purpose: "oauth_signin" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+}
+
+async function verifyOAuthState(state: string): Promise<void> {
+  if (!state) throw new Error("missing_state");
+  await jwtVerify(state, new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
+}
+
+/** Maps a thrown error to a `/sign-in?error=...` code the sign-in page can show a specific message for. */
+function oauthErrorRedirect(env: ReturnType<typeof loadEnv>, err: unknown): string {
+  let code = "oauth_failed";
+  if (err instanceof OAuthNotConfiguredError) {
+    code = "oauth_not_configured";
+  } else if (err && typeof err === "object" && "getResponse" in err && typeof (err as { getResponse: unknown }).getResponse === "function") {
+    const response = (err as { getResponse: () => unknown }).getResponse();
+    if (response && typeof response === "object" && "code" in response) code = String((response as { code: unknown }).code).toLowerCase();
+  }
+  return `${env.WEB_APP_URL}/sign-in?error=${encodeURIComponent(code)}`;
 }
 
 /**
