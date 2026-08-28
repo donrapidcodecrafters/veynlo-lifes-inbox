@@ -77,7 +77,9 @@ export const entityMergeLineage = pgTable("entity_merge_lineage", {
   reason: text("reason").notNull(),
   algorithmVersion: text("algorithm_version").notNull(),
   confidenceScore: real("confidence_score").notNull(),
-  actorUserId: text("actor_user_id").references(() => users.id),
+  // The lineage record itself is kept (it's an audit trail, not this user's private data) even after
+  // the actor deletes their account — only the identifying link is cleared.
+  actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
   mergedAt: timestamp("merged_at", { withTimezone: true }).notNull().defaultNow(),
   unmergedAt: timestamp("unmerged_at", { withTimezone: true }),
 });

@@ -6,7 +6,14 @@ import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
 import { IdentityService } from "./identity.service";
-import { SignInDtoSchema, SignUpDtoSchema, type SignInDto, type SignUpDto } from "./dto";
+import {
+  DeleteAccountDtoSchema,
+  SignInDtoSchema,
+  SignUpDtoSchema,
+  type DeleteAccountDto,
+  type SignInDto,
+  type SignUpDto,
+} from "./dto";
 
 const SESSION_COOKIE = "veynlo_session";
 
@@ -46,6 +53,19 @@ export class IdentityController {
     await this.identity.revokeAllSessions(user.userId);
     res.clearCookie(SESSION_COOKIE, { path: "/" });
     return { success: true };
+  }
+
+  @Post("delete-account")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DeleteAccountDtoSchema))
+  async deleteAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeleteAccountDto,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ) {
+    await this.identity.requestDeletion(user.userId, dto.password);
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { success: true, message: "Your account is scheduled for deletion." };
   }
 
   @Get("me")

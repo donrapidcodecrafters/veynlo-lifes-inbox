@@ -7,6 +7,7 @@ import {
   type ConnectorScanJobData,
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
+  type AccountDeletionJobData,
 } from "./queue-names";
 
 /**
@@ -28,6 +29,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly notificationDeliveryQueue = new Queue<NotificationDeliveryJobData>(QUEUE_NAMES.notificationDelivery, {
+    connection: getRedisConnection(),
+  });
+  private readonly accountDeletionQueue = new Queue<AccountDeletionJobData>(QUEUE_NAMES.accountDeletion, {
     connection: getRedisConnection(),
   });
 
@@ -88,12 +92,29 @@ export class QueueProducerService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Account deletion (AppStore/Play Store §5.1.1(v) — in-app self-service deletion). No delay: session
+   * revocation already happens synchronously before this is enqueued (IdentityService.requestDeletion),
+   * so there's no user-facing "grace window" this job's timing needs to respect — the account is already
+   * inaccessible the moment the request completes, and this job just finishes the actual data removal.
+   */
+  async enqueueAccountDeletion(data: AccountDeletionJobData): Promise<void> {
+    await this.accountDeletionQueue.add("delete", data, {
+      jobId: data.userId,
+      attempts: 5,
+      backoff: { type: "exponential", delay: 30_000 },
+      removeOnComplete: { count: 500 },
+      removeOnFail: { count: 1000 },
+    });
+  }
+
   async onModuleDestroy() {
     await Promise.all([
       this.connectorSyncQueue.close(),
       this.connectorScanQueue.close(),
       this.notificationDispatchQueue.close(),
       this.notificationDeliveryQueue.close(),
+      this.accountDeletionQueue.close(),
     ]);
   }
 }

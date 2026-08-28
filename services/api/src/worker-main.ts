@@ -2,13 +2,15 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Worker } from "bullmq";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
 import { AppModule } from "./app.module";
 import { DATABASE } from "./database/database.module";
 import { getRedisConnection } from "./queue/redis-connection";
 import {
   QUEUE_NAMES,
+  type AccountDeletionJobData,
   type ConnectorScanJobData,
   type ConnectorSyncJobData,
   type NotificationDeliveryJobData,
@@ -18,6 +20,7 @@ import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
+import { StorageService } from "./modules/documents/storage.service";
 import { QueueProducerService } from "./queue/queue-producer.service";
 
 const logger = new Logger("Worker");
@@ -40,6 +43,7 @@ async function bootstrap() {
   const outlookAdapter = appContext.get(OutlookAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
+  const storage = appContext.get(StorageService);
   const queueProducer = appContext.get(QueueProducerService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
@@ -111,7 +115,92 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 8 },
   );
 
-  for (const worker of [connectorSyncWorker, connectorScanWorker, notificationDispatchWorker, notificationDeliveryWorker]) {
+  /**
+   * The actual data-removal half of account deletion (see IdentityService.requestDeletion for the
+   * synchronous half — password verification, household-ownership blocking, immediate session revocation).
+   * Runs in the background because a user's owned data graph (source events, entities, documents,
+   * purchases, automations, etc.) can be large; nearly all of it cascades away via `onDelete: "cascade"`
+   * FKs to users.id once the row itself is deleted, so this job's own job is mostly: handle the one FK
+   * that deliberately does NOT cascade (households.billingOwnerUserId), delete the user row, then clean
+   * up the one thing outside Postgres entirely (S3 document blobs).
+   */
+  const accountDeletionWorker = new Worker<AccountDeletionJobData>(
+    QUEUE_NAMES.accountDeletion,
+    async (job) => {
+      const { userId } = job.data;
+
+      const ownedHouseholds = await db
+        .select({ id: schema.households.id })
+        .from(schema.households)
+        .where(eq(schema.households.billingOwnerUserId, userId));
+
+      const soloHouseholdIds: string[] = [];
+      for (const household of ownedHouseholds) {
+        // requestDeletion() already checked this synchronously before enqueueing — re-checked here in
+        // case household membership changed in the window between request and processing.
+        const [otherActiveMember] = await db
+          .select({ id: schema.householdMemberships.id })
+          .from(schema.householdMemberships)
+          .where(
+            and(
+              eq(schema.householdMemberships.householdId, household.id),
+              eq(schema.householdMemberships.status, "active"),
+              ne(schema.householdMemberships.userId, userId),
+            ),
+          )
+          .limit(1);
+        if (otherActiveMember) {
+          logger.error(
+            `Account deletion for user ${userId} blocked: household ${household.id} gained another active member after the request was accepted. Leaving the account in deletion_pending for manual resolution.`,
+          );
+          return; // don't retry — this needs a human, not a backoff
+        }
+        soloHouseholdIds.push(household.id);
+      }
+
+      const blobs = await db
+        .select({ blobRef: schema.documentVersions.blobRef })
+        .from(schema.documentVersions)
+        .innerJoin(schema.documents, eq(schema.documents.id, schema.documentVersions.documentId))
+        .where(eq(schema.documents.ownerUserId, userId));
+
+      // Households with no other active member cascade away entirely once deleted (memberships,
+      // dependents, etc. all reference households.id with onDelete: "cascade"). Must happen before the
+      // user row is deleted — billingOwnerUserId has no onDelete action, so it would otherwise block it.
+      for (const id of soloHouseholdIds) {
+        await db.delete(schema.households).where(eq(schema.households.id, id));
+      }
+      await db.delete(schema.users).where(eq(schema.users.id, userId));
+
+      // Not itself a FK to users.id (actorId is a bare string column) — survives the delete above by design.
+      await db.insert(schema.auditEvents).values({
+        id: generateId("auditEvent"),
+        actorType: "system",
+        actorId: userId,
+        action: "account_deletion",
+        resourceType: "user",
+        resourceId: userId,
+        result: "success",
+      });
+
+      for (const { blobRef } of blobs) {
+        try {
+          await storage.deleteObject(blobRef);
+        } catch (err) {
+          logger.error(`Failed to delete S3 object ${blobRef} for deleted user ${userId}: ${String((err as Error)?.message ?? err)}`);
+        }
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 2 },
+  );
+
+  for (const worker of [
+    connectorSyncWorker,
+    connectorScanWorker,
+    notificationDispatchWorker,
+    notificationDeliveryWorker,
+    accountDeletionWorker,
+  ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
   }
@@ -122,7 +211,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringConnectorScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion",
   );
 
   const shutdown = async () => {
@@ -132,6 +221,7 @@ async function bootstrap() {
       connectorScanWorker.close(),
       notificationDispatchWorker.close(),
       notificationDeliveryWorker.close(),
+      accountDeletionWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);

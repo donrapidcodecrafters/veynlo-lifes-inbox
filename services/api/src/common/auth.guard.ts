@@ -44,13 +44,20 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException("Invalid or expired session");
     }
 
-    const [session] = await this.db
-      .select()
+    const [row] = await this.db
+      .select({ session: schema.sessions, userStatus: schema.users.status })
       .from(schema.sessions)
+      .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
       .where(eq(schema.sessions.id, payload.sid))
       .limit(1);
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    if (!row || row.session.revokedAt || row.session.expiresAt < new Date()) {
       throw new UnauthorizedException("Session revoked");
+    }
+    if (row.userStatus === "deletion_pending" || row.userStatus === "deleted") {
+      // Belt-and-suspenders: requestDeletion() already revokes every session synchronously, so this
+      // should be unreachable in practice — but a request already in flight when deletion is requested
+      // could otherwise slip through on a token that was valid a moment ago.
+      throw new UnauthorizedException("Account deleted");
     }
 
     request.user = { userId: payload.sub, sessionId: payload.sid } satisfies AuthenticatedUser;

@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   connectorScan: "connector-scan",
   notificationDispatch: "notification-dispatch",
   notificationDelivery: "notification-delivery",
+  accountDeletion: "account-deletion",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -27,4 +28,8 @@ export interface NotificationDispatchJobData {
 
 export interface NotificationDeliveryJobData {
   notificationId: string;
+}
+
+export interface AccountDeletionJobData {
+  userId: string;
 }

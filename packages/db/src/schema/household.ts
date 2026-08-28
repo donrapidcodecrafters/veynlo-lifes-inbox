@@ -68,9 +68,11 @@ export const caregiverDelegations = pgTable("caregiver_delegations", {
     .references(() => users.id, { onDelete: "cascade" }),
   scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  // A delegation authorized by someone who's since deleted their account is no longer a valid
+  // authorization, so it cascades away with them — same reasoning as resourceGrants/shareLinks below.
   grantedByUserId: text("granted_by_user_id")
     .notNull()
-    .references(() => users.id),
+    .references(() => users.id, { onDelete: "cascade" }),
   grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
@@ -87,9 +89,11 @@ export const resourceGrants = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     right: text("right").notNull(), // "view" | "edit" | "manage"
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // A grant authorized by someone who's since deleted their account is no longer valid — cascades away
+    // with them, same as caregiverDelegations.grantedByUserId above.
     grantedByUserId: text("granted_by_user_id")
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: "cascade" }),
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
@@ -101,9 +105,11 @@ export const shareLinks = pgTable("share_links", {
   resourceType: text("resource_type").notNull(),
   resourceId: text("resource_id").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
+  // A share link created by someone who's since deleted their account should stop working — cascades
+  // away with them, same reasoning as the grant tables above.
   createdByUserId: text("created_by_user_id")
     .notNull()
-    .references(() => users.id),
+    .references(() => users.id, { onDelete: "cascade" }),
   passcodeHash: text("passcode_hash"),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),

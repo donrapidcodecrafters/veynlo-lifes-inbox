@@ -13,3 +13,8 @@ export const SignInDtoSchema = z.object({
   password: z.string().min(1).max(200),
 });
 export type SignInDto = z.infer<typeof SignInDtoSchema>;
+
+export const DeleteAccountDtoSchema = z.object({
+  password: z.string().min(1).max(200),
+});
+export type DeleteAccountDto = z.infer<typeof DeleteAccountDtoSchema>;

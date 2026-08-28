@@ -31,7 +31,9 @@ export const automationRuns = pgTable("automation_runs", {
   idempotencyKey: text("idempotency_key").notNull(),
   commandsJson: encryptedJsonb<unknown>("commands_json").notNull(),
   resultJson: encryptedJsonb<unknown>("result_json"),
-  approvedByUserId: text("approved_by_user_id").references(() => users.id),
+  // The run record itself is kept (it's an execution/audit trail, not this user's private data) even
+  // after the approver deletes their account — only the identifying link is cleared.
+  approvedByUserId: text("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
