@@ -10,6 +10,32 @@ import type { CreateDependentDto, CreateHouseholdDto, InviteMemberDto } from "./
 export class HouseholdService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+  /**
+   * §28.17 "audit household ACL/ownership changes" — mirrors AdminService.recordAccess's shape
+   * (actor/action/resource/result), but actorType: "user" for a consumer's own action rather than
+   * "support_agent". beforeJson/afterJson are optional since not every action has a meaningful before
+   * state (e.g. creating a new household).
+   */
+  private async recordAudit(
+    actorUserId: string,
+    action: string,
+    resourceType: string,
+    resourceId: string,
+    extra: { beforeJson?: unknown; afterJson?: unknown } = {},
+  ) {
+    await this.db.insert(schema.auditEvents).values({
+      id: generateId("auditEvent"),
+      actorType: "user",
+      actorId: actorUserId,
+      action,
+      resourceType,
+      resourceId,
+      beforeJson: extra.beforeJson,
+      afterJson: extra.afterJson,
+      result: "success",
+    });
+  }
+
   async create(ownerUserId: string, dto: CreateHouseholdDto) {
     const householdId = generateId("household");
     await this.db.insert(schema.households).values({ id: householdId, name: dto.name, billingOwnerUserId: ownerUserId });
@@ -22,6 +48,7 @@ export class HouseholdService {
       status: "active",
       joinedAt: new Date(),
     });
+    await this.recordAudit(ownerUserId, "household.create", "household", householdId, { afterJson: { name: dto.name } });
     return { id: householdId, name: dto.name };
   }
 
@@ -82,6 +109,9 @@ export class HouseholdService {
     });
     // Sending the actual invitation email is wired in the notifications module (§notifications channel) —
     // this call site only creates the durable invitation record.
+    await this.recordAudit(requestingUserId, "household.invite", "household", householdId, {
+      afterJson: { invitedEmail: dto.email, relationshipLabel: dto.relationshipLabel ?? null },
+    });
     return { id };
   }
 
@@ -94,6 +124,9 @@ export class HouseholdService {
       displayName: dto.displayName,
       birthDate: dto.birthDate ?? null,
       guardianUserIds: [requestingUserId],
+    });
+    await this.recordAudit(requestingUserId, "household.add_dependent", "dependent_profile", id, {
+      afterJson: { displayName: dto.displayName, householdId },
     });
     return { id };
   }
@@ -115,5 +148,8 @@ export class HouseholdService {
       .update(schema.householdMemberships)
       .set({ status: "left", leftAt: new Date() })
       .where(eq(schema.householdMemberships.id, membership.id));
+    await this.recordAudit(userId, "household.leave", "household", householdId, {
+      beforeJson: { role: membership.role, status: membership.status },
+    });
   }
 }

@@ -283,9 +283,14 @@ still open:
 - No malware scanning on document uploads (MIME/size/hash validated; no AV).
 - No automated backup/restore drills (spec §49.2/49.3) — local dev only.
 - Structured audit logging exists and is used by the admin console
-  (`audit_events`, written on every support lookup and on account deletion);
-  consumer-side actions (household changes, sharing changes, corrections)
-  don't write to it yet.
+  (`audit_events`, written on every support lookup and on account deletion),
+  and now consumer-side household actions too (create/invite/add-dependent/
+  leave, `actorType: "user"` — `household.service.ts`, verified live against
+  real Postgres including that the encrypted before/after payloads round-trip
+  correctly). Sharing changes and inbox corrections still don't write to it —
+  no sharing feature exists yet (Phase 2), and Inbox "correct" was added
+  without an audit write since it's a lower-stakes, easily-undone action
+  compared to household ACL/ownership changes.
 - No admin *management* UI/API yet — creating/revoking operator accounts is
   a CLI script (`create-admin`), not a self-service superadmin console.
 - Session refresh-token rotation is not implemented — the current session
