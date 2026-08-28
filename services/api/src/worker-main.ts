@@ -22,6 +22,7 @@ import {
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
+import { IcsAdapter } from "./modules/connectors/ics.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { StorageService } from "./modules/documents/storage.service";
@@ -47,6 +48,7 @@ async function bootstrap() {
   const db = appContext.get<Database>(DATABASE);
   const gmailAdapter = appContext.get(GmailAdapter);
   const outlookAdapter = appContext.get(OutlookAdapter);
+  const icsAdapter = appContext.get(IcsAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get(StorageService);
@@ -64,7 +66,8 @@ async function bootstrap() {
           .where(eq(schema.connections.id, connectionId))
           .limit(1);
         if (!connection) throw new Error(`Connection ${connectionId} not found`);
-        const adapter = connection.provider === "outlook" ? outlookAdapter : gmailAdapter;
+        const adapter =
+          connection.provider === "outlook" ? outlookAdapter : connection.provider === "ics" ? icsAdapter : gmailAdapter;
         if (kind === "incremental") {
           await adapter.incrementalSync(connectionId);
         } else {
@@ -93,7 +96,7 @@ async function bootstrap() {
         .from(schema.connections)
         .where(
           and(
-            inArray(schema.connections.provider, ["gmail", "outlook"]),
+            inArray(schema.connections.provider, ["gmail", "outlook", "ics"]),
             eq(schema.connections.health, "healthy"),
             isNull(schema.connections.disconnectedAt),
           ),

@@ -6,7 +6,8 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useState } from "react";
+import { Input, Label, FieldError } from "@/components/ui/input";
+import { useState, type FormEvent } from "react";
 
 interface Connection {
   id: string;
@@ -16,6 +17,8 @@ interface Connection {
   lastSuccessfulSyncAt: string | null;
   itemsDiscoveredCount: number;
 }
+
+const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed" };
 
 const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   healthy: "positive",
@@ -47,6 +50,7 @@ export default function ConnectionsPage() {
   const { data, isLoading, mutate } = useSWR<Connection[]>("/v1/connectors", swrFetcher);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [showIcsForm, setShowIcsForm] = useState(false);
 
   async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {
     setConnectError(null);
@@ -97,6 +101,31 @@ export default function ConnectionsPage() {
             </CardBody>
           </Card>
         ))}
+
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Calendar feed (ICS)</p>
+                <p className="text-sm text-tertiary">Subscribe to a school, team, or shared calendar's .ics link — events sync automatically.</p>
+              </div>
+              {!showIcsForm && (
+                <Button variant="secondary" onClick={() => setShowIcsForm(true)}>
+                  Add feed
+                </Button>
+              )}
+            </div>
+            {showIcsForm && (
+              <IcsConnectForm
+                onDone={() => {
+                  setShowIcsForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowIcsForm(false)}
+              />
+            )}
+          </CardBody>
+        </Card>
       </div>
 
       {isLoading && <div className="h-20 animate-pulse rounded-xl bg-subtle" />}
@@ -113,7 +142,7 @@ export default function ConnectionsPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="text-[0.9375rem] font-medium capitalize text-primary">{c.provider}</p>
+                      <p className="text-[0.9375rem] font-medium text-primary">{PROVIDER_LABEL[c.provider] ?? c.provider}</p>
                       <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace("_", " ")}</Badge>
                     </div>
                     <p className="mt-1 text-sm text-tertiary">
@@ -155,5 +184,84 @@ export default function ConnectionsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [url, setUrl] = useState("");
+  const [feedName, setFeedName] = useState("");
+  const [showAuth, setShowAuth] = useState(false);
+  const [basicAuthUsername, setBasicAuthUsername] = useState("");
+  const [basicAuthPassword, setBasicAuthPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/ics/connect", {
+        url,
+        feedName: feedName || undefined,
+        basicAuthUsername: showAuth && basicAuthUsername ? basicAuthUsername : undefined,
+        basicAuthPassword: showAuth && basicAuthPassword ? basicAuthPassword : undefined,
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="ics-url">Calendar feed URL</Label>
+        <Input
+          id="ics-url"
+          type="url"
+          placeholder="https://example.com/calendar.ics"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor="ics-name">Name (optional)</Label>
+        <Input id="ics-name" value={feedName} onChange={(e) => setFeedName(e.target.value)} placeholder="e.g. Kid's soccer schedule" />
+      </div>
+      {!showAuth ? (
+        <button type="button" onClick={() => setShowAuth(true)} className="text-sm font-medium text-brand hover:underline">
+          This feed needs a username and password
+        </button>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="ics-user">Username</Label>
+            <Input id="ics-user" value={basicAuthUsername} onChange={(e) => setBasicAuthUsername(e.target.value)} autoComplete="off" />
+          </div>
+          <div>
+            <Label htmlFor="ics-pass">Password</Label>
+            <Input
+              id="ics-pass"
+              type="password"
+              value={basicAuthPassword}
+              onChange={(e) => setBasicAuthPassword(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+        </div>
+      )}
+      <FieldError>{error ?? undefined}</FieldError>
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" loading={submitting} disabled={!url}>
+          Add feed
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }

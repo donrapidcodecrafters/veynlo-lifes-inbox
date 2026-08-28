@@ -1,12 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, ServiceUnavailableException, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, ServiceUnavailableException, UseGuards, UsePipes } from "@nestjs/common";
 import { SignJWT, jwtVerify } from "jose";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { loadEnv } from "../../config/env";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
+import { IcsAdapter } from "./ics.adapter";
+import { IcsConnectDtoSchema, type IcsConnectDto } from "./dto";
 
 @Controller("v1/connectors")
 @UseGuards(AuthGuard)
@@ -15,6 +18,7 @@ export class ConnectorsController {
     private readonly connectors: ConnectorsService,
     private readonly gmail: GmailAdapter,
     private readonly outlook: OutlookAdapter,
+    private readonly ics: IcsAdapter,
   ) {}
 
   @Get()
@@ -113,6 +117,20 @@ export class ConnectorsController {
         throw new ServiceUnavailableException({ code: "CONNECTOR_NOT_CONFIGURED", message: err.message });
       }
       throw err;
+    }
+  }
+
+  @Post("ics/connect")
+  @UsePipes(new ZodValidationPipe(IcsConnectDtoSchema))
+  async icsConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: IcsConnectDto) {
+    try {
+      const result = await this.ics.connect({ dto, ownerUserId: user.userId, householdId: null });
+      return { connectionId: result.connectionId };
+    } catch {
+      throw new BadRequestException({
+        code: "ICS_FEED_UNREACHABLE",
+        message: "Couldn't read that calendar feed. Check the URL (and credentials, if it needs them) and try again.",
+      });
     }
   }
 

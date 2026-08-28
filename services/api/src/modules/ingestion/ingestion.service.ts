@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, gte, lte } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
-import { generateId, confidenceToBand } from "@veynlo/core";
+import { generateId, confidenceToBand, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -619,6 +619,109 @@ export class IngestionService {
       suggestedActions: ["confirm", "correct", "dismiss"],
       confidenceBand,
     });
+    return true;
+  }
+
+  /**
+   * ICS calendar-feed sync entry point — structurally different from every other ingest*Message method:
+   * a VEVENT is already a calendar event, full stop, so there's no relevance prefilter, no AI domain
+   * classification, no structured extraction. Deterministic sync, not an AI inference, so the resulting
+   * inbox item only ever offers "dismiss" (there's nothing to "confirm" — the event is already live).
+   *
+   * Idempotency is content-hash-based rather than the plain per-item dedup every other ingest*Message
+   * method uses, because a feed resync must be a no-op for an UNCHANGED event but must actually update an
+   * event whose time/title/location changed since the last sync — the source_events idempotencyKey
+   * encodes the content hash precisely so "same UID, same content" short-circuits while "same UID,
+   * different content" is treated as a fresh event to file. The calendar_events row itself is looked up
+   * and updated in place by (ownerUserId, providerEventId) rather than ever inserting a duplicate.
+   */
+  async ingestIcsEvent(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    connectionId: string;
+    uid: string;
+    title: string;
+    start: TemporalValue;
+    end: TemporalValue | null;
+    isAllDay: boolean;
+    location: string | null;
+  }): Promise<boolean> {
+    const contentHash = createHash("sha256")
+      .update(JSON.stringify({ title: params.title, start: params.start, end: params.end, location: params.location, isAllDay: params.isAllDay }))
+      .digest("hex");
+    const idempotencyKey = `ics:${params.connectionId}:${params.uid}:${contentHash}`;
+
+    const [existingSourceEvent] = await this.db
+      .select({ id: schema.sourceEvents.id })
+      .from(schema.sourceEvents)
+      .where(eq(schema.sourceEvents.idempotencyKey, idempotencyKey))
+      .limit(1);
+    if (existingSourceEvent) return false; // unchanged since the last sync — nothing to do
+
+    const sourceEventId = generateId("sourceEvent");
+    await this.db.insert(schema.sourceEvents).values({
+      id: sourceEventId,
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      connectionId: params.connectionId,
+      kind: "calendar_feed_event",
+      contentHash,
+      occurredAt: new Date(),
+      idempotencyKey,
+      processingState: "needs_review",
+    });
+
+    const [existingEvent] = await this.db
+      .select({ id: schema.calendarEvents.id })
+      .from(schema.calendarEvents)
+      .where(and(eq(schema.calendarEvents.ownerUserId, params.ownerUserId), eq(schema.calendarEvents.providerEventId, params.uid)))
+      .limit(1);
+
+    const eventId = existingEvent?.id ?? generateId("calendarEvent");
+    const startSort = temporalToSortDate(params.start);
+    if (existingEvent) {
+      await this.db
+        .update(schema.calendarEvents)
+        .set({
+          title: params.title,
+          start: params.start,
+          startSort,
+          end: params.end,
+          isAllDay: params.isAllDay,
+          location: params.location,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.calendarEvents.id, eventId));
+    } else {
+      await this.db.insert(schema.calendarEvents).values({
+        id: eventId,
+        ownerUserId: params.ownerUserId,
+        householdId: params.householdId,
+        title: params.title,
+        start: params.start,
+        startSort,
+        end: params.end,
+        isAllDay: params.isAllDay,
+        location: params.location,
+        source: "discovered_from_evidence",
+        providerEventId: params.uid,
+        status: "confirmed",
+        visibility: "private",
+      });
+    }
+
+    await this.fileInboxItem({
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      category: "appointment",
+      summary: existingEvent ? `${params.title} updated on your synced calendar` : `${params.title} added from your synced calendar`,
+      linkedResourceType: "calendar_event",
+      linkedResourceId: eventId,
+      sourceEventId,
+      suggestedActions: ["dismiss"],
+      confidenceBand: "verified",
+    });
+
     return true;
   }
 

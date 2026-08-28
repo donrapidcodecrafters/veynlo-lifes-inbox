@@ -9,6 +9,9 @@ import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
+import { TextField } from "@/components/text-field";
+
+const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed" };
 
 interface Connection {
   id: string;
@@ -40,6 +43,7 @@ export default function ConnectionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [showIcsForm, setShowIcsForm] = useState(false);
 
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
@@ -105,6 +109,31 @@ export default function ConnectionsScreen() {
             </Button>
           </Card>
         ))}
+
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Calendar feed (ICS)</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                Subscribe to a school, team, or shared calendar's .ics link.
+              </Text>
+            </View>
+            {!showIcsForm && (
+              <Button variant="secondary" onPress={() => setShowIcsForm(true)}>
+                Add feed
+              </Button>
+            )}
+          </View>
+          {showIcsForm && (
+            <IcsConnectForm
+              onDone={() => {
+                setShowIcsForm(false);
+                load();
+              }}
+              onCancel={() => setShowIcsForm(false)}
+            />
+          )}
+        </Card>
       </View>
 
       {!connections && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
@@ -119,8 +148,8 @@ export default function ConnectionsScreen() {
             <Card key={c.id} style={{ gap: 6 }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary, textTransform: "capitalize" }}>
-                    {c.provider}
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
+                    {PROVIDER_LABEL[c.provider] ?? c.provider}
                   </Text>
                   <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace(/_/g, " ")}</Badge>
                 </View>
@@ -156,5 +185,70 @@ export default function ConnectionsScreen() {
         </View>
       )}
     </Screen>
+  );
+}
+
+function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [url, setUrl] = useState("");
+  const [feedName, setFeedName] = useState("");
+  const [showAuth, setShowAuth] = useState(false);
+  const [basicAuthUsername, setBasicAuthUsername] = useState("");
+  const [basicAuthPassword, setBasicAuthPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/ics/connect", {
+        url,
+        feedName: feedName || undefined,
+        basicAuthUsername: showAuth && basicAuthUsername ? basicAuthUsername : undefined,
+        basicAuthPassword: showAuth && basicAuthPassword ? basicAuthPassword : undefined,
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <TextField
+        label="Calendar feed URL"
+        placeholder="https://example.com/calendar.ics"
+        value={url}
+        onChangeText={setUrl}
+        autoCapitalize="none"
+        keyboardType="url"
+      />
+      <TextField label="Name (optional)" placeholder="e.g. Kid's soccer schedule" value={feedName} onChangeText={setFeedName} />
+      {!showAuth ? (
+        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }} onPress={() => setShowAuth(true)}>
+          This feed needs a username and password
+        </Text>
+      ) : (
+        <>
+          <TextField label="Username" value={basicAuthUsername} onChangeText={setBasicAuthUsername} autoCapitalize="none" />
+          <TextField label="Password" value={basicAuthPassword} onChangeText={setBasicAuthPassword} secureTextEntry autoCapitalize="none" />
+        </>
+      )}
+      {error && <Text style={{ color: theme.colors.critical, fontSize: 13 }}>{error}</Text>}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Button onPress={onSubmit} loading={submitting} disabled={!url}>
+            Add feed
+          </Button>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button variant="ghost" onPress={onCancel}>
+            Cancel
+          </Button>
+        </View>
+      </View>
+    </View>
   );
 }

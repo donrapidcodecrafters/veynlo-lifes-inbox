@@ -11,7 +11,7 @@ this repository, not an aspirational plan.
 | Auth (email/password, sessions, device list) | ✅ Built, plus in-app self-service account deletion (`POST /v1/auth/delete-account` + web Settings UI — App Store/Play Store §5.1.1(v) requirement). Passkeys/MFA/OAuth sign-in not yet. |
 | Data protection at rest | ✅ Field-level AES-256-GCM encryption on 50 sensitive columns across every domain (`grep -c "encryptedText(\|encryptedJsonb<" packages/db/src/schema/*.ts` — this line said "~40" until corrected 2026-08-28; count grows as new tables like `warranties` add encrypted columns, so re-verify rather than trust a stale count), transparent via a Drizzle `customType`, with explicit operator-set key versioning for rotation. See `SECURITY.md` for what's covered/not and why. |
 | Household + dependents | ✅ Built (create/invite/leave/dependents/caregiver delegations — grant/list/revoke, `POST/GET /v1/households/:id/delegations`, `:id/revoke`). Delegation grants require the delegate to already be an active household member (a delegation adds a scoped capability to someone already trusted, not a way to admit an outsider), scopes are validated against a fixed enum (`schedule:read`/`documents:read`/`commerce:read`/`household:read`), and both grant/revoke are audited. `commerce:read` is now actually enforced: `HouseholdService.delegatedHouseholdIds` is the first real consumer of a granted delegation (previously the grant/list/revoke API worked but nothing ever checked a delegation before serving data), and `CommerceController`'s five read paths (purchases/bills/returns/subscriptions/warranties, including the by-ID `purchaseDetail`) now widen from "my own rows" to "my own rows, plus any household I've been delegated `commerce:read` on" — household-scoped, not per-member, matching how a grant itself has no per-member target. Verified live end-to-end: a delegate saw zero purchases before the grant, the full household's purchases/bills after it, and zero again — including on the by-ID detail route, not just the list — the moment it was revoked. `schedule:read` and `documents:read` are now enforced too, the same day: `ScheduleService` (events/tasks) and `DocumentsService` (list + the by-ID `signedUrl`/download-url path) both gained an identically-shaped `ownerOrDelegatedHousehold` helper. These two domains have a wrinkle commerce didn't: `calendar_events` and `documents` both carry a `visibility` enum (default `"private"`) that was — and, for a household member, still is — never actually enforced anywhere; rather than let a household-wide delegation grant be the first code path to leak a `"private"`-flagged row to someone, the delegated-household branch specifically excludes `visibility: "private"` (the owner's own rows are never filtered by visibility). Verified live with one household-visible and one private calendar event/document each: before the grant neither was visible; after, the household-visible ones appeared in both list endpoints and the private ones stayed hidden, including on `documents`' by-ID `download-url` route (403 before reaching the missing-file-version check, proving the authorization check itself — not a downstream error — is what blocks it); after revoke, all of it disappeared again immediately. **Not done yet**: `household:read` (viewing another member's profile/dependent info directly) remains unenforced — lower priority since `HouseholdService`'s existing `assertOwnerOrAdult` already gates most of that surface by membership role, not by delegation. |
-| Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. IMAP/ICS connectors not started. Disconnecting a connection with "delete derived data" now actually deletes data (see item 14 below) instead of being a no-op the Connections page's own copy claimed was possible. |
+| Email connectors | ✅ Gmail (real OAuth + Gmail API, incremental sync) and Outlook/Microsoft 365 (real OAuth v2.0 + Graph API, delta-query incremental sync) — both gated behind config, both share the same ingestion pipeline. Disconnecting a connection with "delete derived data" now actually deletes data (see item 14 below) instead of being a no-op the Connections page's own copy claimed was possible. **ICS calendar-feed connector now built too** (see item 15 below) — a genuinely different thing from IMAP despite the roadmap having lumped them together historically: ICS is a calendar-feed-by-URL subscription (no email protocol, no AI extraction, a VEVENT maps ~1:1 onto a `calendar_events` row), so it shipped as its own small, low-risk connector. **IMAP itself remains not started** — researched and deliberately deferred, not because it doesn't fit the architecture (it does — no schema migration needed, the same `cursor`/`credentialRef`/`health` columns already work), but because it needs a local IMAP test server (none exists in this repo's dev infra — `docker-compose.yml` has no Dovecot/GreenMail) to verify the UID/UIDVALIDITY sync logic against something real rather than only-typechecked, and because it's the first connector that would store something as sensitive as a live mailbox password (not a revocable OAuth token) — worth an explicit decision on that posture and the "use an app-specific password" UI copy before building it, not a call to make silently. |
 | Ingestion pipeline | ✅ Deterministic prefilter + AI domain classification/extraction for receipts, bills, calendar events, and warranties (`extractWarranty`, `warranties` table, `GET /v1/warranties`, surfaced on Life and Timeline). Travel is partially covered by the calendar extractor; school/home/vehicle extractors not started. |
 | Entity resolution | 🟡 Merchant-by-name with a real admin merge/unmerge UI + lineage (`apps/admin` `/dashboard/merchants`). No cross-source purchase/shipment/subscription reconciliation beyond what's in `ingestion.service.ts`. The owner-scoped `canonical_entities` knowledge-graph layer now has a real first writer (see item 13 below) — `extractReceipt` creates one `canonical_entities` row per purchase line and `extractWarranty` resolves back to it — but `relationships`/`facts`/`entity_merge_lineage` remain entirely unwritten (deliberately — see item 13). |
 | Inbox (review/confirm/correct/archive/dismiss/snooze) | ✅ Built, including "correct" for all five linkable domains (purchase/bill/calendar_event/shipment/warranty — warranty was a gap introduced alongside the warranty extractor itself, since `correct()`'s switch had no case for it; fixed the same day). Snooze is now a real user-facing action on both web and mobile (previously the backend method existed with zero UI entry point, and — more importantly — nothing ever resurfaced a snoozed item once its `snoozedUntil` passed; added a recurring `inbox-unsnooze` worker tick, mirroring the existing `connector-scan` tick's shape, that flips due snoozed items back to `reviewState: "new"`). "Merge" was assessed and deliberately not built — see below. |
@@ -371,6 +371,51 @@ this repository, not an aspirational plan.
     `connection.delete_derived_data` audit event was written. Also
     confirmed live via Playwright that the new confirm UI renders
     correctly with no console errors.
+
+15. ~~**ICS calendar-feed connector**~~ — done. A calendar-feed-by-URL
+    subscription (a school/team/shared calendar's `.ics` link), structurally
+    nothing like Gmail/Outlook/a future IMAP connector: no OAuth, no email
+    protocol, no AI extraction pipeline — a VEVENT already *is* a calendar
+    event. `IcsAdapter` (`services/api/src/modules/connectors/ics.adapter.ts`,
+    `node-ical` for parsing) has no deployment-wide config to gate on
+    (`isConfigured()` is always `true` — what varies is per-connection, the
+    feed URL/credentials, not a platform API key); `POST
+    /v1/connectors/ics/connect` probes the feed synchronously before
+    creating any row, so a bad URL is immediate, actionable feedback rather
+    than a silently-degraded connection. Credentials are optional HTTP
+    Basic Auth (most feeds are fully public or embed a secret in the URL
+    itself, e.g. Google Calendar's private ICS links) via the same
+    `CredentialVault` every other connector uses. New
+    `IngestionService.ingestIcsEvent` write path: content-hash-based
+    idempotency (not the plain per-item dedup every other `ingest*Message`
+    method uses) so a resync is a no-op for an unchanged event but
+    correctly updates one whose time/title/location changed, looked up and
+    updated in place by `(ownerUserId, providerEventId)` — never inserting
+    a duplicate. Reuses the existing 15-minute connector-scan tick (added
+    `"ics"` to the provider array) — no IDLE/push mechanism needed, ICS has
+    no delta protocol anyway so every "incremental" sync is really a full
+    refetch. Filed as an Inbox item per new/changed event
+    (`suggestedActions: ["dismiss"]` only — there's nothing to "confirm,"
+    it's a deterministic sync, not an inference) purely so the existing
+    `connection-data-deletion` worker's inbox-items-traced cleanup path
+    (built for bills/warranties/shipments, which also have no direct
+    `sourceEventId` column) covers calendar-feed events too, with zero
+    changes to that job. Web and mobile Connections pages both gained an
+    "Add feed" inline form (URL, optional name, optional username/password
+    toggle) mirroring the existing sign-in-form pattern rather than a
+    redirect, since there's no OAuth hop. Verified live end-to-end against
+    a real local test feed (not a third-party URL, to keep the test
+    self-contained): connected a two-event feed via the real API, confirmed
+    both a timed event and an all-day event landed with correct
+    precision/location; re-synced with unchanged content and confirmed zero
+    new rows (idempotency held); edited the feed's content and re-synced,
+    confirming the *same* `calendar_events` row updated in place (not
+    duplicated) with a fresh notification; then disconnected with
+    `deleteDerivedData: true` and confirmed the pre-existing
+    connection-data-deletion job correctly emptied every table for this
+    new connector with no code changes of its own required. **IMAP
+    deliberately not built alongside this** — see the Email connectors row
+    above for why.
 
 ## Phase 2 — financially sticky + household-ready
 
