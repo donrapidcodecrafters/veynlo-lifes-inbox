@@ -35,6 +35,11 @@ const EnvSchema = z.object({
   // AI
   ANTHROPIC_API_KEY: z.string().optional(),
 
+  // Malware scanning for document uploads (§SEC — documents.service.ts). Unset in dev by default: uploads
+  // still work, just unscanned, same "not configured" degradation as the Google/Microsoft connectors.
+  CLAMD_HOST: z.string().optional(),
+  CLAMD_PORT: z.coerce.number().int().default(3310),
+
   // Object storage (S3-compatible; MinIO locally)
   S3_ENDPOINT: z.string().default("http://localhost:9000"),
   S3_REGION: z.string().default("us-east-1"),

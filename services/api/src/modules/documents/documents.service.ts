@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { generateId, type DocumentType } from "@veynlo/core";
@@ -8,6 +8,7 @@ import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
 import { StorageService } from "./storage.service";
+import { MalwareScannerService } from "./malware-scanner.service";
 
 const ALLOWED_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic", "text/plain"]);
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB — generous for scanned receipts/manuals, bounded against abuse
@@ -20,6 +21,7 @@ export class DocumentsService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly storage: StorageService,
     private readonly ai: AnthropicExtractionService,
+    private readonly malwareScanner: MalwareScannerService,
   ) {}
 
   async upload(params: {
@@ -43,6 +45,30 @@ export class DocumentsService {
       });
     }
 
+    // Scanned before any DB row or storage write exists, so a rejected upload never leaves a partial
+    // document behind to clean up. Skipped (not failed) when unconfigured — CLAMD_HOST unset means this
+    // deployment hasn't wired up a scanner yet, same graceful-degradation posture as the optional
+    // connectors; but once it IS configured, a scan failure fails closed (rejects the upload) rather than
+    // silently accepting an unscanned file — see MalwareScannerService's own doc comment.
+    if (this.malwareScanner.isConfigured()) {
+      let result: { infected: boolean; signature?: string };
+      try {
+        result = await this.malwareScanner.scan(params.buffer);
+      } catch (err) {
+        this.logger.error(`Malware scan failed, rejecting upload: ${String(err)}`);
+        throw new ServiceUnavailableException({
+          code: "MALWARE_SCAN_UNAVAILABLE",
+          message: "Couldn't scan this file right now. Please try again shortly.",
+        });
+      }
+      if (result.infected) {
+        throw new BadRequestException({
+          code: "MALWARE_DETECTED",
+          message: `This file was flagged as malicious (${result.signature}) and was not uploaded.`,
+        });
+      }
+    }
+
     const contentHash = createHash("sha256").update(params.buffer).digest("hex");
     const documentId = generateId("document");
     const versionId = generateId("documentVersion");
@@ -54,14 +80,18 @@ export class DocumentsService {
       householdId: params.householdId,
       documentType: params.documentType,
       title: params.title,
+      // Explicit rather than relying on the column's `.default([])` — encrypted-jsonb columns don't
+      // actually get a working DB-level default (the migration can't statically express a runtime-
+      // encrypted default value; see packages/db/src/migrations/0003_daffy_mister_fear.sql's own history
+      // of this), so omitting this crashed every real upload with a NOT NULL violation on `tags`.
+      tags: [],
       sensitivity: "sensitive",
       visibility: "private",
-      processingState: "malware_scan",
+      // No explicit processingState here — defaults to "uploaded", which is now accurate: scanning (when
+      // configured) already happened above, before this row exists at all.
       currentVersionId: versionId,
     });
 
-    // Real malware scanning is a deployment-time integration point (e.g. ClamAV sidecar or a cloud AV API);
-    // until that's wired, uploads are still MIME/size/hash validated above rather than trusted blindly.
     await this.storage.putObject(blobKey, params.buffer, params.mimeType);
 
     let ocrText: string | null = null;

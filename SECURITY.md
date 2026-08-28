@@ -174,8 +174,15 @@ These are real gaps, not hedging:
   Store review flag. If any of those features are added to the mobile client,
   add the matching Expo module and usage-description string at that time, not
   ahead of it.
-- **No malware/AV scanning on document uploads** — MIME type, size, and
-  content hash are validated; no antivirus scan.
+- **Malware scanning on document uploads**: real, via a ClamAV sidecar
+  (`docker compose up -d clamav`) speaking clamd's INSTREAM protocol
+  directly — MIME type, size, and content hash are also validated. Optional
+  in local dev (unset `CLAMD_HOST` skips scanning); fails *closed* once
+  configured, so a scanner outage rejects uploads rather than silently
+  accepting unscanned files. Verified live with a real EICAR test file
+  (correctly detected and rejected, never stored) — production deployment
+  still needs the ClamAV service actually provisioned and `CLAMD_HOST` set,
+  which isn't automatic outside this repo's Docker Compose.
 - **No automated backup/restore drills** — local dev only; production backup
   strategy is undecided.
 - **Consumer-side actions aren't all audited yet** — `audit_events` is

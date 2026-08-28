@@ -280,7 +280,20 @@ rotation, account deletion, network hardening, and an honest pre-submission
 checklist for the App Store/Play Store/a real pentest). Summary of what's
 still open:
 
-- No malware scanning on document uploads (MIME/size/hash validated; no AV).
+- Real malware scanning now exists for document uploads: a ClamAV service
+  (`infrastructure/docker/docker-compose.yml`) and `MalwareScannerService`
+  (`services/api/src/modules/documents/malware-scanner.service.ts`) speaking
+  clamd's INSTREAM protocol directly over TCP. Optional in dev (`CLAMD_HOST`
+  unset skips scanning, matching every other optional external dependency
+  in this app) but fails *closed* once configured — a scan error rejects
+  the upload rather than silently accepting an unscanned file. Verified
+  live with a real EICAR test file: correctly detected and rejected
+  (`Eicar-Test-Signature`), never stored; a genuinely clean file uploads
+  normally either way. That same verification pass also caught and fixed a
+  real, previously-undiscovered bug unrelated to scanning — every document
+  upload crashed on `documents.tags`' NOT NULL constraint, since encrypted-
+  jsonb columns don't actually get a working DB-level default (same class
+  of bug as `inbox_items.suggestedActions` from earlier this session).
 - No automated backup/restore drills (spec §49.2/49.3) — local dev only.
 - Structured audit logging exists and is used by the admin console
   (`audit_events`, written on every support lookup and on account deletion),
