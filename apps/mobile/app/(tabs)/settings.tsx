@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Switch, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
+import { useBiometricLock } from "@/lib/biometric-lock-context";
 import type { ThemeMode } from "@/lib/theme";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -19,6 +20,14 @@ const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const { mode, setMode, theme } = useAppTheme();
+  const { ready: lockReady, supported: lockSupported, enabled: lockEnabled, setEnabled: setLockEnabled } = useBiometricLock();
+  const [lockError, setLockError] = useState<string | null>(null);
+
+  async function onToggleLock(next: boolean) {
+    setLockError(null);
+    const result = await setLockEnabled(next);
+    if (!result.ok) setLockError(result.error ?? "Something went wrong.");
+  }
 
   async function onSignOut() {
     await signOut();
@@ -79,6 +88,29 @@ export default function SettingsScreen() {
               </Pressable>
             );
           })}
+        </Card>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Security</Text>
+        <Card style={{ gap: 2 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>App lock</Text>
+              <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+                {lockReady && !lockSupported
+                  ? "Set up Face ID, Touch ID, or a device passcode to use this."
+                  : "Require Face ID, Touch ID, or your passcode to open Veynlo."}
+              </Text>
+            </View>
+            <Switch
+              value={lockEnabled}
+              onValueChange={onToggleLock}
+              disabled={!lockReady || !lockSupported}
+              trackColor={{ true: theme.colors.brandDefault }}
+            />
+          </View>
+          {lockError && <Text style={{ fontSize: 13, color: theme.colors.critical, marginTop: 6 }}>{lockError}</Text>}
         </Card>
       </View>
 

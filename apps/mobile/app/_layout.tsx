@@ -4,13 +4,17 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider } from "@/lib/auth-context";
 import { AppThemeProvider, useAppTheme } from "@/lib/theme-context";
+import { BiometricLockProvider } from "@/lib/biometric-lock-context";
+import { LockGate } from "@/components/lock-gate";
 
 function ThemedStack() {
   const { theme } = useAppTheme();
   return (
     <>
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.bgCanvas } }} />
+      <LockGate>
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.bgCanvas } }} />
+      </LockGate>
     </>
   );
 }
@@ -21,7 +25,9 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AppThemeProvider>
           <AuthProvider>
-            <ThemedStack />
+            <BiometricLockProvider>
+              <ThemedStack />
+            </BiometricLockProvider>
           </AuthProvider>
         </AppThemeProvider>
       </SafeAreaProvider>

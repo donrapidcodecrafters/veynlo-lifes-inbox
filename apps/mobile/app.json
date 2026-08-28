@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.veynlo.mobile"
+      "bundleIdentifier": "app.veynlo.mobile",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Veynlo uses Face ID to keep your inbox locked when you're not using the app."
+      }
     },
     "android": {
       "package": "app.veynlo.mobile",
@@ -26,6 +29,6 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-    "plugins": ["expo-router", "expo-secure-store"]
+    "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication"]
   }
 }
