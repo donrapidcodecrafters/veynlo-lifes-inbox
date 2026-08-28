@@ -13,8 +13,12 @@ export type NotificationPriority = "critical" | "important" | "useful" | "fyi" |
 /**
  * §33 — notification priority tiers + quiet hours + dedupe. This is the
  * single chokepoint every part of the product goes through to actually
- * notify a user, so suppression rules (quiet hours, per-category "off",
- * duplicate dedupe key) are enforced in exactly one place.
+ * notify a user, so suppression rules that ARE implemented (quiet hours,
+ * intensity, duplicate dedupe key) live in exactly this one place.
+ * `notificationPreferences.categoryOverrides` exists in the schema but is
+ * NOT checked here — no UI exposes a per-category toggle yet, so there is
+ * currently no override to honor; wire it into deliver() alongside the
+ * checks below whenever that preference actually becomes settable.
  */
 @Injectable()
 export class NotificationDeliveryService {
