@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
+import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import type { ThemeMode } from "@/lib/theme";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Button } from "@/components/button";
+import { TextField } from "@/components/text-field";
 
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
   { value: "system", label: "System" },
@@ -20,6 +23,24 @@ export default function SettingsScreen() {
   async function onSignOut() {
     await signOut();
     router.replace("/sign-in");
+  }
+
+  const [showDeleteForm, setShowDeleteForm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function onDeleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.post("/v1/auth/delete-account", { password: deletePassword });
+      await signOut();
+      router.replace("/sign-in");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setDeleting(false);
+    }
   }
 
   return (
@@ -71,6 +92,55 @@ export default function SettingsScreen() {
       <Button variant="secondary" onPress={onSignOut}>
         Sign out
       </Button>
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>
+          Danger zone
+        </Text>
+        <Card style={{ gap: 12 }}>
+          <View style={{ gap: 2 }}>
+            <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>Delete account</Text>
+            <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+              Permanently deletes your account and everything in it. This can&apos;t be undone.
+            </Text>
+          </View>
+          {!showDeleteForm ? (
+            <Button variant="critical" onPress={() => setShowDeleteForm(true)}>
+              Delete account
+            </Button>
+          ) : (
+            <View style={{ gap: 12 }}>
+              <TextField
+                label="Confirm your password"
+                value={deletePassword}
+                onChangeText={setDeletePassword}
+                secureTextEntry
+                autoComplete="password"
+              />
+              {deleteError && <Text style={{ color: theme.colors.critical, fontSize: 14 }}>{deleteError}</Text>}
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Button variant="critical" onPress={onDeleteAccount} loading={deleting}>
+                    Permanently delete
+                  </Button>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    variant="secondary"
+                    onPress={() => {
+                      setShowDeleteForm(false);
+                      setDeletePassword("");
+                      setDeleteError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </View>
+              </View>
+            </View>
+          )}
+        </Card>
+      </View>
     </Screen>
   );
 }

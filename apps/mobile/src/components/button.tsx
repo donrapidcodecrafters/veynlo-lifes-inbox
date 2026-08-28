@@ -1,7 +1,7 @@
 import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
 import { useAppTheme } from "@/lib/theme-context";
 
-type Variant = "primary" | "secondary" | "ghost";
+type Variant = "primary" | "secondary" | "ghost" | "critical";
 
 interface ButtonProps extends Omit<PressableProps, "children"> {
   variant?: Variant;
@@ -13,8 +13,14 @@ export function Button({ variant = "primary", loading, disabled, children, style
   const { theme } = useAppTheme();
 
   const backgroundColor =
-    variant === "primary" ? theme.colors.brandDefault : variant === "secondary" ? theme.colors.bgSurface : "transparent";
-  const textColor = variant === "primary" ? theme.colors.textOnBrand : theme.colors.textPrimary;
+    variant === "primary"
+      ? theme.colors.brandDefault
+      : variant === "critical"
+        ? theme.colors.critical
+        : variant === "secondary"
+          ? theme.colors.bgSurface
+          : "transparent";
+  const textColor = variant === "primary" || variant === "critical" ? theme.colors.textOnBrand : theme.colors.textPrimary;
   const borderColor = variant === "secondary" ? theme.colors.borderDefault : "transparent";
 
   return (
