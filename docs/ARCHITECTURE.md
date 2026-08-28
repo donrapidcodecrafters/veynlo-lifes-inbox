@@ -245,16 +245,40 @@ space-free copy.
 
 Every fix above is a `pnpm patch` (registered in `pnpm-workspace.yaml`'s
 `patchedDependencies`, applied automatically on `pnpm install` — nothing
-manual required beyond having the `patches/` directory), so a real
-`expo run:ios` build should work out of the box from a space-free checkout.
-Verified live: `expo run:ios` built and installed on a real iPhone 16 Pro
-Simulator (Xcode 26.2), launched to the real branded sign-in screen
-(screenshotted via `xcrun simctl io ... screenshot`), Metro bundled all
-1716 modules with no runtime errors. Every screen (including the new
-Life/Timeline/Documents/Connections ones) and nav path was also verified
-interactively via Playwright driving `expo start --web`. Android has real
-tooling available in this environment (Android Studio, SDK, an existing
-AVD) but hasn't been attempted yet — see ROADMAP.
+manual required beyond having the `patches/` directory), so both
+`expo run:ios` and `expo run:android` work out of the box from a
+space-free checkout — the same three patches fix both platforms (two are
+iOS/Xcode-specific; the `expo-modules-core` `executeSync`→`runSync` fix
+applies identically to its Android call site).
+
+Verified live, both platforms: `expo run:ios` built and installed on a
+real iPhone 16 Pro Simulator (Xcode 26.2); `expo run:android` built and
+installed on a real Android emulator (`Medium_Phone_API_36.0`, API 36).
+Both launched to the real branded sign-in screen, screenshotted for real
+(`xcrun simctl io ... screenshot` / `adb exec-out screencap`). Metro
+bundled all 1716 modules with no runtime errors on either platform. Every
+screen (including the new Life/Timeline/Documents/Connections ones) and
+nav path was also verified interactively via Playwright driving
+`expo start --web`, since blind pixel-coordinate `adb input tap` on the
+real emulator turned out to be too fragile for reliable field-by-field
+interaction (the on-screen keyboard shifts the layout under it) — DOM-
+based automation against the same React Native codebase rendered via
+`react-native-web` was the more reliable interactive-verification path,
+while the two native builds themselves confirm the actual compiled apps
+are real and launch correctly.
+
+One environmental note for reproducing this: two simultaneous native
+build toolchains (Xcode DerivedData + Gradle/NDK caches) can consume a
+large amount of disk space fast on a first build — this ran the host
+disk down to under 1GB free mid-Android-build, which manifested as a
+native compiler `IO failure on output stream: No space left on device`
+error deep in a Gradle task, not an obviously-disk-related message.
+Clearing `~/Library/Developer/Xcode/DerivedData` freed ~5.7GB and
+resolved it. A crashed-mid-build Gradle daemon can also leave a stale
+lock file (`Cannot lock file hash cache ... as it has already been
+locked by this process`) — killing lingering `gradle`/Kotlin-daemon
+Java processes and deleting the project's `android/.gradle` directory
+clears it.
 
 ## Desktop app
 

@@ -108,16 +108,16 @@ isn't:
 The mobile app (`apps/mobile`, Expo + expo-router) has full screen parity
 with web — Home, Inbox, Ask, Life, Settings, Timeline, Documents,
 Connections — talking to the real API over a bearer-token session (native
-has no browser cookie jar; see docs/ARCHITECTURE.md's auth section). A
-real native iOS build (`expo run:ios`) has been produced and verified on
-a real iPhone 16 Pro Simulator — see docs/ARCHITECTURE.md's "Native
+has no browser cookie jar; see docs/ARCHITECTURE.md's auth section). Real
+native builds have been produced and verified on both platforms:
+`expo run:ios` on a real iPhone 16 Pro Simulator and `expo run:android`
+on a real Android emulator (API 36) — see docs/ARCHITECTURE.md's "Native
 mobile build" section for the three genuine upstream Expo/Xcode-26 bugs
-it took to get there, all fixed via `pnpm patch`. Every screen and nav
-path was also verified interactively via Playwright against
+it took to get both working, all fixed via `pnpm patch`. Every screen and
+nav path was also verified interactively via Playwright against
 `expo start --web` (a real Chromium instance driving the actual React
-Native codebase). Android native build (tooling is present — Android
-Studio, SDK, an AVD — not yet attempted) and real device builds (only
-simulator so far) are next.
+Native codebase). Real device builds (only simulator/emulator so far)
+are next.
 
 The browser extension (`apps/browser-extension`, Manifest V3, any
 Chromium-based browser) saves the current page or a text selection to your
