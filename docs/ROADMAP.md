@@ -267,10 +267,19 @@ this repository, not an aspirational plan.
     complex for that narrow a scenario, and there's no established
     domain-level "merge" concept for a receipt-tracking app's per-user
     records to build on safely. Decided against building it now — the
-    better fix for the actual gap, if duplicate purchases turn out to be a
-    real problem in practice, is a fuzzy fallback in `findExistingPurchase`
-    (merchant + total + purchase-date proximity, when order number is
-    absent) rather than new user-facing merge UI. Also surfaced two smaller,
+    better fix for the actual gap is a fuzzy fallback in
+    `findExistingPurchase`, and that fallback is now built: when an email
+    states no order number at all, `findExistingPurchaseByAmountAndDate`
+    looks for an existing purchase with the same owner + merchant +
+    identical total, dated within 2 days -- and if more than one existing
+    purchase matches, treats it as no match rather than guessing (section
+    40.2 precision-first). Verified live against the real pipeline (same
+    mocked-AI-boundary technique as the canonical_entities verification
+    above, for the same reason -- no ANTHROPIC_API_KEY in this
+    environment): two no-order-number receipts for the same
+    merchant/total one day apart correctly merged into a single purchase,
+    while a third with a different total stayed a separate purchase
+    rather than being incorrectly folded in. Also surfaced two smaller,
     unrelated facts while investigating: `dismiss` only marks the *inbox
     item* deleted, not the underlying linked resource, so a genuine
     duplicate purchase would stay in the Purchases list with no cleanup

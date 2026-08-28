@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
 import { generateId, confidenceToBand } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -235,9 +235,13 @@ export class IngestionService {
     // §40.1 "Auto-merge exact order IDs" — a second email about the same order (payment confirmation
     // following an order confirmation, a receipt duplicating a prior notice) must update the existing
     // purchase rather than create a sibling. Only order-number+merchant is exact enough to auto-merge.
+    // When no order number is stated at all (common on a plain confirmation email), fall back to a
+    // conservative same-merchant/same-total/close-date match rather than always creating a duplicate —
+    // see findExistingPurchaseByAmountAndDate for exactly how conservative ("more than one candidate ->
+    // treat as no match" per §40.2's precision-first stance).
     const existing = result.data.orderNumber
       ? await this.findExistingPurchase(ctx.ownerUserId, merchantId, result.data.orderNumber)
-      : null;
+      : await this.findExistingPurchaseByAmountAndDate(ctx.ownerUserId, merchantId, result.data.totalAmountMinorUnits, temporalToSortDate(purchaseDate));
 
     const purchaseId = existing?.id ?? generateId("purchase");
     if (existing) {
@@ -411,6 +415,33 @@ export class IngestionService {
       )
       .limit(1);
     return existing ?? null;
+  }
+
+  /**
+   * Fallback dedup for when the extracted email has no order number at all (so findExistingPurchase's
+   * exact-match path never runs). Requires same merchant + identical total + purchase date within 2 days
+   * of an existing purchase's — and if more than one existing purchase matches that, treats it as no
+   * match rather than guessing which one, since an ambiguous auto-merge risks combining two genuinely
+   * different purchases (§40.2 "false non-merge is preferable to incorrectly combining").
+   */
+  private async findExistingPurchaseByAmountAndDate(ownerUserId: string, merchantId: string, totalMinorUnits: number | null, purchaseDateSort: Date | null) {
+    if (totalMinorUnits == null || !purchaseDateSort) return null;
+    const windowStart = new Date(purchaseDateSort.getTime() - 2 * 86_400_000);
+    const windowEnd = new Date(purchaseDateSort.getTime() + 2 * 86_400_000);
+    const candidates = await this.db
+      .select()
+      .from(schema.purchases)
+      .where(
+        and(
+          eq(schema.purchases.ownerUserId, ownerUserId),
+          eq(schema.purchases.merchantId, merchantId),
+          eq(schema.purchases.totalMinorUnits, totalMinorUnits),
+          gte(schema.purchases.purchaseDateSort, windowStart),
+          lte(schema.purchases.purchaseDateSort, windowEnd),
+        ),
+      )
+      .limit(2);
+    return candidates.length === 1 ? candidates[0] : null;
   }
 
   private async findExistingPurchaseByOrderNumberOnly(ownerUserId: string, orderNumber: string) {
