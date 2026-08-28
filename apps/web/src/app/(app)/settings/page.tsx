@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import useSWR from "swr";
 import { useTheme } from "@/hooks/use-theme";
 import { useSession } from "@/hooks/use-session";
@@ -86,6 +87,21 @@ export default function SettingsPage() {
                 { value: "dark", label: "Dark" },
               ]}
             />
+          </CardBody>
+        </Card>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">Billing</h2>
+        <Card>
+          <CardBody className="flex items-center justify-between">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Plan &amp; billing</p>
+              <p className="text-sm text-tertiary">Manage your subscription and see what&apos;s included.</p>
+            </div>
+            <Link href="/settings/billing">
+              <Button variant="secondary">Manage</Button>
+            </Link>
           </CardBody>
         </Card>
       </section>

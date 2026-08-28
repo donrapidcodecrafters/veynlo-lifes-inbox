@@ -49,6 +49,17 @@ export class BillingService {
     return { planKey, entitlements: active, capabilities };
   }
 
+  /** §46 — the plan catalog this deployment can actually sell, i.e. only the plans with a real Stripe
+   * Price configured. Unconfigured plans are omitted entirely rather than shown with a broken "Subscribe"
+   * button — same "not configured" degradation as every other optional external dependency. */
+  plans() {
+    const env = loadEnv();
+    const priceByPlan: Partial<Record<PlanKey, string>> = { plus: env.STRIPE_PRICE_PLUS_MONTHLY, family: env.STRIPE_PRICE_FAMILY_MONTHLY };
+    return (Object.keys(priceByPlan) as PlanKey[])
+      .filter((planKey) => priceByPlan[planKey])
+      .map((planKey) => ({ planKey, priceId: priceByPlan[planKey]!, capabilities: PLAN_CATALOG[planKey] }));
+  }
+
   async createCheckoutSession(userId: string, planKey: PlanKey, priceId: string) {
     const stripe = this.stripe();
     const session = await stripe.checkout.sessions.create({
@@ -58,6 +69,27 @@ export class BillingService {
       cancel_url: `${loadEnv().WEB_APP_URL}/settings/billing?checkout=canceled`,
       client_reference_id: userId,
       metadata: { veynloUserId: userId, planKey },
+      // Without this, only the CheckoutSession object carries this metadata — the Subscription object
+      // Stripe creates alongside it does not inherit it automatically. Every later
+      // customer.subscription.updated/.deleted webhook event (the actual downgrade/cancel-detection path
+      // in handleWebhook below) reads userId off the *subscription*, so without this, those events could
+      // never resolve which user they were for and the downgrade logic silently never fired.
+      subscription_data: { metadata: { veynloUserId: userId, planKey } },
+    });
+    return { url: session.url };
+  }
+
+  /** Stripe's own self-service "change plan / update card / cancel" UI — requires a Stripe customer id,
+   * which only exists once this user has completed a checkout at least once (see handleWebhook below). */
+  async createPortalSession(userId: string) {
+    const [user] = await this.db.select({ stripeCustomerId: schema.users.stripeCustomerId }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    if (!user?.stripeCustomerId) {
+      throw new ServiceUnavailableException({ code: "NO_BILLING_ACCOUNT", message: "Subscribe to a plan first to manage billing." });
+    }
+    const stripe = this.stripe();
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripeCustomerId,
+      return_url: `${loadEnv().WEB_APP_URL}/settings/billing`,
     });
     return { url: session.url };
   }
@@ -90,7 +122,8 @@ export class BillingService {
     });
 
     if (event.type === "checkout.session.completed" && userId) {
-      const planKey = ((event.data.object as { metadata?: Record<string, string> }).metadata?.planKey as PlanKey) ?? "plus";
+      const session = event.data.object as Stripe.Checkout.Session;
+      const planKey = (session.metadata?.planKey as PlanKey) ?? "plus";
       await this.db.insert(schema.entitlements).values({
         id: generateId("entitlement"),
         userId,
@@ -99,6 +132,12 @@ export class BillingService {
         effectiveFrom: new Date(),
         effectiveTo: null,
       });
+      // Needed for the Customer Portal (createPortalSession above) — nothing else in the app ever
+      // persists this today, so a user's first checkout is the only place it can be captured.
+      const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+      if (customerId) {
+        await this.db.update(schema.users).set({ stripeCustomerId: customerId }).where(eq(schema.users.id, userId));
+      }
     }
 
     if ((event.type === "customer.subscription.deleted" || event.type === "customer.subscription.updated") && userId) {

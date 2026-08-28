@@ -17,6 +17,10 @@ export const users = pgTable("users", {
   status: userStatusEnum("status").notNull().default("active"),
   themePreference: themePreferenceEnum("theme_preference").notNull().default("system"),
   passwordHash: text("password_hash"),
+  // Set once, from the `checkout.session.completed` webhook's `session.customer` — needed for the Stripe
+  // Customer Portal (billingPortal.sessions.create requires a customer id, not just a subscription id).
+  // Nothing wrote this before the billing UI existed, since the webhook never had a reason to persist it.
+  stripeCustomerId: text("stripe_customer_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

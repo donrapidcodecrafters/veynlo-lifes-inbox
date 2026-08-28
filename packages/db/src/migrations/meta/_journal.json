@@ -50,6 +50,13 @@
       "when": 1787951698405,
       "tag": "0006_giant_payback",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787952621612,
+      "tag": "0007_amused_mole_man",
+      "breakpoints": true
     }
   ]
 }

@@ -20,10 +20,22 @@ export class BillingController {
     return this.billing.currentEntitlements(user.userId);
   }
 
+  @Get("plans")
+  @UseGuards(AuthGuard)
+  plans() {
+    return this.billing.plans();
+  }
+
   @Post("checkout-session")
   @UseGuards(AuthGuard)
   checkout(@CurrentUser() user: AuthenticatedUser, @Body() body: { planKey: PlanKey; priceId: string }) {
     return this.billing.createCheckoutSession(user.userId, body.planKey, body.priceId);
+  }
+
+  @Post("portal-session")
+  @UseGuards(AuthGuard)
+  portalSession(@CurrentUser() user: AuthenticatedUser) {
+    return this.billing.createPortalSession(user.userId);
   }
 
   // No AuthGuard — Stripe calls this directly; authenticity comes from signature verification, not a session.

@@ -55,6 +55,12 @@ const EnvSchema = z.object({
   // Billing
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Real Stripe Price object IDs for the two sold plans (Core UX MVP row "Billing" — a plan/checkout
+  // surface needs to know what to actually charge). Unset in dev, same "not configured" degradation as
+  // every other optional external dependency — GET /v1/billing/plans returns an empty list rather than
+  // pretending a subscribe button works with no real price behind it.
+  STRIPE_PRICE_PLUS_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_FAMILY_MONTHLY: z.string().optional(),
   // RevenueCat normalizes Apple/Google/web subscription entitlements (§SEC-BILLING). Unset in dev —
   // the webhook route returns a clear "not configured" state rather than pretending to work, same as
   // the Google/Microsoft connectors above. RevenueCat webhook auth is a static shared header value it
