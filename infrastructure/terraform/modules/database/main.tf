@@ -1,8 +1,6 @@
 # Aurora PostgreSQL Serverless v2 (blueprint §14): writer + hot reader, RDS Proxy in front,
 # KMS-encrypted, isolated-data subnets only (no public IP), 35-day PITR by default.
 
-data "aws_caller_identity" "current" {}
-
 resource "aws_kms_key" "aurora" {
   description             = "${var.name} Aurora storage encryption"
   deletion_window_in_days = 30
