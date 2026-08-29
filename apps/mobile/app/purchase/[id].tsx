@@ -28,6 +28,7 @@ interface PurchaseDetail {
     totalCurrency: string | null;
     state: string;
     confidenceBand: string;
+    merchantName: string | null;
   };
   lines: Array<{ id: string; productLabel: string; quantity: number; unitPriceMinorUnits: number | null }>;
   returns: Array<{ id: string; state: string; deadline: TemporalValueLike }>;
@@ -59,7 +60,14 @@ export default function PurchaseDetailScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title={`Order ${purchase.orderNumber ?? "—"}`} subtitle={date ?? undefined} />
+      <ScreenHeader
+        title={purchase.merchantName ?? `Order ${purchase.orderNumber ?? "—"}`}
+        subtitle={
+          purchase.merchantName && purchase.orderNumber
+            ? `Order ${purchase.orderNumber}${date ? ` · ${date}` : ""}`
+            : (date ?? undefined)
+        }
+      />
       <Card style={{ gap: 6 }}>
         {total && <Text style={{ fontSize: 20, fontWeight: "700", color: theme.colors.textPrimary }}>{total}</Text>}
         <Badge tone="neutral">{purchase.confidenceBand.replace("_", " ")}</Badge>

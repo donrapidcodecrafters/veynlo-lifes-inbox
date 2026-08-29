@@ -48,12 +48,13 @@ interface SourceInspection {
   occurredAt: string;
 }
 
-type FilterTab = "needs_review" | "auto_filed" | "low_confidence" | "all";
+type FilterTab = "needs_review" | "auto_filed" | "low_confidence" | "duplicates" | "all";
 
 const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
   { value: "needs_review", label: "Needs Review" },
   { value: "auto_filed", label: "Auto-filed" },
   { value: "low_confidence", label: "Low Confidence" },
+  { value: "duplicates", label: "Duplicates" },
   { value: "all", label: "All" },
 ];
 
@@ -63,7 +64,11 @@ function queryFor(filter: FilterTab, category: string): string {
   const params = new URLSearchParams();
   if (filter === "needs_review") params.set("reviewState", "new");
   if (filter === "auto_filed") params.set("autoFiled", "true");
-  if (filter === "low_confidence") params.set("confidenceBand", "needs_review");
+  // "approximate" is the actual lowest confidence band (verified > needs_review > approximate) — this
+  // previously queried "needs_review" itself, showing the middle band and leaving the real low-confidence
+  // items (and the "Low Confidence" tab's own purpose) unreachable via any filter.
+  if (filter === "low_confidence") params.set("confidenceBand", "approximate");
+  if (filter === "duplicates") params.set("isDuplicate", "true");
   if (category) params.set("category", category);
   const qs = params.toString();
   return qs ? `/v1/inbox?${qs}` : "/v1/inbox";
@@ -125,6 +130,8 @@ export default function InboxPage() {
   const [category, setCategory] = useState("");
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const [rulePickerId, setRulePickerId] = useState<string | null>(null);
+  const [ruleCategory, setRuleCategory] = useState(CATEGORIES[0]);
   const [capturing, setCapturing] = useState(false);
   const [pasting, setPasting] = useState(false);
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
@@ -171,6 +178,14 @@ export default function InboxPage() {
 
   async function blockSender(id: string) {
     await api.post(`/v1/inbox/${id}/block-sender`);
+    mutate();
+  }
+
+  /** MAIL-006 "always treat messages from this sender as X" — the backend (`POST /v1/inbox/:id/sender-rule`)
+   * already existed with no UI anywhere calling it; this is that missing control. */
+  async function createSenderRule(id: string) {
+    await api.post(`/v1/inbox/${id}/sender-rule`, { category: ruleCategory });
+    setRulePickerId(null);
     mutate();
   }
 
@@ -290,6 +305,31 @@ export default function InboxPage() {
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => blockSender(item.id)}>
                           Block sender
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setRulePickerId(rulePickerId === item.id ? null : item.id)}>
+                          Create rule
+                        </Button>
+                      </div>
+                    )}
+                    {rulePickerId === item.id && (
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-subtle p-2">
+                        <span className="text-sm text-secondary">Always file messages from this sender as:</span>
+                        <select
+                          value={ruleCategory}
+                          onChange={(e) => setRuleCategory(e.target.value)}
+                          className="h-8 rounded-md border border-border-default bg-surface px-2 text-sm text-primary"
+                        >
+                          {CATEGORIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c.replace("_", " ")}
+                            </option>
+                          ))}
+                        </select>
+                        <Button size="sm" onClick={() => createSenderRule(item.id)}>
+                          Save rule
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setRulePickerId(null)}>
+                          Cancel
                         </Button>
                       </div>
                     )}

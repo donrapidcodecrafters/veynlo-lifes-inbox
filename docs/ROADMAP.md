@@ -624,3 +624,49 @@ still open:
   fix is typecheck-verified and logically reviewed but not independently live-tested end-to-end — that needs
   a real signed Stripe webhook payload with a real configured Price id, neither of which exists in this dev
   environment. Test users/connections/shipments/billing-event rows all deleted afterward.
+- **Second gap-closing pass (2026-08-29), continuing the same audit's findings**: with the user's go-ahead
+  to keep working through the full list, closed six more concrete gaps.
+  1. **ASK-002 "structured search" had zero UI** — `GET /v1/search` was real and correct, nothing called
+     it. Added a "Search" mode alongside Ask on the same page (web `/ask`, mobile's Ask tab) — a plain
+     query box returning grouped, clickable purchase/bill/document/event results, linking to each domain's
+     real detail route (`/life/purchases/:id`, `/life/bills/:id`, `/life/events/:id`; documents open via
+     the same signed-download-URL pattern the Documents page uses, since they have no per-id route).
+  2. **Inbox "Low Confidence" filter queried the wrong band** — bands are `verified > needs_review >
+     approximate`; the filter hardcoded `confidenceBand=needs_review` (the *middle* band), so the real
+     lowest-confidence items were unreachable through any filter tab. Fixed to query `approximate` on both
+     platforms.
+  3. **Inbox "Duplicates" filter didn't exist anywhere** — added `inbox_items.isDuplicate` (migration
+     `0022_lovely_charles_xavier.sql`), set `true` at the same four call sites the MAIL-003 thread-aware
+     update-in-place logic already distinguishes existing-vs-new (purchase/shipment/bill/calendar_event),
+     and wired a real filter tab on both platforms.
+  4. **"Create rule" (MAIL-006, always-file-this-sender-as) had a backend and no UI** — `POST /v1/inbox/:id/
+     sender-rule` already existed; added the missing button + inline category picker next to the existing
+     "Block sender" action on both platforms.
+  5. **Purchases: merchant name captured but never displayed anywhere** — `purchases.merchantId` has been
+     populated since ingestion shipped; the UI only ever showed "Order #12345". `CommerceService.purchases()`/
+     `purchaseDetail()` now left-join `merchants` and return `merchantName` alongside the raw row; both
+     platforms' list and detail views show it as the primary title, with "Order #" demoted to a subtitle.
+  6. **LOC-001 "basic saved places" (Core-tier) was entirely unbuilt** — no schema, no endpoint, no UI at
+     all. Rather than a separate places domain, extended the existing Saved Items model (`latitude`/
+     `longitude`/`address` columns, `category: "place"`) — a place is just a saved item with a location, and
+     the spec's own entitlement line ("Plus; basic saved places Core") only asks for plain save/view here,
+     not geofencing. Both Saved pages gained a "Link or note" / "A place" mode toggle in the add form.
+  7. **Account recovery (§5) had zero implementation** — no forgot-password flow existed on either
+     platform; any password-based user who forgot their password had no way back into their account. Added
+     a real, hashed-token flow (`password_reset_tokens` table, 1-hour expiry, single-use, `MailerService`-
+     delivered email) — `POST /v1/auth/{forgot-password,reset-password}`, a "Forgot password?" link from
+     both sign-in screens, and web `/forgot-password`/`/reset-password` pages (mobile only needs the
+     request-a-reset screen; the emailed link always completes on web regardless of platform, the same way
+     most apps handle this, avoiding custom deep-link handling for a flow used maybe once per account). A
+     successful reset revokes every existing session, the same "credential changed → force re-auth
+     everywhere" posture password changes should always have. Had to extract `MailerService` into its own
+     `MailModule` — `NotificationsModule` already imported `IdentityModule`, so `IdentityModule` importing
+     `NotificationsModule` back for email would have been circular.
+  **Verified live**: real Mailhog inspection of the actual reset email (confirmed subject/body/link), a
+  full curl round-trip (garbage token rejected, real token succeeds, old password stops working, new
+  password works, re-using the same token a second time is correctly rejected as already-used), and a real
+  Playwright session confirming merchant names render on both the Life list and purchase detail pages,
+  Search returns and links to real results, a saved place round-trips with its address, and the Duplicates
+  filter tab is present. Mobile changes for this batch are typecheck-verified only (not independently
+  re-verified live this pass) — noted honestly rather than claimed as tested. Test account, seeded
+  merchant/purchase, and scratch files all deleted afterward.

@@ -19,6 +19,11 @@ export const inboxItems = pgTable(
     sourceEventId: text("source_event_id").notNull(),
     suggestedActions: encryptedJsonb<string[]>("suggested_actions").notNull().default([]),
     autoFiled: boolean("auto_filed").notNull().default(false),
+    // INB-001 "Duplicates" filter — true when this item's extraction matched an already-tracked resource
+    // (the same MAIL-003 thread-aware update-in-place logic in IngestionService) rather than filing a
+    // brand-new one. Distinct from a literal re-ingested duplicate email, which never reaches this table
+    // at all (blocked earlier by source_events.idempotencyKey).
+    isDuplicate: boolean("is_duplicate").notNull().default(false),
     reviewState: text("review_state").notNull().default("new"),
     snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
     confidenceBand: text("confidence_band").notNull(),

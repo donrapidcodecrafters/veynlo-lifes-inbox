@@ -32,17 +32,27 @@ export class CommerceService {
     return householdIds.length > 0 ? or(eq(ownerCol, userId), inArray(householdCol, householdIds))! : eq(ownerCol, userId);
   }
 
+  /** PUR-001/002 — `merchantId` was captured on every purchase since ingestion shipped but never joined
+   * back to a displayable name anywhere; the UI showed "Order #12345" only. Both list and detail now
+   * carry `merchantName` alongside the raw row. */
   async purchases(userId: string) {
-    return this.db.select().from(schema.purchases).where(await this.ownerOrDelegatedHousehold(userId, schema.purchases.ownerUserId, schema.purchases.householdId));
+    const rows = await this.db
+      .select({ purchase: schema.purchases, merchantName: schema.merchants.displayName })
+      .from(schema.purchases)
+      .leftJoin(schema.merchants, eq(schema.merchants.id, schema.purchases.merchantId))
+      .where(await this.ownerOrDelegatedHousehold(userId, schema.purchases.ownerUserId, schema.purchases.householdId));
+    return rows.map((r) => ({ ...r.purchase, merchantName: r.merchantName }));
   }
 
   async purchaseDetail(purchaseId: string, userId: string) {
-    const [purchase] = await this.db
-      .select()
+    const [row] = await this.db
+      .select({ purchase: schema.purchases, merchantName: schema.merchants.displayName })
       .from(schema.purchases)
+      .leftJoin(schema.merchants, eq(schema.merchants.id, schema.purchases.merchantId))
       .where(eq(schema.purchases.id, purchaseId))
       .limit(1);
-    if (!purchase) return null;
+    if (!row) return null;
+    const purchase = row.purchase;
     if (purchase.ownerUserId !== userId) {
       const householdIds = purchase.householdId ? await this.households.delegatedHouseholdIds(userId, "commerce:read") : [];
       if (!purchase.householdId || !householdIds.includes(purchase.householdId)) return null;
@@ -51,7 +61,7 @@ export class CommerceService {
     const returns = await this.db.select().from(schema.returnCases).where(eq(schema.returnCases.purchaseId, purchaseId));
     const shipments = await this.db.select().from(schema.shipments).where(eq(schema.shipments.purchaseId, purchaseId));
     const evidence = await this.evidenceForSourceEvent(purchase.sourceEventId);
-    return { purchase, lines, returns, shipments, evidence };
+    return { purchase: { ...purchase, merchantName: row.merchantName }, lines, returns, shipments, evidence };
   }
 
   /** PUR-001 "mark gift/returned/sold" — the only mutation this service has beyond field-level `correct()` (see InboxService). */

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { api, swrFetcher } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,16 @@ interface AskResponse {
   answer: string;
   evidence: Array<{ resourceType: string; resourceId: string; text: string }>;
   insufficientEvidence: boolean;
+}
+
+/** ASK-002 "structured search" — was real and correct server-side (GET /v1/search) but had zero UI
+ * calling it anywhere; this is that missing surface. A second mode on this same page rather than a
+ * separate destination, matching the spec's own "Ask/Search" combined Core-UX entry. */
+interface SearchResponse {
+  purchases: Array<{ id: string; orderNumber: string | null }>;
+  bills: Array<{ id: string; billerLabel: string }>;
+  documents: Array<{ id: string; title: string }>;
+  events: Array<{ id: string; title: string }>;
 }
 
 interface SavedQuery {
@@ -45,6 +56,7 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
 }
 
 export default function AskPage() {
+  const [mode, setMode] = useState<"ask" | "search">("ask");
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AskResponse | null>(null);
@@ -52,6 +64,10 @@ export default function AskPage() {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [voiceSupported, setVoiceSupported] = useState(false);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const { data: savedQueries, mutate: mutateSavedQueries } = useSWR<SavedQuery[]>("/v1/saved-queries", swrFetcher);
 
@@ -76,6 +92,23 @@ export default function AskPage() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     void ask(question);
+  }
+
+  async function runSearch(e: FormEvent) {
+    e.preventDefault();
+    if (!searchTerm.trim()) return;
+    setSearching(true);
+    try {
+      const response = await api.get<SearchResponse>(`/v1/search?q=${encodeURIComponent(searchTerm)}`);
+      setSearchResult(response);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function openDocument(id: string) {
+    const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url`);
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   function toggleVoice() {
@@ -123,6 +156,92 @@ export default function AskPage() {
         <p className="mt-1 text-sm text-tertiary">Ask about anything Veynlo knows — grounded in your own data.</p>
       </header>
 
+      <div className="flex gap-1 rounded-lg bg-subtle p-1" role="tablist">
+        {(["ask", "search"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => setMode(m)}
+            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              mode === m ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+            }`}
+          >
+            {m === "ask" ? "Ask" : "Search"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "search" ? (
+        <div className="space-y-4">
+          <form onSubmit={runSearch} className="flex gap-2">
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search purchases, bills, documents, events…"
+              className="flex-1"
+            />
+            <Button type="submit" loading={searching}>
+              Search
+            </Button>
+          </form>
+
+          {searchResult && (
+            <div className="space-y-5">
+              {searchResult.purchases.length === 0 &&
+                searchResult.bills.length === 0 &&
+                searchResult.documents.length === 0 &&
+                searchResult.events.length === 0 && <p className="text-sm text-tertiary">No matches.</p>}
+
+              {searchResult.purchases.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Purchases</p>
+                  {searchResult.purchases.map((p) => (
+                    <Link key={p.id} href={`/life/purchases/${p.id}`} className="block text-sm text-brand hover:underline">
+                      Order {p.orderNumber ?? p.id}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.bills.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Bills</p>
+                  {searchResult.bills.map((b) => (
+                    <Link key={b.id} href={`/life/bills/${b.id}`} className="block text-sm text-brand hover:underline">
+                      {b.billerLabel}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.documents.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Documents</p>
+                  {searchResult.documents.map((d) => (
+                    <button key={d.id} onClick={() => openDocument(d.id)} className="block text-sm text-brand hover:underline">
+                      {d.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.events.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Events</p>
+                  {searchResult.events.map((e) => (
+                    <Link key={e.id} href={`/life/events/${e.id}`} className="block text-sm text-brand hover:underline">
+                      {e.title}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
       <form onSubmit={onSubmit} className="flex gap-2">
         <Input
           value={question}
@@ -222,6 +341,8 @@ export default function AskPage() {
             </Card>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );

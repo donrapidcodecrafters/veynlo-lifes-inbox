@@ -26,6 +26,7 @@ interface Purchase {
   purchaseDate: TemporalValueLike;
   totalMinorUnits: number | null;
   totalCurrency: string | null;
+  merchantName: string | null;
 }
 
 interface ReturnRow {
@@ -453,8 +454,14 @@ export default function LifeScreen() {
                   }}
                 >
                   <View>
-                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Order {p.orderNumber ?? "—"}</Text>
-                    {date && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{date}</Text>}
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
+                      {p.merchantName ?? `Order ${p.orderNumber ?? "—"}`}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                      {p.merchantName && p.orderNumber ? `Order ${p.orderNumber}` : ""}
+                      {p.merchantName && p.orderNumber && date ? " · " : ""}
+                      {date}
+                    </Text>
                   </View>
                   {total && <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{total}</Text>}
                 </Pressable>

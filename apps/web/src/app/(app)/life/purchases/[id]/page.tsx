@@ -23,6 +23,7 @@ interface PurchaseDetail {
     shippingMinorUnits: number | null;
     state: string;
     confidenceBand: string;
+    merchantName: string | null;
   };
   lines: Array<{ id: string; productLabel: string; quantity: number; unitPriceMinorUnits: number | null; serialNumber: string | null }>;
   returns: Array<{ id: string; state: string; deadline: TemporalValueLike }>;
@@ -61,8 +62,14 @@ export default function PurchaseDetailPage() {
       </Link>
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-primary">Order {purchase.orderNumber ?? "—"}</h1>
-          {date && <p className="mt-1 text-sm text-tertiary">{date}</p>}
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">
+            {purchase.merchantName ?? `Order ${purchase.orderNumber ?? "—"}`}
+          </h1>
+          <p className="mt-1 text-sm text-tertiary">
+            {purchase.merchantName && purchase.orderNumber ? `Order ${purchase.orderNumber}` : null}
+            {purchase.merchantName && purchase.orderNumber && date ? " · " : null}
+            {date}
+          </p>
         </div>
         <Badge tone="neutral">{purchase.confidenceBand.replace("_", " ")}</Badge>
       </header>

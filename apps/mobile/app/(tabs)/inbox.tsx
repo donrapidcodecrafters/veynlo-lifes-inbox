@@ -29,12 +29,13 @@ interface SourceInspection {
   occurredAt: string;
 }
 
-type FilterTab = "needs_review" | "auto_filed" | "low_confidence" | "all";
+type FilterTab = "needs_review" | "auto_filed" | "low_confidence" | "duplicates" | "all";
 
 const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
   { value: "needs_review", label: "Needs Review" },
   { value: "auto_filed", label: "Auto-filed" },
   { value: "low_confidence", label: "Low Confidence" },
+  { value: "duplicates", label: "Duplicates" },
   { value: "all", label: "All" },
 ];
 
@@ -44,7 +45,9 @@ function queryFor(filter: FilterTab, category: string): string {
   const params = new URLSearchParams();
   if (filter === "needs_review") params.set("reviewState", "new");
   if (filter === "auto_filed") params.set("autoFiled", "true");
-  if (filter === "low_confidence") params.set("confidenceBand", "needs_review");
+  // "approximate" is the actual lowest confidence band — see the identical fix/comment on web's Inbox page.
+  if (filter === "low_confidence") params.set("confidenceBand", "approximate");
+  if (filter === "duplicates") params.set("isDuplicate", "true");
   if (category) params.set("category", category);
   const qs = params.toString();
   return qs ? `/v1/inbox?${qs}` : "/v1/inbox";
@@ -107,6 +110,8 @@ export default function InboxScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const [rulePickerId, setRulePickerId] = useState<string | null>(null);
+  const [ruleCategory, setRuleCategory] = useState(CATEGORIES[0]);
   const [capturing, setCapturing] = useState(false);
   const [filter, setFilter] = useState<FilterTab>("needs_review");
   const [category, setCategory] = useState("");
@@ -146,6 +151,13 @@ export default function InboxScreen() {
 
   async function blockSender(id: string) {
     await api.post(`/v1/inbox/${id}/block-sender`);
+    load();
+  }
+
+  /** MAIL-006 "always treat messages from this sender as X" — same missing-UI fix as web's Inbox page. */
+  async function createSenderRule(id: string) {
+    await api.post(`/v1/inbox/${id}/sender-rule`, { category: ruleCategory });
+    setRulePickerId(null);
     load();
   }
 
@@ -303,6 +315,47 @@ export default function InboxScreen() {
                       <Button variant="ghost" onPress={() => blockSender(item.id)}>
                         Block sender
                       </Button>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 90 }}>
+                      <Button variant="ghost" onPress={() => setRulePickerId(rulePickerId === item.id ? null : item.id)}>
+                        Create rule
+                      </Button>
+                    </View>
+                  </View>
+                )}
+                {rulePickerId === item.id && (
+                  <View style={{ gap: 8, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 10 }}>
+                    <Text style={{ fontSize: 13, color: theme.colors.textSecondary }}>Always file messages from this sender as:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                      {CATEGORIES.map((c) => {
+                        const active = ruleCategory === c;
+                        return (
+                          <Pressable
+                            key={c}
+                            onPress={() => setRuleCategory(c)}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: theme.radius.full,
+                              backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSurface,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>
+                              {c.replace("_", " ")}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Button onPress={() => createSenderRule(item.id)}>Save rule</Button>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Button variant="ghost" onPress={() => setRulePickerId(null)}>
+                          Cancel
+                        </Button>
+                      </View>
                     </View>
                   </View>
                 )}

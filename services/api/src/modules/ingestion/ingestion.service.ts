@@ -444,6 +444,7 @@ export class IngestionService {
       sourceEventId: ctx.sourceEventId,
       suggestedActions: existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
       confidenceBand,
+      isDuplicate: Boolean(existing),
     });
 
     return true;
@@ -517,6 +518,7 @@ export class IngestionService {
       sourceEventId: ctx.sourceEventId,
       suggestedActions: ["confirm", "dismiss"],
       confidenceBand,
+      isDuplicate: Boolean(existingShipment),
     });
 
     return true;
@@ -663,6 +665,7 @@ export class IngestionService {
       sourceEventId: ctx.sourceEventId,
       suggestedActions: existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
       confidenceBand,
+      isDuplicate: Boolean(existing),
     });
     return true;
   }
@@ -823,6 +826,7 @@ export class IngestionService {
       sourceEventId: ctx.sourceEventId,
       suggestedActions: existing ? ["confirm", "add_to_calendar", "dismiss"] : ["confirm", "add_to_calendar", "dismiss"],
       confidenceBand,
+      isDuplicate: Boolean(existing),
     });
     return true;
   }
@@ -1119,6 +1123,7 @@ export class IngestionService {
     sourceEventId: string;
     suggestedActions: string[];
     confidenceBand: string;
+    isDuplicate?: boolean;
   }): Promise<void> {
     const inboxItemId = generateId("inboxItem");
     await this.db.insert(schema.inboxItems).values({
@@ -1132,6 +1137,7 @@ export class IngestionService {
       sourceEventId: params.sourceEventId,
       suggestedActions: params.suggestedActions,
       confidenceBand: params.confidenceBand,
+      isDuplicate: params.isDuplicate ?? false,
     });
 
     if (params.confidenceBand === "high" || params.confidenceBand === "verified") {

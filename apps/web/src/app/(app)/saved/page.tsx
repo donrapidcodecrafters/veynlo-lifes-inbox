@@ -19,6 +19,7 @@ interface SavedItem {
   tags: string[];
   pinned: boolean;
   archived: boolean;
+  address: string | null;
   createdAt: string;
 }
 
@@ -72,7 +73,7 @@ export default function SavedPage() {
                         {item.title}
                       </p>
                       <p className="truncate text-xs text-tertiary">
-                        {item.url ?? item.note ?? ""}
+                        {item.category === "place" ? (item.address ?? "") : (item.url ?? item.note ?? "")}
                         {item.tags.length > 0 && ` · ${item.tags.join(", ")}`}
                       </p>
                     </button>
@@ -100,9 +101,11 @@ export default function SavedPage() {
 }
 
 function AddForm({ onDone }: { onDone: () => void }) {
+  const [isPlace, setIsPlace] = useState(false);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [note, setNote] = useState("");
+  const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -111,7 +114,11 @@ function AddForm({ onDone }: { onDone: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await api.post("/v1/saved-items", { title, url: url || undefined, note: note || undefined });
+      if (isPlace) {
+        await api.post("/v1/saved-items", { title, address: address || undefined, note: note || undefined, category: "place" });
+      } else {
+        await api.post("/v1/saved-items", { title, url: url || undefined, note: note || undefined });
+      }
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't save that. Please try again.");
@@ -124,14 +131,37 @@ function AddForm({ onDone }: { onDone: () => void }) {
     <Card>
       <CardBody>
         <form onSubmit={submit} className="space-y-3" noValidate>
+          <div className="flex gap-1 rounded-lg bg-subtle p-1" role="tablist">
+            {([false, true] as const).map((place) => (
+              <button
+                key={String(place)}
+                type="button"
+                role="tab"
+                aria-selected={isPlace === place}
+                onClick={() => setIsPlace(place)}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  isPlace === place ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+                }`}
+              >
+                {place ? "A place" : "Link or note"}
+              </button>
+            ))}
+          </div>
           <div>
             <Label htmlFor="saved-title">Title</Label>
             <Input id="saved-title" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={500} />
           </div>
-          <div>
-            <Label htmlFor="saved-url">Link (optional)</Label>
-            <Input id="saved-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" />
-          </div>
+          {isPlace ? (
+            <div>
+              <Label htmlFor="saved-address">Address (optional)</Label>
+              <Input id="saved-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St, Springfield" />
+            </div>
+          ) : (
+            <div>
+              <Label htmlFor="saved-url">Link (optional)</Label>
+              <Input id="saved-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" />
+            </div>
+          )}
           <div>
             <Label htmlFor="saved-note">Note (optional)</Label>
             <Textarea id="saved-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -149,6 +179,7 @@ function AddForm({ onDone }: { onDone: () => void }) {
 function ItemEditor({ item, onChanged }: { item: SavedItem; onChanged: () => void }) {
   const [title, setTitle] = useState(item.title);
   const [note, setNote] = useState(item.note ?? "");
+  const [address, setAddress] = useState(item.address ?? "");
   const [tags, setTags] = useState(item.tags.join(", "));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,6 +192,7 @@ function ItemEditor({ item, onChanged }: { item: SavedItem; onChanged: () => voi
         title,
         note,
         tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        ...(item.category === "place" ? { address } : {}),
       });
       onChanged();
     } catch (err) {
@@ -191,6 +223,12 @@ function ItemEditor({ item, onChanged }: { item: SavedItem; onChanged: () => voi
         <Label htmlFor={`title-${item.id}`}>Title</Label>
         <Input id={`title-${item.id}`} value={title} onChange={(e) => setTitle(e.target.value)} />
       </div>
+      {item.category === "place" && (
+        <div>
+          <Label htmlFor={`address-${item.id}`}>Address</Label>
+          <Input id={`address-${item.id}`} value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+      )}
       <div>
         <Label htmlFor={`note-${item.id}`}>Note</Label>
         <Textarea id={`note-${item.id}`} rows={3} value={note} onChange={(e) => setNote(e.target.value)} />

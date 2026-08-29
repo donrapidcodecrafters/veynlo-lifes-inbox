@@ -19,6 +19,7 @@ interface SavedItem {
   category: string;
   tags: string[];
   pinned: boolean;
+  address: string | null;
 }
 
 export default function SavedScreen() {
@@ -84,7 +85,7 @@ export default function SavedScreen() {
                     {item.title}
                   </Text>
                   <Text style={{ fontSize: 12, color: theme.colors.textTertiary }} numberOfLines={1}>
-                    {item.url ?? item.note ?? ""}
+                    {item.category === "place" ? (item.address ?? "") : (item.url ?? item.note ?? "")}
                     {item.tags.length > 0 ? ` · ${item.tags.join(", ")}` : ""}
                   </Text>
                 </View>
@@ -100,9 +101,12 @@ export default function SavedScreen() {
 }
 
 function AddForm({ onDone }: { onDone: () => void }) {
+  const { theme } = useAppTheme();
+  const [isPlace, setIsPlace] = useState(false);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [note, setNote] = useState("");
+  const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -110,7 +114,11 @@ function AddForm({ onDone }: { onDone: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await api.post("/v1/saved-items", { title, url: url || undefined, note: note || undefined });
+      if (isPlace) {
+        await api.post("/v1/saved-items", { title, address: address || undefined, note: note || undefined, category: "place" });
+      } else {
+        await api.post("/v1/saved-items", { title, url: url || undefined, note: note || undefined });
+      }
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't save that. Please try again.");
@@ -121,8 +129,28 @@ function AddForm({ onDone }: { onDone: () => void }) {
 
   return (
     <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: "row", gap: 6, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 4 }}>
+        {([false, true] as const).map((place) => {
+          const active = isPlace === place;
+          return (
+            <Pressable
+              key={String(place)}
+              onPress={() => setIsPlace(place)}
+              style={{ flex: 1, paddingVertical: 6, borderRadius: theme.radius.sm, backgroundColor: active ? theme.colors.bgSurface : "transparent", alignItems: "center" }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>
+                {place ? "A place" : "Link or note"}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <TextField label="Title" value={title} onChangeText={setTitle} />
-      <TextField label="Link (optional)" value={url} onChangeText={setUrl} keyboardType="url" autoCapitalize="none" />
+      {isPlace ? (
+        <TextField label="Address (optional)" value={address} onChangeText={setAddress} />
+      ) : (
+        <TextField label="Link (optional)" value={url} onChangeText={setUrl} keyboardType="url" autoCapitalize="none" />
+      )}
       <TextField label="Note (optional)" value={note} onChangeText={setNote} multiline />
       {error && <Text style={{ fontSize: 13, color: "#dc2626" }}>{error}</Text>}
       <Button onPress={submit} loading={saving}>
@@ -136,6 +164,7 @@ function ItemEditor({ item, onChanged }: { item: SavedItem; onChanged: () => Pro
   const { theme } = useAppTheme();
   const [title, setTitle] = useState(item.title);
   const [note, setNote] = useState(item.note ?? "");
+  const [address, setAddress] = useState(item.address ?? "");
   const [tags, setTags] = useState(item.tags.join(", "));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +177,7 @@ function ItemEditor({ item, onChanged }: { item: SavedItem; onChanged: () => Pro
         title,
         note,
         tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        ...(item.category === "place" ? { address } : {}),
       });
       await onChanged();
     } catch (err) {
@@ -175,6 +205,7 @@ function ItemEditor({ item, onChanged }: { item: SavedItem; onChanged: () => Pro
   return (
     <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 10 }}>
       <TextField label="Title" value={title} onChangeText={setTitle} />
+      {item.category === "place" && <TextField label="Address" value={address} onChangeText={setAddress} />}
       <TextField label="Note" value={note} onChangeText={setNote} multiline />
       <TextField label="Tags (comma-separated)" value={tags} onChangeText={setTags} />
       {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}

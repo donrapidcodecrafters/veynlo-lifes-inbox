@@ -47,6 +47,9 @@ export default function SignInScreen() {
             autoComplete="email"
           />
           <TextField label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" />
+          <Link href="/forgot-password" style={{ color: theme.colors.brandDefault, fontSize: 13, fontWeight: "600", alignSelf: "flex-end" }}>
+            Forgot password?
+          </Link>
           {error && <Text style={{ color: theme.colors.critical, fontSize: 14 }}>{error}</Text>}
           <Button onPress={onSubmit} loading={submitting}>
             Sign in

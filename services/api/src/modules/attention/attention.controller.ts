@@ -71,12 +71,14 @@ export class AttentionController {
     @Query("category") category?: string,
     @Query("autoFiled") autoFiled?: string,
     @Query("confidenceBand") confidenceBand?: string,
+    @Query("isDuplicate") isDuplicate?: string,
   ) {
     return this.inbox.list(user.userId, {
       reviewState,
       category,
       autoFiled: autoFiled === undefined ? undefined : autoFiled === "true",
       confidenceBand,
+      isDuplicate: isDuplicate === undefined ? undefined : isDuplicate === "true",
     });
   }
 

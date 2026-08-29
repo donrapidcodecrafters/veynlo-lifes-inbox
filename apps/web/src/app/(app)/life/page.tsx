@@ -34,6 +34,7 @@ interface Purchase {
   totalMinorUnits: number | null;
   totalCurrency: string | null;
   state: string;
+  merchantName: string | null;
 }
 
 interface ReturnRow {
@@ -363,8 +364,14 @@ export default function LifePage() {
               return (
                 <Link key={p.id} href={`/life/purchases/${p.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-subtle">
                   <div>
-                    <p className="text-sm font-medium text-primary">Order {p.orderNumber ?? "—"}</p>
-                    {date && <p className="text-xs text-tertiary">{date}</p>}
+                    <p className="text-sm font-medium text-primary">
+                      {p.merchantName ?? `Order ${p.orderNumber ?? "—"}`}
+                    </p>
+                    <p className="text-xs text-tertiary">
+                      {p.merchantName && p.orderNumber ? `Order ${p.orderNumber}` : null}
+                      {p.merchantName && p.orderNumber && date ? " · " : null}
+                      {date}
+                    </p>
                   </div>
                   {total && <p className="text-sm font-medium text-primary">{total}</p>}
                 </Link>

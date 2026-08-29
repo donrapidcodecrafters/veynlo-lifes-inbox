@@ -60,6 +60,7 @@ export const ID_PREFIXES = {
   senderRule: "sndr",
   savedQuery: "svq",
   objectNote: "note",
+  passwordResetToken: "prt",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

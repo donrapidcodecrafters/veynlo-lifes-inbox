@@ -103,3 +103,23 @@ export const passkeys = pgTable("passkeys", {
   counter: text("counter").notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * §5/AUTH "account recovery" — this table had no implementation of any kind before (no forgot-password
+ * flow existed at all). Same hashed-secret pattern as `sessions.refreshTokenHash`: the raw token is only
+ * ever in the emailed link, never persisted — a leaked DB row can't be replayed into a live reset.
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("password_reset_tokens_user_idx").on(t.userId)],
+);

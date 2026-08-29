@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { randomBytes } from "node:crypto";
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { randomBytes, createHash } from "node:crypto";
+import { and, eq, isNull, ne, gt } from "drizzle-orm";
 import * as argon2 from "argon2";
 import { SignJWT } from "jose";
 import { google } from "googleapis";
@@ -10,7 +10,10 @@ import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured, isInboundEmailConfigured } from "../../config/env";
 import { QueueProducerService } from "../../queue/queue-producer.service";
+import { MailerService } from "../notifications/mailer.service";
 import type { SignInDto, SignUpDto } from "./dto";
+
+const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 14; // 14 days; short-lived-enough with server-side revocation as the real control
 
@@ -53,6 +56,7 @@ export class IdentityService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly queue: QueueProducerService,
+    private readonly mailer: MailerService,
   ) {}
 
   async signUp(dto: SignUpDto, deviceInfo: { platform: string; displayName?: string }): Promise<SessionIssued> {
@@ -309,6 +313,57 @@ export class IdentityService {
       .update(schema.sessions)
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.sessions.userId, userId), isNull(schema.sessions.revokedAt)));
+  }
+
+  /**
+   * §5 "account recovery" — this had zero implementation before (no forgot-password flow existed at all,
+   * a real gap for any password-based account: an unbuilt equivalent of the OAuth-only-deletion bug fixed
+   * elsewhere this session, just for login instead of deletion). Deliberately silent on whether the email
+   * matches an account, and on whether that account even has a password — an OAuth-only account has
+   * nothing to reset, but saying so would let this endpoint be used to fingerprint which sign-in method an
+   * email uses. The raw token only ever exists in the emailed link; only its hash is stored.
+   */
+  async requestPasswordReset(email: string): Promise<void> {
+    const [user] = await this.db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+    if (!user || !user.passwordHash) return;
+
+    const rawToken = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    await this.db.insert(schema.passwordResetTokens).values({
+      id: generateId("passwordResetToken"),
+      userId: user.id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS),
+    });
+
+    const resetUrl = `${loadEnv().WEB_APP_URL}/reset-password?token=${rawToken}`;
+    await this.mailer.send({
+      to: email,
+      subject: "Reset your Veynlo password",
+      text: `Reset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, you can ignore this email.`,
+      html: `<p>Reset your password: <a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour. If you didn't request this, you can ignore this email.</p>`,
+    });
+  }
+
+  /** Consumes a reset token exactly once, sets the new password, and revokes every existing session —
+   * the same "an account credential just changed, force re-auth everywhere" posture a password change
+   * should always have, not just this one. */
+  async resetPassword(rawToken: string, newPassword: string): Promise<void> {
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const now = new Date();
+    const [tokenRow] = await this.db
+      .select()
+      .from(schema.passwordResetTokens)
+      .where(and(eq(schema.passwordResetTokens.tokenHash, tokenHash), isNull(schema.passwordResetTokens.usedAt), gt(schema.passwordResetTokens.expiresAt, now)))
+      .limit(1);
+    if (!tokenRow) {
+      throw new BadRequestException({ code: "INVALID_RESET_TOKEN", message: "This reset link is invalid or has expired." });
+    }
+
+    const passwordHash = await argon2.hash(newPassword);
+    await this.db.update(schema.users).set({ passwordHash, updatedAt: now }).where(eq(schema.users.id, tokenRow.userId));
+    await this.db.update(schema.passwordResetTokens).set({ usedAt: now }).where(eq(schema.passwordResetTokens.id, tokenRow.id));
+    await this.revokeAllSessions(tokenRow.userId);
   }
 
   /** Called after sign-in once the mobile client has a real Expo push token — stored on the device row

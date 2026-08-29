@@ -18,8 +18,8 @@ export class SavedItemsController {
   }
 
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser, @Query("archived") archived?: string) {
-    return this.savedItems.list(user.userId, { archived: archived === "true" ? true : archived === "false" ? false : undefined });
+  list(@CurrentUser() user: AuthenticatedUser, @Query("archived") archived?: string, @Query("category") category?: string) {
+    return this.savedItems.list(user.userId, { archived: archived === "true" ? true : archived === "false" ? false : undefined, category });
   }
 
   @Patch(":id")

@@ -25,13 +25,17 @@ function instantTemporal(iso: string): TemporalValue {
 export class InboxService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  async list(userId: string, filter: { reviewState?: string; category?: string; autoFiled?: boolean; confidenceBand?: string } = {}) {
+  async list(
+    userId: string,
+    filter: { reviewState?: string; category?: string; autoFiled?: boolean; confidenceBand?: string; isDuplicate?: boolean } = {},
+  ) {
     await this.unsnoozeExpired(userId);
     const conditions = [eq(schema.inboxItems.ownerUserId, userId)];
     if (filter.reviewState) conditions.push(eq(schema.inboxItems.reviewState, filter.reviewState));
     if (filter.category) conditions.push(eq(schema.inboxItems.category, filter.category));
     if (filter.autoFiled !== undefined) conditions.push(eq(schema.inboxItems.autoFiled, filter.autoFiled));
     if (filter.confidenceBand) conditions.push(eq(schema.inboxItems.confidenceBand, filter.confidenceBand));
+    if (filter.isDuplicate !== undefined) conditions.push(eq(schema.inboxItems.isDuplicate, filter.isDuplicate));
     return this.db.select().from(schema.inboxItems).where(and(...conditions));
   }
 

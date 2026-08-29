@@ -14,6 +14,17 @@ export const SignInDtoSchema = z.object({
 });
 export type SignInDto = z.infer<typeof SignInDtoSchema>;
 
+export const ForgotPasswordDtoSchema = z.object({
+  email: z.string().email(),
+});
+export type ForgotPasswordDto = z.infer<typeof ForgotPasswordDtoSchema>;
+
+export const ResetPasswordDtoSchema = z.object({
+  token: z.string().min(1).max(200),
+  newPassword: z.string().min(10).max(200),
+});
+export type ResetPasswordDto = z.infer<typeof ResetPasswordDtoSchema>;
+
 export const DeleteAccountDtoSchema = z.object({
   // Optional: an OAuth-only account (Google/Microsoft sign-in) has no password to confirm at all — its
   // already-verified session is the reauth for those accounts. See IdentityService.requestDeletion.

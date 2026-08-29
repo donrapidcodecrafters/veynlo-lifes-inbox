@@ -12,12 +12,16 @@ import {
   DeleteAccountDtoSchema,
   SignInDtoSchema,
   SignUpDtoSchema,
+  ForgotPasswordDtoSchema,
+  ResetPasswordDtoSchema,
   SetAiProcessingDtoSchema,
   SetDisabledMailCategoriesDtoSchema,
   RegisterPushTokenDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
+  type ForgotPasswordDto,
+  type ResetPasswordDto,
   type SetAiProcessingDto,
   type SetDisabledMailCategoriesDto,
   type RegisterPushTokenDto,
@@ -49,6 +53,29 @@ export class IdentityController {
     const session = await this.identity.signIn(dto, { platform });
     setSessionCookie(res, session.token, session.expiresAt);
     return { userId: session.userId, ...nativeTokenPayload(platform, session) };
+  }
+
+  /**
+   * §5 "account recovery" — throttled tighter than sign-in itself: this route's realistic abuse pattern is
+   * mass-emailing reset links to addresses the caller doesn't own, not credential-guessing. Always returns
+   * the same generic success regardless of whether the email matches an account (IdentityService.
+   * requestPasswordReset is itself silent on this too) — an enumerable "no account with that email" error
+   * would leak which emails have accounts here at all.
+   */
+  @Post("forgot-password")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UsePipes(new ZodValidationPipe(ForgotPasswordDtoSchema))
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.identity.requestPasswordReset(dto.email);
+    return { success: true, message: "If that email has an account, a reset link is on its way." };
+  }
+
+  @Post("reset-password")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UsePipes(new ZodValidationPipe(ResetPasswordDtoSchema))
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.identity.resetPassword(dto.token, dto.newPassword);
+    return { success: true };
   }
 
   /**
