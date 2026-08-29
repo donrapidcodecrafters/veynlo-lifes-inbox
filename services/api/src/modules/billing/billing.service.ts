@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import Stripe from "stripe";
 import { and, eq, isNull, or, gt } from "drizzle-orm";
 import { generateId, resolveCapability, PLAN_CATALOG, type CapabilityKey, type PlanKey } from "@veynlo/core";
@@ -68,20 +69,33 @@ export class BillingService {
 
   async createCheckoutSession(userId: string, planKey: PlanKey, priceId: string) {
     const stripe = this.stripe();
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${loadEnv().WEB_APP_URL}/settings/billing?checkout=success`,
-      cancel_url: `${loadEnv().WEB_APP_URL}/settings/billing?checkout=canceled`,
-      client_reference_id: userId,
-      metadata: { veynloUserId: userId, planKey },
-      // Without this, only the CheckoutSession object carries this metadata — the Subscription object
-      // Stripe creates alongside it does not inherit it automatically. Every later
-      // customer.subscription.updated/.deleted webhook event (the actual downgrade/cancel-detection path
-      // in handleWebhook below) reads userId off the *subscription*, so without this, those events could
-      // never resolve which user they were for and the downgrade logic silently never fired.
-      subscription_data: { metadata: { veynloUserId: userId, planKey } },
-    });
+    // Backend-robustness "idempotency keys on mutations" — a double-tap on the checkout button or a
+    // client retry after a dropped response (nothing here previously guarded against either) would
+    // otherwise create two separate, real Stripe Checkout Sessions for the same intent. Bucketed to a
+    // 10-second window rather than a single fixed key per (user, plan, price) forever — long enough to
+    // absorb a double-click/retry, short enough that a genuinely new checkout attempt later still gets a
+    // fresh session rather than replaying a stale/expired one. Stripe itself resolves the idempotency
+    // (same key within its own ~24h retention returns the original session, never creates a duplicate).
+    const idempotencyKey = createHash("sha256")
+      .update(`checkout:${userId}:${planKey}:${priceId}:${Math.floor(Date.now() / 10_000)}`)
+      .digest("hex");
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${loadEnv().WEB_APP_URL}/settings/billing?checkout=success`,
+        cancel_url: `${loadEnv().WEB_APP_URL}/settings/billing?checkout=canceled`,
+        client_reference_id: userId,
+        metadata: { veynloUserId: userId, planKey },
+        // Without this, only the CheckoutSession object carries this metadata — the Subscription object
+        // Stripe creates alongside it does not inherit it automatically. Every later
+        // customer.subscription.updated/.deleted webhook event (the actual downgrade/cancel-detection path
+        // in handleWebhook below) reads userId off the *subscription*, so without this, those events could
+        // never resolve which user they were for and the downgrade logic silently never fired.
+        subscription_data: { metadata: { veynloUserId: userId, planKey } },
+      },
+      { idempotencyKey },
+    );
     return { url: session.url };
   }
 

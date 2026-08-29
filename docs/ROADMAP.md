@@ -1175,3 +1175,35 @@ still open:
   end-to-end test script had an unrelated bug in its own cleanup step (its delete-account flow silently
   didn't fire), caught via a stale `status: 'active'` row rather than trusting the script's own "success"
   log line, and cleaned up directly via SQL once identified.
+
+- **Eighteenth gap-closing pass (2026-08-29): idempotency on mutations — two real bugs found and fixed.**
+  Scoped down from the audit's broad "no idempotency keys/optimistic concurrency on mutations" finding to
+  the two genuinely unprotected, real-risk cases found by actually checking each mutation's dedup story,
+  rather than building a generic client-header-based idempotency framework nothing here asks for yet.
+  1. **`IngestionService.ingestManualText` (`POST /v1/ingestion/manual`, also used by `/v1/ingestion/url`
+     and the Inbox voice-note capture) computed a content-hash `idempotencyKey` and stored it, but never
+     actually checked it before inserting** — confirmed as a real bug via a genuine double-submit test
+     (simulating a double-tap on Capture's "Submit" button or a client retry after a dropped response): a
+     second identical submission hit `source_events_idempotency_idx`'s unique constraint and surfaced as a
+     raw, uncaught 500 "Something went wrong," even though the content had genuinely already been captured
+     successfully the first time. Every OTHER ingestion path in this same file (Gmail/Outlook, calendar
+     feed sync, task feed sync) already checked its own idempotency key first — this was the one path that
+     didn't. Fixed by checking first and returning the existing row's id, matching those other paths.
+  2. **`BillingService.createCheckoutSession` never passed Stripe an idempotency key at all** — a double-
+     tap on the checkout button or a client retry would create two separate real Stripe Checkout Sessions
+     for the same intent. Fixed using Stripe's own native idempotency-key support (`{idempotencyKey}` as
+     the request's second argument — Stripe itself resolves same-key retries within its own ~24h retention,
+     no new dedup table needed), keyed by `(userId, planKey, priceId)` bucketed to a 10-second window — long
+     enough to absorb a double-click/retry, short enough that a later, deliberate new checkout attempt
+     still gets a fresh session.
+  **Verified live**: the ingestion fix via three rapid identical `POST /v1/ingestion/manual` calls against
+  a real test account, confirming exactly one `source_events` row exists afterward (not three) and every
+  call returns the same `sourceEventId` with a clean 201, not a 500. The billing fix is typecheck-verified
+  and logically reviewed but not independently live-tested past the "not configured" boundary — this dev
+  environment has no `STRIPE_SECRET_KEY`, so the real Stripe API call itself was never reached; confirmed
+  the existing `BILLING_NOT_CONFIGURED` degradation path still fires correctly, same "verify to the real
+  external-dependency boundary" pattern used for every other optional integration this session. **Not
+  attempted**: a generic client-supplied `Idempotency-Key` header framework — the audit's original phrasing
+  implied one, but every mutation actually checked here already had (or needed) its OWN natural dedup key
+  derived from the request's real content/identity, not an opaque client-generated token: building a
+  generic framework nothing calls yet would be scaffolding, not a fix. Test accounts deleted afterward.

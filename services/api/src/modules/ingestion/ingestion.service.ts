@@ -160,6 +160,20 @@ export class IngestionService {
     const kind = params.kind ?? "manual_entry";
     const contentHash = createHash("sha256").update(params.subject + params.bodyText).digest("hex");
     const idempotencyKey = `${kind}:${contentHash}`;
+
+    // A real bug found via a genuine double-submit test (a double-tap, a retried request after a slow/
+    // dropped response — this endpoint has no other duplicate guard the way most connector-sync paths do):
+    // idempotencyKey was always computed and stored, but never actually CHECKED before inserting, so the
+    // second identical submission hit source_events_idempotency_idx's unique constraint and surfaced as a
+    // raw 500, even though the content genuinely was already captured successfully the first time. Now
+    // returns the existing row instead of re-inserting or re-running extraction a second time.
+    const [existing] = await this.db
+      .select({ id: schema.sourceEvents.id })
+      .from(schema.sourceEvents)
+      .where(and(eq(schema.sourceEvents.ownerUserId, params.ownerUserId), eq(schema.sourceEvents.idempotencyKey, idempotencyKey)))
+      .limit(1);
+    if (existing) return { sourceEventId: existing.id };
+
     const sourceEventId = generateId("sourceEvent");
     await this.db.insert(schema.sourceEvents).values({
       id: sourceEventId,
