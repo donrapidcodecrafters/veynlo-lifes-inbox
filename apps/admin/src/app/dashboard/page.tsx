@@ -8,9 +8,18 @@ interface UserLookupResult {
   id: string;
   email: string | null;
   status: string;
+  deletedAt: string | null;
   createdAt: string;
-  connections: Array<{ id: string; provider: string; health: string; lastSuccessfulSyncAt: string | null }>;
+  connections: Array<{
+    id: string;
+    provider: string;
+    health: string;
+    healthDetail: string | null;
+    lastSuccessfulSyncAt: string | null;
+  }>;
   entitlements: Array<{ id: string; planKey: string; source: string; effectiveFrom: string; effectiveTo: string | null; reason: string | null }>;
+  recentExtractionFailures: Array<{ id: string; extractorName: string; modelKey: string | null; errorDetail: string | null; startedAt: string }>;
+  exportJobs: Array<{ id: string; state: string; errorMessage: string | null; requestedAt: string; completedAt: string | null; expiresAt: string | null }>;
 }
 
 const ADMIN_MANAGEABLE_SOURCES = new Set(["support_granted", "promotional", "grandfathered", "referral", "partner_sponsored"]);
@@ -153,7 +162,10 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
                 <p className="text-xs text-tertiary">Status</p>
-                <p className="font-medium text-primary">{lookupResult.status}</p>
+                <p className={`font-medium ${lookupResult.status === "active" ? "text-primary" : "text-critical-subtle-text"}`}>
+                  {lookupResult.status.replace(/_/g, " ")}
+                  {lookupResult.deletedAt && ` (${new Date(lookupResult.deletedAt).toLocaleDateString()})`}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-tertiary">Created</p>
@@ -175,6 +187,7 @@ export default function DashboardPage() {
                     <th className="pb-2 font-medium">Provider</th>
                     <th className="pb-2 font-medium">Health</th>
                     <th className="pb-2 font-medium">Last sync</th>
+                    <th className="pb-2 font-medium">Detail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -185,11 +198,70 @@ export default function DashboardPage() {
                       <td className="py-2 text-tertiary">
                         {c.lastSuccessfulSyncAt ? new Date(c.lastSuccessfulSyncAt).toLocaleString() : "never"}
                       </td>
+                      <td className="py-2 text-tertiary">{c.healthDetail ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+
+            <div className="border-t border-border-subtle pt-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-tertiary">Recent extraction failures</p>
+              {lookupResult.recentExtractionFailures.length === 0 && (
+                <p className="text-tertiary">No recent extraction failures for this user.</p>
+              )}
+              {lookupResult.recentExtractionFailures.length > 0 && (
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase text-tertiary">
+                      <th className="pb-2 font-medium">Extractor</th>
+                      <th className="pb-2 font-medium">Model</th>
+                      <th className="pb-2 font-medium">Error</th>
+                      <th className="pb-2 font-medium">When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lookupResult.recentExtractionFailures.map((f) => (
+                      <tr key={f.id} className="border-t border-border-subtle">
+                        <td className="py-2 text-primary">{f.extractorName}</td>
+                        <td className="py-2 text-tertiary">{f.modelKey ?? "—"}</td>
+                        <td className="py-2 text-critical-subtle-text">{f.errorDetail ?? "—"}</td>
+                        <td className="py-2 text-tertiary">{new Date(f.startedAt).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="border-t border-border-subtle pt-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-tertiary">Privacy requests (data export)</p>
+              {lookupResult.exportJobs.length === 0 && <p className="text-tertiary">No export requests on file.</p>}
+              {lookupResult.exportJobs.length > 0 && (
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase text-tertiary">
+                      <th className="pb-2 font-medium">State</th>
+                      <th className="pb-2 font-medium">Requested</th>
+                      <th className="pb-2 font-medium">Completed</th>
+                      <th className="pb-2 font-medium">Expires</th>
+                      <th className="pb-2 font-medium">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lookupResult.exportJobs.map((j) => (
+                      <tr key={j.id} className="border-t border-border-subtle">
+                        <td className="py-2 capitalize text-primary">{j.state}</td>
+                        <td className="py-2 text-tertiary">{new Date(j.requestedAt).toLocaleString()}</td>
+                        <td className="py-2 text-tertiary">{j.completedAt ? new Date(j.completedAt).toLocaleString() : "—"}</td>
+                        <td className="py-2 text-tertiary">{j.expiresAt ? new Date(j.expiresAt).toLocaleString() : "—"}</td>
+                        <td className="py-2 text-critical-subtle-text">{j.errorMessage ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
 
             <div className="border-t border-border-subtle pt-3">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-tertiary">Entitlements</p>

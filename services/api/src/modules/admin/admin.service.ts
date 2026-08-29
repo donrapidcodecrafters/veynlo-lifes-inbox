@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { desc, eq, gte, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -36,16 +36,66 @@ export class AdminService {
 
     const connections = await this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, user.id));
     const entitlements = await this.db.select().from(schema.entitlements).where(eq(schema.entitlements.userId, user.id));
+    const [recentFailures, exportJobs] = await Promise.all([
+      this.recentExtractionFailuresForUser(user.id),
+      this.db
+        .select({
+          id: schema.exportJobs.id,
+          state: schema.exportJobs.state,
+          errorMessage: schema.exportJobs.errorMessage,
+          requestedAt: schema.exportJobs.requestedAt,
+          completedAt: schema.exportJobs.completedAt,
+          expiresAt: schema.exportJobs.expiresAt,
+        })
+        .from(schema.exportJobs)
+        .where(eq(schema.exportJobs.ownerUserId, user.id))
+        .orderBy(desc(schema.exportJobs.requestedAt))
+        .limit(10),
+    ]);
     // Support tooling intentionally exposes only metadata (status, plan, connector health) — never message/document
     // bodies or financial details (§ "ADMIN SUPPORT ACCESS": "prefer metadata... redacted views").
     return {
       id: user.id,
       email: user.email,
       status: user.status,
+      deletedAt: user.deletedAt,
       createdAt: user.createdAt,
-      connections: connections.map((c) => ({ id: c.id, provider: c.provider, health: c.health, lastSuccessfulSyncAt: c.lastSuccessfulSyncAt })),
+      connections: connections.map((c) => ({
+        id: c.id,
+        provider: c.provider,
+        health: c.health,
+        healthDetail: c.healthDetail,
+        lastSuccessfulSyncAt: c.lastSuccessfulSyncAt,
+      })),
       entitlements,
+      recentExtractionFailures: recentFailures,
+      exportJobs,
     };
+  }
+
+  /**
+   * §Operations "per-user diagnostics" — `modelHealthSummary` below is aggregate-only, so a support agent
+   * looking at one user's account had no way to see whether ingestion was actually failing for them
+   * specifically. `extraction_runs` has no direct `userId` column (it's keyed by `sourceEventId`), so
+   * ownership is resolved via `source_events.ownerUserId` the same way evidence resolution already does
+   * elsewhere in the app.
+   */
+  private async recentExtractionFailuresForUser(userId: string, limit = 10) {
+    return this.db
+      .select({
+        id: schema.extractionRuns.id,
+        extractorName: schema.extractorVersions.name,
+        modelKey: schema.extractorVersions.modelKey,
+        errorDetail: schema.extractionRuns.errorDetail,
+        startedAt: schema.extractionRuns.startedAt,
+        completedAt: schema.extractionRuns.completedAt,
+      })
+      .from(schema.extractionRuns)
+      .innerJoin(schema.extractorVersions, eq(schema.extractorVersions.id, schema.extractionRuns.extractorVersionId))
+      .innerJoin(schema.sourceEvents, eq(schema.sourceEvents.id, schema.extractionRuns.sourceEventId))
+      .where(and(eq(schema.sourceEvents.ownerUserId, userId), eq(schema.extractionRuns.status, "failed")))
+      .orderBy(desc(schema.extractionRuns.startedAt))
+      .limit(limit);
   }
 
   /**
