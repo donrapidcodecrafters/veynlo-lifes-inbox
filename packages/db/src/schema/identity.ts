@@ -26,6 +26,12 @@ export const users = pgTable("users", {
   // every captured item is filed unprocessed (same "nothing extracted" shape as ANTHROPIC_API_KEY being
   // unset) rather than silently still running AI behind a switch that looked like it worked.
   aiProcessingEnabled: boolean("ai_processing_enabled").notNull().default(true),
+  // CAP-005 "forward-to-Life-Inbox address" (§12.1/§52.1) — an opaque routing token, not the userId
+  // itself, specifically so it can be rotated (a leaked/spammed alias can be replaced without disturbing
+  // the account) without exposing the internal id in an externally-forwarded address. Stays plaintext:
+  // the inbound webhook must look a sender up by exact match on this column, and AES-GCM's non-
+  // deterministic IV rules out an encrypted column for equality lookups (same reasoning as `email` above).
+  inboundEmailAlias: text("inbound_email_alias").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

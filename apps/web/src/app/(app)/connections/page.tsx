@@ -9,6 +9,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, FieldError } from "@/components/ui/input";
 import { useEffect, useState, type FormEvent } from "react";
 
+interface InboundAliasInfo {
+  configured: boolean;
+  address: string | null;
+}
+
 // Keyed by the lowercased `code` field of whatever exception the OAuth callback threw — see
 // connectors.controller.ts's connectorErrorRedirect.
 const CONNECT_ERROR_MESSAGE: Record<string, string> = {
@@ -74,6 +79,7 @@ const AVAILABLE_CONNECTORS = [
 
 export default function ConnectionsPage() {
   const { data, isLoading, mutate } = useSWR<Connection[]>("/v1/connectors", swrFetcher);
+  const { data: inboundAlias, mutate: mutateInboundAlias } = useSWR<InboundAliasInfo>("/v1/auth/inbound-alias", swrFetcher);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -168,6 +174,24 @@ export default function ConnectionsPage() {
                 }}
                 onCancel={() => setShowIcsForm(false)}
               />
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody className="space-y-3">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Forward emails to Veynlo</p>
+              <p className="text-sm text-tertiary">
+                Forward a receipt, itinerary, or notice to your own Veynlo address — no account access needed.
+              </p>
+            </div>
+            {!inboundAlias && <div className="h-9 w-64 animate-pulse rounded-lg bg-subtle" />}
+            {inboundAlias && !inboundAlias.configured && (
+              <p className="text-sm text-tertiary">Email forwarding isn&apos;t configured on this deployment yet.</p>
+            )}
+            {inboundAlias?.configured && inboundAlias.address && (
+              <ForwardingAddress address={inboundAlias.address} onRotate={() => mutateInboundAlias()} />
             )}
           </CardBody>
         </Card>
@@ -308,5 +332,56 @@ function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         </Button>
       </div>
     </form>
+  );
+}
+
+function ForwardingAddress({ address, onRotate }: { address: string; onRotate: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [confirmingRotate, setConfirmingRotate] = useState(false);
+
+  async function copy() {
+    await navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function rotate() {
+    setRotating(true);
+    try {
+      await api.post("/v1/auth/inbound-alias/rotate");
+      onRotate();
+    } finally {
+      setRotating(false);
+      setConfirmingRotate(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="rounded-lg bg-subtle px-3 py-2 text-sm text-primary">{address}</code>
+        <Button variant="secondary" size="sm" onClick={copy}>
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      {!confirmingRotate ? (
+        <button type="button" onClick={() => setConfirmingRotate(true)} className="text-sm font-medium text-brand hover:underline">
+          Generate a new address
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning-subtle p-3">
+          <p className="flex-1 text-sm text-warning-subtle-text">
+            The current address will stop working immediately. Update anywhere you&apos;ve saved it.
+          </p>
+          <Button size="sm" onClick={rotate} loading={rotating}>
+            Confirm
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setConfirmingRotate(false)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

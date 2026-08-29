@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { randomBytes } from "node:crypto";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import * as argon2 from "argon2";
 import { SignJWT } from "jose";
@@ -7,7 +8,7 @@ import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
-import { loadEnv, isConnectorConfigured } from "../../config/env";
+import { loadEnv, isConnectorConfigured, isInboundEmailConfigured } from "../../config/env";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import type { SignInDto, SignUpDto } from "./dto";
 
@@ -29,6 +30,12 @@ export class OAuthNotConfiguredError extends Error {
  * call to Google/Microsoft, authenticated with our client_secret), not from anything attacker-influenced
  * like a browser redirect fragment — the same trust model GmailAdapter/OutlookAdapter already rely on for
  * the access/refresh tokens they get back from the identical kind of exchange. */
+/** An opaque routing token — deliberately not the userId itself, so a leaked/spammed alias can be
+ * rotated without exposing the internal id in an externally-forwarded address. */
+function generateInboundAlias(): string {
+  return `u-${randomBytes(8).toString("hex")}`;
+}
+
 function decodeJwtPayload<T>(jwt: string): T {
   const payload = jwt.split(".")[1];
   if (!payload) throw new Error("Malformed JWT: missing payload segment");
@@ -66,6 +73,7 @@ export class IdentityService {
       timezone: dto.timezone,
       passwordHash,
       status: "active",
+      inboundEmailAlias: generateInboundAlias(),
     });
     await this.db.insert(schema.identityLinks).values({
       id: generateId("identityLink"),
@@ -253,7 +261,9 @@ export class IdentityService {
     }
 
     const userId = generateId("user");
-    await this.db.insert(schema.users).values({ id: userId, email: params.email, displayName: params.displayName, status: "active" });
+    await this.db
+      .insert(schema.users)
+      .values({ id: userId, email: params.email, displayName: params.displayName, status: "active", inboundEmailAlias: generateInboundAlias() });
     await this.db.insert(schema.notificationPreferences).values({ userId });
     await this.db.insert(schema.identityLinks).values({
       id: generateId("identityLink"),
@@ -285,6 +295,30 @@ export class IdentityService {
     const [session] = await this.db.select({ deviceId: schema.sessions.deviceId }).from(schema.sessions).where(eq(schema.sessions.id, sessionId)).limit(1);
     if (!session?.deviceId) return;
     await this.db.update(schema.devices).set({ pushToken, lastActiveAt: new Date() }).where(eq(schema.devices.id, session.deviceId));
+  }
+
+  /** CAP-005 "forward-to-Life-Inbox address" — the alias always exists (generated at sign-up), but the
+   * full forwardable address needs a real domain, so this reports "not configured" whenever no inbound
+   * provider is wired up rather than showing an address that can never actually receive anything. */
+  async inboundAliasInfo(userId: string): Promise<{ configured: boolean; address: string | null }> {
+    if (!isInboundEmailConfigured()) return { configured: false, address: null };
+    const [user] = await this.db.select({ inboundEmailAlias: schema.users.inboundEmailAlias }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    const alias = user?.inboundEmailAlias;
+    return { configured: true, address: alias ? `${alias}@${loadEnv().INBOUND_EMAIL_DOMAIN}` : null };
+  }
+
+  async rotateInboundAlias(userId: string): Promise<{ configured: boolean; address: string | null }> {
+    const alias = generateInboundAlias();
+    await this.db.update(schema.users).set({ inboundEmailAlias: alias, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+    return this.inboundAliasInfo(userId);
+  }
+
+  /** Resolves the inbound-email webhook's "To" address back to an owning user. Returns null for any
+   * unrecognized/rotated-away alias — the webhook logs and no-ops rather than erroring, since a provider
+   * will otherwise retry a bounced/stale forward indefinitely. */
+  async findUserIdByInboundAlias(alias: string): Promise<string | null> {
+    const [user] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.inboundEmailAlias, alias)).limit(1);
+    return user?.id ?? null;
   }
 
   async listSessions(userId: string) {

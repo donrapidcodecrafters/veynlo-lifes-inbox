@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Linking, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as Calendar from "expo-calendar";
+import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -28,6 +29,11 @@ interface Connection {
   itemsDiscoveredCount: number;
 }
 
+interface InboundAliasInfo {
+  configured: boolean;
+  address: string | null;
+}
+
 const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   healthy: "positive",
   initializing: "neutral",
@@ -49,6 +55,7 @@ const AVAILABLE_CONNECTORS = [
 export default function ConnectionsScreen() {
   const { theme } = useAppTheme();
   const [connections, setConnections] = useState<Connection[] | null>(null);
+  const [inboundAlias, setInboundAlias] = useState<InboundAliasInfo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -58,6 +65,7 @@ export default function ConnectionsScreen() {
 
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
+    setInboundAlias(await api.get<InboundAliasInfo>("/v1/auth/inbound-alias"));
   }, []);
 
   useFocusEffect(
@@ -211,6 +219,22 @@ export default function ConnectionsScreen() {
           </View>
           {deviceCalendarMessage && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{deviceCalendarMessage}</Text>}
         </Card>
+
+        <Card style={{ gap: 10 }}>
+          <View>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Forward emails to Veynlo</Text>
+            <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+              Forward a receipt, itinerary, or notice to your own Veynlo address — no account access needed.
+            </Text>
+          </View>
+          {!inboundAlias && <View style={{ height: 36, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md }} />}
+          {inboundAlias && !inboundAlias.configured && (
+            <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Email forwarding isn&apos;t configured on this deployment yet.</Text>
+          )}
+          {inboundAlias?.configured && inboundAlias.address && (
+            <ForwardingAddress address={inboundAlias.address} onRotate={load} />
+          )}
+        </Card>
       </View>
 
       {!connections && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
@@ -326,6 +350,60 @@ function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
           </Button>
         </View>
       </View>
+    </View>
+  );
+}
+
+function ForwardingAddress({ address, onRotate }: { address: string; onRotate: () => void }) {
+  const { theme } = useAppTheme();
+  const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [confirmingRotate, setConfirmingRotate] = useState(false);
+
+  async function copy() {
+    await Clipboard.setStringAsync(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function rotate() {
+    setRotating(true);
+    try {
+      await api.post("/v1/auth/inbound-alias/rotate");
+      onRotate();
+    } finally {
+      setRotating(false);
+      setConfirmingRotate(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={{ flex: 1, fontSize: 13, color: theme.colors.textPrimary, fontFamily: "monospace" }}>{address}</Text>
+        <Button variant="secondary" onPress={copy}>
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </View>
+      {!confirmingRotate ? (
+        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }} onPress={() => setConfirmingRotate(true)}>
+          Generate a new address
+        </Text>
+      ) : (
+        <View style={{ backgroundColor: theme.colors.warningSubtleBg, borderRadius: theme.radius.md, padding: 12, gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>
+            The current address will stop working immediately. Update anywhere you&apos;ve saved it.
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button onPress={rotate} loading={rotating}>
+              Confirm
+            </Button>
+            <Button variant="ghost" onPress={() => setConfirmingRotate(false)}>
+              Cancel
+            </Button>
+          </View>
+        </View>
+      )}
     </View>
   );
 }

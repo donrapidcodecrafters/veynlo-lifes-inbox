@@ -20,6 +20,7 @@
     "@veynlo/design-tokens": "workspace:*",
     "expo": "~57.0.17",
     "expo-calendar": "~57.0.2",
+    "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.15",
     "expo-document-picker": "~57.0.1",
     "expo-image-picker": "~57.0.14",

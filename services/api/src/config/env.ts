@@ -72,6 +72,13 @@ const EnvSchema = z.object({
   // echoes back on every call (configured in its dashboard), not an HMAC signature like Stripe's.
   REVENUECAT_WEBHOOK_AUTH_HEADER: z.string().optional(),
 
+  // CAP-005 "forward-to-Life-Inbox address" (§12.1/§52.1) — a real inbound-email provider (Postmark/
+  // Mailgun/SendGrid inbound parse) needs its own domain (SPF/DKIM/DMARC verified) and a webhook shared
+  // secret; unset in dev, same "not configured" degradation as every other optional external dependency —
+  // the alias UI and the inbound webhook both refuse to pretend this works with no real provider behind it.
+  INBOUND_EMAIL_DOMAIN: z.string().optional(),
+  INBOUND_EMAIL_WEBHOOK_SECRET: z.string().optional(),
+
   // Outbound email (notification delivery + daily/weekly briefs). Defaults target the local Mailhog
   // container so email genuinely sends in dev — visible at http://localhost:8025 — without any real
   // provider credentials. Point these at a real SMTP/API provider in staging/production.
@@ -129,4 +136,9 @@ export function isConnectorConfigured(provider: "google" | "microsoft"): boolean
   const env = loadEnv();
   if (provider === "google") return Boolean(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET);
   return Boolean(env.MICROSOFT_OAUTH_CLIENT_ID && env.MICROSOFT_OAUTH_CLIENT_SECRET);
+}
+
+export function isInboundEmailConfigured(): boolean {
+  const env = loadEnv();
+  return Boolean(env.INBOUND_EMAIL_DOMAIN && env.INBOUND_EMAIL_WEBHOOK_SECRET);
 }

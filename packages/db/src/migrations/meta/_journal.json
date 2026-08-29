@@ -78,6 +78,13 @@
       "when": 1787999406981,
       "tag": "0010_complete_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788002016062,
+      "tag": "0011_premium_maximus",
+      "breakpoints": true
     }
   ]
 }

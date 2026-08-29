@@ -162,6 +162,18 @@ export class IdentityController {
     return { success: true };
   }
 
+  @Get("inbound-alias")
+  @UseGuards(AuthGuard)
+  async inboundAlias(@CurrentUser() user: AuthenticatedUser) {
+    return this.identity.inboundAliasInfo(user.userId);
+  }
+
+  @Post("inbound-alias/rotate")
+  @UseGuards(AuthGuard)
+  async rotateInboundAlias(@CurrentUser() user: AuthenticatedUser) {
+    return this.identity.rotateInboundAlias(user.userId);
+  }
+
   @Get("sessions")
   @UseGuards(AuthGuard)
   async sessions(@CurrentUser() user: AuthenticatedUser) {
