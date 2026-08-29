@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { Linking, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -9,6 +9,7 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
+import { TextField } from "@/components/text-field";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 
@@ -17,6 +18,14 @@ interface DocumentRow {
   title: string;
   documentType: string;
   processingState: string;
+  tags: string[];
+}
+
+interface DocumentVersion {
+  id: string;
+  versionNumber: number;
+  isCurrent: boolean;
+  diffFromPrevious: { linesAdded: number; linesRemoved: number; unchanged: boolean } | null;
 }
 
 interface PickedFile {
@@ -58,6 +67,7 @@ export default function DocumentsScreen() {
   const [documentType, setDocumentType] = useState("receipt");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setDocuments(await api.get<DocumentRow[]>("/v1/documents"));
@@ -78,10 +88,11 @@ export default function DocumentsScreen() {
     }
   }
 
-  async function openDocument(id: string) {
+  async function openDocument(id: string, versionId?: string) {
     setOpeningId(id);
     try {
-      const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url`);
+      const query = versionId ? `?versionId=${versionId}` : "";
+      const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url${query}`);
       await Linking.openURL(url);
     } finally {
       setOpeningId(null);
@@ -195,25 +206,198 @@ export default function DocumentsScreen() {
       {documents && documents.length > 0 && (
         <View style={{ gap: 8 }}>
           {documents.map((doc) => (
-            <Card key={doc.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }} numberOfLines={1}>
-                  {doc.title}
-                </Text>
-                <Text style={{ fontSize: 12, color: theme.colors.textTertiary, textTransform: "capitalize" }}>
-                  {doc.documentType.replace(/_/g, " ")}
-                </Text>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>{doc.processingState.replace(/_/g, " ")}</Badge>
-                <Button variant="ghost" onPress={() => openDocument(doc.id)} loading={openingId === doc.id}>
-                  Open
-                </Button>
-              </View>
+            <Card key={doc.id} style={{ gap: 10 }}>
+              <Pressable
+                onPress={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
+                style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }} numberOfLines={1}>
+                    {doc.title}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textTertiary, textTransform: "capitalize" }}>
+                    {doc.documentType.replace(/_/g, " ")}
+                    {doc.tags.length > 0 && ` · ${doc.tags.join(", ")}`}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>{doc.processingState.replace(/_/g, " ")}</Badge>
+                  <Button variant="ghost" onPress={() => openDocument(doc.id)} loading={openingId === doc.id}>
+                    Open
+                  </Button>
+                </View>
+              </Pressable>
+              {expandedId === doc.id && (
+                <DocumentEditor
+                  doc={doc}
+                  onChanged={load}
+                  onOpenVersion={openDocument}
+                  onClose={() => setExpandedId(null)}
+                />
+              )}
             </Card>
           ))}
         </View>
       )}
     </Screen>
+  );
+}
+
+function DocumentEditor({
+  doc,
+  onChanged,
+  onOpenVersion,
+  onClose,
+}: {
+  doc: DocumentRow;
+  onChanged: () => Promise<void>;
+  onOpenVersion: (id: string, versionId?: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const { theme } = useAppTheme();
+  const [title, setTitle] = useState(doc.title);
+  const [documentType, setDocumentType] = useState(doc.documentType);
+  const [tags, setTags] = useState(doc.tags.join(", "));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [replacingFile, setReplacingFile] = useState(false);
+  const [versions, setVersions] = useState<DocumentVersion[] | null>(null);
+
+  useEffect(() => {
+    api.get<DocumentVersion[]>(`/v1/documents/${doc.id}/versions`).then(setVersions);
+  }, [doc.id]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/v1/documents/${doc.id}`, {
+        title,
+        documentType,
+        tags: tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+      await onChanged();
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteDocument() {
+    await api.delete(`/v1/documents/${doc.id}`);
+    await onChanged();
+  }
+
+  async function replaceFile() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf", "image/*", "text/plain"],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    setReplacingFile(true);
+    setError(null);
+    try {
+      await api.upload(
+        `/v1/documents/${doc.id}/versions`,
+        {},
+        { uri: asset.uri, name: asset.name, type: asset.mimeType ?? "application/octet-stream" },
+      );
+      setVersions(await api.get<DocumentVersion[]>(`/v1/documents/${doc.id}/versions`));
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't upload the new version. Please try again.");
+    } finally {
+      setReplacingFile(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 12, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+      <TextField label="Title" value={title} onChangeText={setTitle} />
+
+      <View style={{ gap: 6 }}>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Document type</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {DOCUMENT_TYPES.map((t) => {
+            const active = documentType === t.value;
+            return (
+              <Text
+                key={t.value}
+                onPress={() => setDocumentType(t.value)}
+                style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: theme.radius.full,
+                  backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                  color: active ? theme.colors.textOnBrand : theme.colors.textSecondary,
+                  overflow: "hidden",
+                }}
+              >
+                {t.label}
+              </Text>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <TextField label="Tags (comma-separated)" value={tags} onChangeText={setTags} placeholder="kitchen, appliance" />
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 120 }}>
+          <Button onPress={save} loading={saving}>
+            Save changes
+          </Button>
+        </View>
+        {!confirmingDelete ? (
+          <Button variant="ghost" onPress={() => setConfirmingDelete(true)}>
+            Delete
+          </Button>
+        ) : (
+          <>
+            <Button variant="critical" onPress={deleteDocument}>
+              Confirm delete
+            </Button>
+            <Button variant="ghost" onPress={() => setConfirmingDelete(false)}>
+              Cancel
+            </Button>
+          </>
+        )}
+      </View>
+
+      <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Versions</Text>
+          <Button variant="ghost" onPress={replaceFile} loading={replacingFile}>
+            Upload new version
+          </Button>
+        </View>
+        {versions?.slice().reverse().map((v) => (
+          <View key={v.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }}>
+              v{v.versionNumber}
+              {v.isCurrent && " (current)"}
+              {v.diffFromPrevious &&
+                !v.diffFromPrevious.unchanged &&
+                ` — +${v.diffFromPrevious.linesAdded}/-${v.diffFromPrevious.linesRemoved} lines vs prior`}
+              {v.diffFromPrevious?.unchanged && " — no text changes vs prior"}
+            </Text>
+            <Button variant="ghost" onPress={() => onOpenVersion(doc.id, v.id)}>
+              Open
+            </Button>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }

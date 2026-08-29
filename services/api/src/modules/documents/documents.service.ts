@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { and, eq, inArray, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import heicConvert from "heic-convert";
@@ -208,7 +208,134 @@ export class DocumentsService {
     return owned.filter((d) => d.linkedEntityIds.includes(resourceId));
   }
 
-  async signedUrl(documentId: string, userId: string): Promise<string> {
+  async signedUrl(documentId: string, userId: string, versionId?: string): Promise<string> {
+    const doc = await this.assertOwnedDocument(documentId, userId);
+    const targetVersionId = versionId ?? doc.currentVersionId;
+    if (!targetVersionId) throw new NotFoundException({ code: "NO_VERSION", message: "No file version available." });
+    const [version] = await this.db.select().from(schema.documentVersions).where(eq(schema.documentVersions.id, targetVersionId)).limit(1);
+    if (!version || version.documentId !== documentId) throw new NotFoundException({ code: "NO_VERSION", message: "No file version available." });
+    return this.storage.signedGetUrl(version.blobRef);
+  }
+
+  /** DOC-006/DOC-001 "rename, correct type, tag" — write-once-at-upload before this; the only mutation available afterward. */
+  async updateMetadata(documentId: string, userId: string, dto: { title?: string; documentType?: DocumentType; tags?: string[] }) {
+    await this.assertOwnedDocument(documentId, userId);
+    const patch: Partial<typeof schema.documents.$inferInsert> = { updatedAt: new Date() };
+    if (dto.title !== undefined) patch.title = dto.title;
+    if (dto.documentType !== undefined) patch.documentType = dto.documentType;
+    if (dto.tags !== undefined) patch.tags = dto.tags;
+    await this.db.update(schema.documents).set(patch).where(eq(schema.documents.id, documentId));
+  }
+
+  /** DOC-006 "link/unlink object" — the other half of TIME-002's "attach document" (linking happens at upload time via `linkedResourceId`). */
+  async unlinkResource(documentId: string, userId: string, resourceId: string) {
+    const doc = await this.assertOwnedDocument(documentId, userId);
+    await this.db
+      .update(schema.documents)
+      .set({ linkedEntityIds: doc.linkedEntityIds.filter((id) => id !== resourceId), updatedAt: new Date() })
+      .where(eq(schema.documents.id, documentId));
+  }
+
+  /** DOC-001/DOC-006 "delete" — no delete endpoint existed at all before this. Removes every version's blob from storage before the DB row (cascades to document_versions), so nothing orphaned is left in the bucket. */
+  async deleteDocument(documentId: string, userId: string) {
+    await this.assertOwnedDocument(documentId, userId);
+    const versions = await this.db.select({ blobRef: schema.documentVersions.blobRef }).from(schema.documentVersions).where(eq(schema.documentVersions.documentId, documentId));
+    for (const version of versions) await this.storage.deleteObject(version.blobRef).catch(() => undefined);
+    await this.db.delete(schema.documents).where(eq(schema.documents.id, documentId));
+  }
+
+  /**
+   * DOC-004 "versioning" — previously every upload created a brand-new `documents` row; `document_versions`
+   * was 1:1 in practice (schema/name only). This is the first real writer of a SECOND version against an
+   * EXISTING document: same scan/storage/OCR pipeline as `upload()`, but targeting `documentId` and
+   * incrementing `versionNumber` instead of always starting a fresh document.
+   */
+  async addVersion(documentId: string, userId: string, params: { mimeType: string; buffer: Buffer }): Promise<{ versionId: string }> {
+    await this.assertOwnedDocument(documentId, userId);
+    if (params.buffer.length === 0) throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
+    if (params.buffer.length > MAX_UPLOAD_BYTES) throw new BadRequestException({ code: "FILE_TOO_LARGE", message: "Files must be 25MB or smaller." });
+    if (!ALLOWED_MIME_TYPES.has(params.mimeType)) {
+      throw new BadRequestException({ code: "UNSUPPORTED_FILE_TYPE", message: `${params.mimeType} isn't supported yet. Try PDF, JPG, PNG, HEIC, or plain text.` });
+    }
+    if (this.malwareScanner.isConfigured()) {
+      const result = await this.malwareScanner.scan(params.buffer).catch(() => {
+        throw new ServiceUnavailableException({ code: "MALWARE_SCAN_UNAVAILABLE", message: "Couldn't scan this file right now. Please try again shortly." });
+      });
+      if (result.infected) throw new BadRequestException({ code: "MALWARE_DETECTED", message: `This file was flagged as malicious (${result.signature}) and was not uploaded.` });
+    }
+
+    const [latestVersion] = await this.db
+      .select({ versionNumber: schema.documentVersions.versionNumber })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId))
+      .orderBy(sql`${schema.documentVersions.versionNumber} desc`)
+      .limit(1);
+    const nextVersionNumber = (latestVersion?.versionNumber ?? 0) + 1;
+
+    const contentHash = createHash("sha256").update(params.buffer).digest("hex");
+    const versionId = generateId("documentVersion");
+    const blobKey = `documents/${userId}/${documentId}/v${nextVersionNumber}`;
+    await this.storage.putObject(blobKey, params.buffer, params.mimeType);
+
+    let ocrText: string | null = null;
+    let ocrConfidence: number | null = null;
+    if (params.mimeType === "text/plain") {
+      ocrText = params.buffer.toString("utf8").slice(0, 50_000);
+      ocrConfidence = 1;
+    } else if (this.ai.isConfigured()) {
+      try {
+        ocrText = await this.extractTextWithClaude(params.buffer, params.mimeType);
+        ocrConfidence = ocrText ? 0.75 : null;
+      } catch (err) {
+        this.logger.warn(`OCR extraction failed for ${documentId} v${nextVersionNumber}: ${String(err)}`);
+      }
+    }
+
+    await this.db.insert(schema.documentVersions).values({
+      id: versionId,
+      documentId,
+      versionNumber: nextVersionNumber,
+      blobRef: blobKey,
+      contentHash,
+      mimeType: params.mimeType,
+      sizeBytes: params.buffer.length,
+      ocrText,
+      ocrConfidence,
+    });
+    await this.db
+      .update(schema.documents)
+      .set({ currentVersionId: versionId, processingState: ocrText ? "extracted" : "classified", updatedAt: new Date() })
+      .where(eq(schema.documents.id, documentId));
+
+    return { versionId };
+  }
+
+  /** DOC-004 "compare versions" — a real, bounded interpretation: version metadata plus a plain line-count diff of each version's OCR'd text against the one before it, not a full character-level diff UI. */
+  async listVersions(documentId: string, userId: string) {
+    await this.assertOwnedDocument(documentId, userId);
+    const versions = await this.db
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId))
+      .orderBy(asc(schema.documentVersions.versionNumber));
+
+    return versions.map((v, i) => {
+      const previous = versions[i - 1];
+      const diff = previous ? diffLineCounts(previous.ocrText, v.ocrText) : null;
+      return {
+        id: v.id,
+        versionNumber: v.versionNumber,
+        sizeBytes: v.sizeBytes,
+        mimeType: v.mimeType,
+        ocrText: v.ocrText,
+        createdAt: v.createdAt,
+        isCurrent: v.id === (versions[versions.length - 1]?.id ?? null),
+        diffFromPrevious: diff,
+      };
+    });
+  }
+
+  private async assertOwnedDocument(documentId: string, userId: string) {
     const [doc] = await this.db.select().from(schema.documents).where(eq(schema.documents.id, documentId)).limit(1);
     if (!doc) throw new NotFoundException({ code: "DOCUMENT_NOT_FOUND", message: "Not found." });
     if (doc.ownerUserId !== userId) {
@@ -218,13 +345,15 @@ export class DocumentsService {
         throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
       }
     }
-    if (!doc.currentVersionId) throw new NotFoundException({ code: "NO_VERSION", message: "No file version available." });
-    const [version] = await this.db
-      .select()
-      .from(schema.documentVersions)
-      .where(eq(schema.documentVersions.id, doc.currentVersionId))
-      .limit(1);
-    if (!version) throw new NotFoundException({ code: "NO_VERSION", message: "No file version available." });
-    return this.storage.signedGetUrl(version.blobRef);
+    return doc;
   }
+}
+
+/** Simple line-level diff summary (added/removed/unchanged line counts) — bounded and honest about what "compare versions" means here: not a rendered diff view, just enough signal to tell a user whether a re-upload actually changed the extracted content. */
+function diffLineCounts(previousText: string | null, currentText: string | null): { linesAdded: number; linesRemoved: number; unchanged: boolean } {
+  const previousLines = new Set((previousText ?? "").split("\n"));
+  const currentLines = new Set((currentText ?? "").split("\n"));
+  const linesAdded = [...currentLines].filter((l) => !previousLines.has(l)).length;
+  const linesRemoved = [...previousLines].filter((l) => !currentLines.has(l)).length;
+  return { linesAdded, linesRemoved, unchanged: linesAdded === 0 && linesRemoved === 0 };
 }

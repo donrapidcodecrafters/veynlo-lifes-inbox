@@ -6,6 +6,7 @@ import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 
 interface DocumentRow {
@@ -13,7 +14,19 @@ interface DocumentRow {
   title: string;
   documentType: string;
   processingState: string;
+  tags: string[];
   createdAt: string;
+}
+
+interface DocumentVersion {
+  id: string;
+  versionNumber: number;
+  sizeBytes: number;
+  mimeType: string;
+  ocrText: string | null;
+  createdAt: string;
+  isCurrent: boolean;
+  diffFromPrevious: { linesAdded: number; linesRemoved: number; unchanged: boolean } | null;
 }
 
 const DOCUMENT_TYPES = [
@@ -47,6 +60,7 @@ export default function DocumentsPage() {
   const [documentType, setDocumentType] = useState("receipt");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -70,8 +84,9 @@ export default function DocumentsPage() {
     }
   }
 
-  async function openDocument(id: string) {
-    const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url`);
+  async function openDocument(id: string, versionId?: string) {
+    const query = versionId ? `?versionId=${versionId}` : "";
+    const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url${query}`);
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
@@ -134,25 +149,188 @@ export default function DocumentsPage() {
           {data.map((doc) => (
             <li key={doc.id}>
               <Card>
-                <CardBody className="flex items-center justify-between gap-4 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-primary">{doc.title}</p>
-                    <p className="text-xs capitalize text-tertiary">{doc.documentType.replace(/_/g, " ")}</p>
+                <CardBody className="space-y-3 py-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <p className="truncate text-sm font-medium text-primary">{doc.title}</p>
+                      <p className="text-xs capitalize text-tertiary">
+                        {doc.documentType.replace(/_/g, " ")}
+                        {doc.tags.length > 0 && ` · ${doc.tags.join(", ")}`}
+                      </p>
+                    </button>
+                    <div className="flex items-center gap-3">
+                      <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>{doc.processingState.replace(/_/g, " ")}</Badge>
+                      <Button size="sm" variant="ghost" onClick={() => openDocument(doc.id)}>
+                        Open
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}>
+                        {expandedId === doc.id ? "Close" : "Edit"}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>
-                      {doc.processingState.replace(/_/g, " ")}
-                    </Badge>
-                    <Button size="sm" variant="ghost" onClick={() => openDocument(doc.id)}>
-                      Open
-                    </Button>
-                  </div>
+                  {expandedId === doc.id && <DocumentEditor doc={doc} onChanged={mutate} onOpenVersion={openDocument} />}
                 </CardBody>
               </Card>
             </li>
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function DocumentEditor({
+  doc,
+  onChanged,
+  onOpenVersion,
+}: {
+  doc: DocumentRow;
+  onChanged: () => void;
+  onOpenVersion: (id: string, versionId?: string) => void;
+}) {
+  const { data: versions, mutate: mutateVersions } = useSWR<DocumentVersion[]>(`/v1/documents/${doc.id}/versions`, swrFetcher);
+  const versionFileInputRef = useRef<HTMLInputElement>(null);
+  const [title, setTitle] = useState(doc.title);
+  const [documentType, setDocumentType] = useState(doc.documentType);
+  const [tags, setTags] = useState(doc.tags.join(", "));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [replacingFile, setReplacingFile] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/v1/documents/${doc.id}`, {
+        title,
+        documentType,
+        tags: tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteDocument() {
+    await api.delete(`/v1/documents/${doc.id}`);
+    onChanged();
+  }
+
+  async function handleReplaceFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReplacingFile(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      await api.upload(`/v1/documents/${doc.id}/versions`, formData);
+      mutateVersions();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't upload the new version. Please try again.");
+    } finally {
+      setReplacingFile(false);
+      if (versionFileInputRef.current) versionFileInputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="space-y-4 border-t border-border-subtle pt-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`title-${doc.id}`}>Title</Label>
+          <Input id={`title-${doc.id}`} value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor={`type-${doc.id}`}>Document type</Label>
+          <select
+            id={`type-${doc.id}`}
+            value={documentType}
+            onChange={(e) => setDocumentType(e.target.value)}
+            className="h-10 w-full rounded-lg border border-border-default bg-surface px-3 text-sm text-primary"
+          >
+            {DOCUMENT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <Label htmlFor={`tags-${doc.id}`}>Tags (comma-separated)</Label>
+          <Input id={`tags-${doc.id}`} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="kitchen, appliance" />
+        </div>
+      </div>
+
+      {error && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {error}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={save} loading={saving}>
+          Save changes
+        </Button>
+        {!confirmingDelete ? (
+          <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(true)}>
+            Delete
+          </Button>
+        ) : (
+          <>
+            <Button size="sm" variant="critical" onClick={deleteDocument}>
+              Confirm delete
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+              Cancel
+            </Button>
+          </>
+        )}
+      </div>
+
+      <div className="space-y-2 border-t border-border-subtle pt-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-primary">Versions</p>
+          <Button size="sm" variant="ghost" onClick={() => versionFileInputRef.current?.click()} loading={replacingFile}>
+            Upload new version
+          </Button>
+          <input ref={versionFileInputRef} type="file" className="hidden" onChange={handleReplaceFile} />
+        </div>
+        {versions && versions.length > 0 && (
+          <ul className="space-y-1">
+            {versions
+              .slice()
+              .reverse()
+              .map((v) => (
+                <li key={v.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-primary">
+                    v{v.versionNumber}
+                    {v.isCurrent && " (current)"}
+                    {v.diffFromPrevious &&
+                      !v.diffFromPrevious.unchanged &&
+                      ` — +${v.diffFromPrevious.linesAdded}/-${v.diffFromPrevious.linesRemoved} lines vs prior`}
+                    {v.diffFromPrevious?.unchanged && " — no text changes vs prior"}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => onOpenVersion(doc.id, v.id)}>
+                    Open
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
