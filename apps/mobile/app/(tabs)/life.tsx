@@ -174,6 +174,11 @@ export default function LifeScreen() {
             Documents
           </Button>
         </View>
+        <View style={{ flex: 1 }}>
+          <Button variant="secondary" onPress={() => router.push("/people")}>
+            People
+          </Button>
+        </View>
       </View>
 
       {openConflicts.length > 0 && (

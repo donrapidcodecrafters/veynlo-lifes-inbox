@@ -24,6 +24,7 @@ import { FeatureFlagsModule } from "./modules/feature-flags/feature-flags.module
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { SharedModule } from "./modules/shared/shared.module";
 import { HistoryModule } from "./modules/history/history.module";
+import { PeopleModule } from "./modules/people/people.module";
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { HistoryModule } from "./modules/history/history.module";
     OnboardingModule,
     SharedModule,
     HistoryModule,
+    PeopleModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

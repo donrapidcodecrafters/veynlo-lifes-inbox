@@ -6,7 +6,7 @@ import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { DocumentsService } from "../documents/documents.service";
 
-const VALID_RESOURCE_TYPES = new Set(["purchase", "bill", "warranty", "return_case", "subscription", "calendar_event"]);
+const VALID_RESOURCE_TYPES = new Set(["purchase", "bill", "warranty", "return_case", "subscription", "calendar_event", "person"]);
 
 /**
  * TIME-002 "Object history" — scoped down from the spec's full model (vehicle/appliance/property/

@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes, createHash } from "node:crypto";
-import { and, asc, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { generateId, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -298,6 +298,46 @@ export class AttentionService {
         confidenceBand: "verified",
         linkedResourceType: "warranty",
         linkedResourceId: warranty.id,
+        primaryActions: ["review"],
+      });
+    }
+
+    // PEO-005 "important dates" reminders — annual, unlike every other deadline this method files, so
+    // `fileIfNew`'s own dedup (any existing item on this exact linkedResourceId, regardless of resolved
+    // state) would otherwise mean a birthday reminder fires exactly once, ever, then never again in
+    // future years. Folding the target year into linkedResourceId gives each year's occurrence its own
+    // dedup identity while still reusing fileIfNew as-is.
+    const people = await this.db.select().from(schema.canonicalEntities).where(eq(schema.canonicalEntities.type, "person"));
+    const peopleIds = people.map((p) => p.id);
+    const importantDateFacts =
+      peopleIds.length > 0
+        ? await this.db.select().from(schema.facts).where(and(inArray(schema.facts.subjectEntityId, peopleIds), eq(schema.facts.predicate, "important_date")))
+        : [];
+    for (const fact of importantDateFacts) {
+      const person = people.find((p) => p.id === fact.subjectEntityId);
+      if (!person) continue;
+      const value = fact.valueJson as { label: string; dateIso: string };
+      const original = new Date(value.dateIso);
+      if (Number.isNaN(original.getTime())) continue;
+
+      const nextOccurrence = new Date(now.getFullYear(), original.getMonth(), original.getDate());
+      if (nextOccurrence < now) nextOccurrence.setFullYear(nextOccurrence.getFullYear() + 1);
+      if (nextOccurrence > lookahead) continue;
+
+      const days = daysUntil(nextOccurrence, now);
+      await this.fileIfNew({
+        ownerUserId: person.ownerUserId,
+        householdId: person.householdId,
+        reasonCode: "important_date",
+        reasonText: `${person.displayLabel}'s ${value.label} is in ${days} day${days === 1 ? "" : "s"}.`,
+        urgency: urgencyFor(days),
+        dueAt: { precision: "date", instantUtc: null, date: nextOccurrence.toISOString().slice(0, 10), timezone: null, sourceText: null },
+        dueAtSort: nextOccurrence,
+        moneyAtStakeMinorUnits: null,
+        moneyAtStakeCurrency: null,
+        confidenceBand: "verified",
+        linkedResourceType: "person",
+        linkedResourceId: `${person.id}:${nextOccurrence.getFullYear()}`,
         primaryActions: ["review"],
       });
     }
