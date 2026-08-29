@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, Switch, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { useBiometricLock } from "@/lib/biometric-lock-context";
+import { isNotificationCaptureFeatureEnabled } from "@/lib/notification-capture";
 import type { ThemeMode } from "@/lib/theme";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -22,6 +23,11 @@ export default function SettingsScreen() {
   const { mode, setMode, theme } = useAppTheme();
   const { ready: lockReady, supported: lockSupported, enabled: lockEnabled, setEnabled: setLockEnabled } = useBiometricLock();
   const [lockError, setLockError] = useState<string | null>(null);
+  const [messageCaptureAvailable, setMessageCaptureAvailable] = useState(false);
+
+  useEffect(() => {
+    isNotificationCaptureFeatureEnabled().then(setMessageCaptureAvailable);
+  }, []);
 
   async function onToggleLock(next: boolean) {
     setLockError(null);
@@ -119,6 +125,11 @@ export default function SettingsScreen() {
         <Button variant="secondary" onPress={() => router.push("/privacy")}>
           Privacy
         </Button>
+        {messageCaptureAvailable && (
+          <Button variant="secondary" onPress={() => router.push("/message-capture")}>
+            Message capture
+          </Button>
+        )}
         <Button variant="secondary" onPress={() => router.push("/connections")}>
           Connections
         </Button>

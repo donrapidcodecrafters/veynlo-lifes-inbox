@@ -7,6 +7,7 @@ import { AppThemeProvider, useAppTheme } from "@/lib/theme-context";
 import { BiometricLockProvider } from "@/lib/biometric-lock-context";
 import { LockGate } from "@/components/lock-gate";
 import { PushRegistration } from "@/components/push-registration";
+import { NotificationCaptureDrain } from "@/components/notification-capture-drain";
 
 function ThemedStack() {
   const { theme } = useAppTheme();
@@ -14,6 +15,7 @@ function ThemedStack() {
     <>
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
       <PushRegistration />
+      <NotificationCaptureDrain />
       <LockGate>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.bgCanvas } }} />
       </LockGate>
