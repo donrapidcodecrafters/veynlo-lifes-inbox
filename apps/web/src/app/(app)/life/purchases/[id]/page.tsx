@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
-import { swrFetcher } from "@/lib/api-client";
+import { api, swrFetcher } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { HistorySection } from "@/components/history-section";
@@ -29,9 +30,17 @@ interface PurchaseDetail {
   evidence: Evidence | null;
 }
 
+const MARKABLE_STATES = [
+  { value: "kept", label: "Keeping it" },
+  { value: "gifted", label: "Gifted" },
+  { value: "sold", label: "Sold" },
+  { value: "return_started", label: "Returning" },
+  { value: "disposed", label: "Disposed" },
+];
+
 export default function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useSWR<PurchaseDetail | null>(`/v1/purchases/${id}`, swrFetcher);
+  const { data, isLoading, mutate } = useSWR<PurchaseDetail | null>(`/v1/purchases/${id}`, swrFetcher);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-xl bg-subtle" />;
   if (!data) return <EmptyState title="Not found" description="This purchase doesn't exist or you don't have access to it." />;
@@ -39,6 +48,11 @@ export default function PurchaseDetailPage() {
   const { purchase, lines, returns, shipments, evidence } = data;
   const date = formatTemporal(purchase.purchaseDate);
   const total = formatMoneyMinorUnits(purchase.totalMinorUnits, purchase.totalCurrency);
+
+  async function markState(state: string) {
+    await api.post(`/v1/purchases/${purchase.id}/state`, { state });
+    mutate();
+  }
 
   return (
     <div className="space-y-6">
@@ -66,6 +80,13 @@ export default function PurchaseDetailPage() {
             <dt className="text-tertiary">Status</dt>
             <dd className="text-primary capitalize">{purchase.state.replace("_", " ")}</dd>
           </dl>
+          <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3">
+            {MARKABLE_STATES.map((s) => (
+              <Button key={s.value} size="sm" variant={purchase.state === s.value ? "primary" : "secondary"} onClick={() => markState(s.value)}>
+                {s.label}
+              </Button>
+            ))}
+          </div>
         </CardBody>
       </Card>
 

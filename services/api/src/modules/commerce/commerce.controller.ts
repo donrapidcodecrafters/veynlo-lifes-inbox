@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -17,6 +17,11 @@ export class CommerceController {
   @Get("purchases/:id")
   purchaseDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.commerce.purchaseDetail(id, user.userId);
+  }
+
+  @Post("purchases/:id/state")
+  setPurchaseState(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("state") state: string) {
+    return this.commerce.setPurchaseState(id, user.userId, state);
   }
 
   @Get("returns")

@@ -1,10 +1,17 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { HouseholdService } from "../household/household.service";
+
+/**
+ * PUR-001's own user actions include "mark gift/returned/sold" — deliberately just this manual subset,
+ * not the full state machine `candidate/confirmed/fulfilled/partially_fulfilled` are ingestion-managed
+ * states a user marking a purchase's real-world fate should never be able to jump back into.
+ */
+const USER_SETTABLE_PURCHASE_STATES = new Set(["kept", "return_started", "gifted", "sold", "disposed"]);
 
 @Injectable()
 export class CommerceService {
@@ -45,6 +52,20 @@ export class CommerceService {
     const shipments = await this.db.select().from(schema.shipments).where(eq(schema.shipments.purchaseId, purchaseId));
     const evidence = await this.evidenceForSourceEvent(purchase.sourceEventId);
     return { purchase, lines, returns, shipments, evidence };
+  }
+
+  /** PUR-001 "mark gift/returned/sold" — the only mutation this service has beyond field-level `correct()` (see InboxService). */
+  async setPurchaseState(purchaseId: string, userId: string, state: string) {
+    if (!USER_SETTABLE_PURCHASE_STATES.has(state)) {
+      throw new BadRequestException({
+        code: "INVALID_PURCHASE_STATE",
+        message: `"${state}" isn't a state you can set directly. Allowed: ${[...USER_SETTABLE_PURCHASE_STATES].join(", ")}.`,
+      });
+    }
+    const [purchase] = await this.db.select({ ownerUserId: schema.purchases.ownerUserId }).from(schema.purchases).where(eq(schema.purchases.id, purchaseId)).limit(1);
+    if (!purchase) throw new NotFoundException({ code: "PURCHASE_NOT_FOUND", message: "Not found." });
+    if (purchase.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your purchase." });
+    await this.db.update(schema.purchases).set({ state, updatedAt: new Date() }).where(eq(schema.purchases.id, purchaseId));
   }
 
   /**

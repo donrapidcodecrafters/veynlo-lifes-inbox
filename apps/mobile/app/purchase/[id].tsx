@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -7,6 +7,14 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
+
+const MARKABLE_STATES = [
+  { value: "kept", label: "Keeping it" },
+  { value: "gifted", label: "Gifted" },
+  { value: "sold", label: "Sold" },
+  { value: "return_started", label: "Returning" },
+  { value: "disposed", label: "Disposed" },
+];
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { HistorySection } from "@/components/history-section";
@@ -44,6 +52,11 @@ export default function PurchaseDetailScreen() {
   const date = formatTemporal(purchase.purchaseDate);
   const total = formatMoneyMinorUnits(purchase.totalMinorUnits, purchase.totalCurrency);
 
+  async function markState(state: string) {
+    await api.post(`/v1/purchases/${id}/state`, { state });
+    setData(await api.get<PurchaseDetail>(`/v1/purchases/${id}`));
+  }
+
   return (
     <Screen>
       <ScreenHeader title={`Order ${purchase.orderNumber ?? "—"}`} subtitle={date ?? undefined} />
@@ -51,6 +64,25 @@ export default function PurchaseDetailScreen() {
         {total && <Text style={{ fontSize: 20, fontWeight: "700", color: theme.colors.textPrimary }}>{total}</Text>}
         <Badge tone="neutral">{purchase.confidenceBand.replace("_", " ")}</Badge>
         <Text style={{ fontSize: 13, color: theme.colors.textTertiary, textTransform: "capitalize" }}>{purchase.state.replace("_", " ")}</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 10 }}>
+          {MARKABLE_STATES.map((s) => {
+            const active = purchase.state === s.value;
+            return (
+              <Pressable
+                key={s.value}
+                onPress={() => markState(s.value)}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: theme.radius.sm,
+                  backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textPrimary }}>{s.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </Card>
 
       {lines.length > 0 && (
