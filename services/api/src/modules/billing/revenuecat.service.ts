@@ -65,15 +65,27 @@ export class RevenueCatService {
     }
     const event = parsed.data.event;
     const userId = event.app_user_id;
+    const source = mapStoreToSource(event.store);
 
-    await this.db.insert(schema.billingEvents).values({
-      id: generateId("billingEvent"),
-      userId,
-      source: mapStoreToSource(event.store),
-      externalEventId: event.id,
-      eventType: event.type,
-      payloadJson: body as Record<string, unknown>,
-    });
+    // Same idempotency fix as BillingService.handleWebhook — RevenueCat retries any delivery that
+    // doesn't get a 2xx, and this had no dedup at all before, so a retried delivery could double-insert
+    // an entitlement grant.
+    const inserted = await this.db
+      .insert(schema.billingEvents)
+      .values({
+        id: generateId("billingEvent"),
+        userId,
+        source,
+        externalEventId: event.id,
+        eventType: event.type,
+        payloadJson: body as Record<string, unknown>,
+      })
+      .onConflictDoNothing({ target: [schema.billingEvents.source, schema.billingEvents.externalEventId] })
+      .returning({ id: schema.billingEvents.id });
+    if (inserted.length === 0) {
+      this.logger.log(`RevenueCat webhook ${event.id} already processed — skipping.`);
+      return;
+    }
 
     if (ENTITLEMENT_GRANTING_EVENTS.has(event.type)) {
       const planKey = firstValidPlanKey(event.entitlement_ids);

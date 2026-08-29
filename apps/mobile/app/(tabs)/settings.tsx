@@ -49,7 +49,7 @@ export default function SettingsScreen() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await api.post("/v1/auth/delete-account", { password: deletePassword });
+      await api.post("/v1/auth/delete-account", user?.hasPassword ? { password: deletePassword } : {});
       await signOut();
       router.replace("/sign-in");
     } catch (err) {
@@ -179,13 +179,19 @@ export default function SettingsScreen() {
             </Button>
           ) : (
             <View style={{ gap: 12 }}>
-              <TextField
-                label="Confirm your password"
-                value={deletePassword}
-                onChangeText={setDeletePassword}
-                secureTextEntry
-                autoComplete="password"
-              />
+              {user?.hasPassword ? (
+                <TextField
+                  label="Confirm your password"
+                  value={deletePassword}
+                  onChangeText={setDeletePassword}
+                  secureTextEntry
+                  autoComplete="password"
+                />
+              ) : (
+                <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+                  Your account uses Google/Microsoft sign-in with no separate password — confirming here is enough.
+                </Text>
+              )}
               {deleteError && <Text style={{ color: theme.colors.critical, fontSize: 14 }}>{deleteError}</Text>}
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <View style={{ flex: 1 }}>

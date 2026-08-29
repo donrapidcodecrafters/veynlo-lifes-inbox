@@ -139,8 +139,7 @@ export class TimelineService {
         s.id as id, 'shipment' as kind, s.carrier as title, coalesce(s.delivered_at, s.updated_at) as occurred_at,
         'shipment' as resource_type, s.id as resource_id, s.purchase_id as parent_purchase_id
       from shipments s
-      inner join purchases p3 on p3.id = s.purchase_id
-      where p3.owner_user_id = ${ownerUserId}
+      where s.owner_user_id = ${ownerUserId}
     `;
   }
 

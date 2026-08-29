@@ -479,7 +479,7 @@ export class IngestionService {
       ? await this.findExistingPurchaseByOrderNumberOnly(ctx.ownerUserId, result.data.orderNumber)
       : null;
 
-    const existingShipment = await this.findExistingShipment(result.data.trackingNumber);
+    const existingShipment = await this.findExistingShipment(ctx.ownerUserId, result.data.trackingNumber);
     const shipmentId = existingShipment?.id ?? generateId("shipment");
     if (existingShipment) {
       await this.db
@@ -493,6 +493,8 @@ export class IngestionService {
     } else {
       await this.db.insert(schema.shipments).values({
         id: shipmentId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
         purchaseId: linkedPurchase?.id ?? null,
         carrier,
         trackingNumber: result.data.trackingNumber,
@@ -571,8 +573,17 @@ export class IngestionService {
     return existing ?? null;
   }
 
-  private async findExistingShipment(trackingNumber: string) {
-    const [existing] = await this.db.select().from(schema.shipments).where(eq(schema.shipments.trackingNumber, trackingNumber)).limit(1);
+  /**
+   * Fixed a real cross-tenant bug: this used to match on `trackingNumber` alone with no owner scoping,
+   * so two different users' packages sharing a tracking number (carrier number-range reuse isn't rare)
+   * would collide onto the same shipment row. Scoped by owner now, same as every other domain's dedup.
+   */
+  private async findExistingShipment(ownerUserId: string, trackingNumber: string) {
+    const [existing] = await this.db
+      .select()
+      .from(schema.shipments)
+      .where(and(eq(schema.shipments.ownerUserId, ownerUserId), eq(schema.shipments.trackingNumber, trackingNumber)))
+      .limit(1);
     return existing ?? null;
   }
 

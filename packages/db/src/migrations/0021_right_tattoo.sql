@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "billing_events_source_external_event_idx" ON "billing_events" USING btree ("source","external_event_id");

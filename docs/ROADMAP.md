@@ -568,3 +568,59 @@ still open:
   token flow the spec describes for mobile).
 - No privacy policy/terms of service text, no store listings, no third-party
   pentest — all human/business actions, not code (see `SECURITY.md`).
+- **Full-spec adversarial re-audit (2026-08-29)**: after several passes each declared "this backlog item
+  is done," ran one comprehensive, skeptical cross-check of every spec section (§5 through §51) against
+  the actual code rather than trusting this file's own prior claims. Found the MVP was genuinely NOT 100%
+  complete — a long list of real gaps across auth (no Apple Sign-In, no passkey despite a schema table for
+  one, no mobile OAuth, no account-recovery/forgot-password flow at all), Ask's structured search (real
+  backend, zero UI ever calls it), calendar write-back (both connectors are read-only), sharing (only one
+  resource type shareable, no emergency binder, no direct-grant UI, no share-audit screens), the privacy/
+  consent center (one global AI toggle only — no per-sender/category exclusion, no retention controls),
+  widgets/App-Intents/wearables/Live-Activities (7 of 8 Core-tagged §36 requirements entirely unbuilt),
+  Home's Today view and Needs-You suggested actions (zero interactivity), a hardcoded stub confidence
+  score (`0.82` for every extraction) with no per-domain calibration, shipments/purchases UI gaps (merchant
+  name captured but never displayed; a shipment invisible everywhere unless linked to a purchase), People's
+  contact-sync/merge (explicitly deferred, confirmed via the code's own comments), and a long tail of
+  backend-robustness gaps (no idempotency keys/optimistic concurrency on mutations, no pagination on
+  Documents/Inbox lists, a domain-event schema defined but never wired, no transactional outbox, mobile is
+  fully online-only). Full findings handed to the user for prioritization rather than guessed at — this is
+  too large a set of scope decisions (several are multi-day native-platform efforts) to push through
+  silently. **Fixed four items immediately regardless of that prioritization, since they're bugs in
+  already-shipped code, not open scope questions**:
+  1. **Cross-tenant data bug**: `shipments` had no `owner_user_id` at all — `findExistingShipment` matched
+     on `trackingNumber` alone, so two different users' packages sharing a tracking number (carrier
+     number-range reuse isn't rare) could collide onto the same row. Added the column (migration
+     `0020_wooden_iron_fist.sql`, backfilled from `purchases`/`inbox_items`, one real orphaned row deleted),
+     scoped `findExistingShipment` and every write path by owner. Also fixed a related, previously-silent
+     bug this uncovered: `TimelineService`'s shipment query inner-joined through `purchases`, so any
+     shipment ingestion couldn't match to an order (a common real case) was invisible in Timeline forever —
+     now queries `shipments.owner_user_id` directly.
+  2. **Billing upgrade/downgrade desync**: a plan change via Stripe's own Customer Portal modifies the
+     existing subscription in place and never re-fires `checkout.session.completed`, so `entitlements.planKey`
+     silently kept serving the OLD tier forever after a real upgrade/downgrade, even though Stripe billed
+     correctly. `handleWebhook` now derives the current plan from the subscription's price on every
+     `customer.subscription.updated` and re-issues the entitlement when it changed.
+  3. **Webhook replay could double-insert entitlements**: neither Stripe's nor RevenueCat's webhook handler
+     deduped by `externalEventId` at all. Added a real unique index (`billing_events_source_external_event_idx`,
+     migration `0021_right_tattoo.sql`, confirmed no pre-existing duplicates) and `onConflictDoNothing` +
+     an early return on both handlers — a replayed delivery now genuinely no-ops instead of granting twice.
+  4. **OAuth-only accounts could never delete their own account** — a real App-Store-blocking bug (Apple/
+     Google both require self-service deletion). `requestDeletion` unconditionally required a password;
+     Google/Microsoft sign-up never sets one. Now skips password verification when `user.passwordHash` is
+     null (the account's already-verified session is the only reauth such an account could ever have) —
+     password-based accounts are unaffected and still correctly rejected on a wrong or missing password.
+     `/v1/auth/me` now returns a `hasPassword` flag so the web/mobile delete-account form only shows the
+     password field when there's actually a password to confirm.
+  Also fixed HOME-004's literal spec violation caught by the same audit: the web/mobile Home screen showed
+  the hardcoded "You're caught up." text even while a degraded-connections banner sat right above it — the
+  exact false-reassurance pattern the spec calls out by name. Both now swap in "Nothing else needs attention
+  from the sources currently available" when `degraded` is true. **Verified live**: the shipment fix via a
+  direct two-user same-tracking-number collision test (confirmed isolated before/after) and a real
+  `/v1/timeline` call proving a purchase-less shipment now appears; the billing dedup via a real duplicate-
+  key rejection at the DB level; OAuth-only deletion via a real sign-up with `password_hash` nulled to
+  simulate it, confirming deletion now succeeds with no password while a wrong/missing password on a real
+  password account still correctly 401s; the Home message fix via a real Playwright session against a
+  seeded degraded connection, confirming the old text is gone and the new one renders. The upgrade/downgrade
+  fix is typecheck-verified and logically reviewed but not independently live-tested end-to-end — that needs
+  a real signed Stripe webhook payload with a real configured Price id, neither of which exists in this dev
+  environment. Test users/connections/shipments/billing-event rows all deleted afterward.

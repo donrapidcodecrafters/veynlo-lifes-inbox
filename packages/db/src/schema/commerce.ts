@@ -115,20 +115,32 @@ export const returnCases = pgTable(
   (t) => [index("return_cases_deadline_idx").on(t.deadlineSort)],
 );
 
-export const shipments = pgTable("shipments", {
-  id: text("id").primaryKey(),
-  purchaseId: text("purchase_id").references(() => purchases.id, { onDelete: "cascade" }),
-  returnCaseId: text("return_case_id").references(() => returnCases.id, { onDelete: "cascade" }),
-  carrier: text("carrier").notNull(),
-  trackingNumber: text("tracking_number").notNull(), // dedup lookup key — see findExistingShipment
-  status: text("status").notNull().default("label_created"),
-  confidenceBand: text("confidence_band"),
-  estimatedDelivery: jsonb("estimated_delivery").$type<TemporalValue>(),
-  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
-  isGiftPrivate: boolean("is_gift_private").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const shipments = pgTable(
+  "shipments",
+  {
+    id: text("id").primaryKey(),
+    // Added after a real cross-tenant bug: findExistingShipment previously matched on trackingNumber
+    // ALONE, with no owner scoping, so two different users' packages sharing a tracking number (not rare
+    // — many small carriers/resellers reuse number ranges) would silently collide onto the same row. Every
+    // other domain table scopes dedup by ownerUserId first; shipments was the one exception.
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
+    purchaseId: text("purchase_id").references(() => purchases.id, { onDelete: "cascade" }),
+    returnCaseId: text("return_case_id").references(() => returnCases.id, { onDelete: "cascade" }),
+    carrier: text("carrier").notNull(),
+    trackingNumber: text("tracking_number").notNull(), // dedup lookup key — see findExistingShipment
+    status: text("status").notNull().default("label_created"),
+    confidenceBand: text("confidence_band"),
+    estimatedDelivery: jsonb("estimated_delivery").$type<TemporalValue>(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    isGiftPrivate: boolean("is_gift_private").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shipments_owner_tracking_idx").on(t.ownerUserId, t.trackingNumber)],
+);
 
 export const recurringStreams = pgTable("recurring_streams", {
   id: text("id").primaryKey(),

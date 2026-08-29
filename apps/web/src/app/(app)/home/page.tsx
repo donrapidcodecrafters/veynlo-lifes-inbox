@@ -152,8 +152,12 @@ export default function HomePage() {
 
         {!isLoading && data?.caughtUp && (
           <EmptyState
-            title="You're caught up."
-            description="Nothing needs your attention right now. Connect another account or add something manually to find more."
+            title={data.degraded ? "Nothing else needs attention from the sources currently available." : "You're caught up."}
+            description={
+              data.degraded
+                ? "Some connections aren't syncing right now, so this isn't the full picture — reconnect them above to be sure."
+                : "Nothing needs your attention right now. Connect another account or add something manually to find more."
+            }
             action={
               <Link href="/connections">
                 <Button variant="secondary" size="sm">

@@ -7,6 +7,7 @@ export interface SessionUser {
   email: string | null;
   displayName: string;
   themePreference: "system" | "light" | "dark";
+  hasPassword: boolean;
 }
 
 interface AuthContextValue {

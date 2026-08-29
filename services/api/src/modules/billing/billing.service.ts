@@ -118,14 +118,25 @@ export class BillingService {
       (event.data.object as { metadata?: Record<string, string>; client_reference_id?: string }).metadata?.veynloUserId ??
       (event.data.object as { client_reference_id?: string }).client_reference_id;
 
-    await this.db.insert(schema.billingEvents).values({
-      id: generateId("billingEvent"),
-      userId: userId ?? "unknown",
-      source: "web_stripe",
-      externalEventId: event.id,
-      eventType: event.type,
-      payloadJson: event.data.object as unknown as Record<string, unknown>,
-    });
+    // Stripe (and RevenueCat) retry any delivery that doesn't get a 2xx back — a replayed event must not
+    // double-process. `onConflictDoNothing` against the (source, externalEventId) unique index means a
+    // retried delivery inserts nothing; an empty `inserted` array is the "already handled" signal.
+    const inserted = await this.db
+      .insert(schema.billingEvents)
+      .values({
+        id: generateId("billingEvent"),
+        userId: userId ?? "unknown",
+        source: "web_stripe",
+        externalEventId: event.id,
+        eventType: event.type,
+        payloadJson: event.data.object as unknown as Record<string, unknown>,
+      })
+      .onConflictDoNothing({ target: [schema.billingEvents.source, schema.billingEvents.externalEventId] })
+      .returning({ id: schema.billingEvents.id });
+    if (inserted.length === 0) {
+      this.logger.log(`Stripe webhook ${event.id} already processed — skipping.`);
+      return;
+    }
 
     if (event.type === "checkout.session.completed" && userId) {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -153,7 +164,51 @@ export class BillingService {
           .update(schema.entitlements)
           .set({ effectiveTo: new Date() })
           .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)));
+      } else {
+        // A plan change via Stripe's own Customer Portal (createPortalSession above) modifies this SAME
+        // subscription in place — it never fires checkout.session.completed again, so without this branch
+        // the entitlement row silently kept serving the OLD planKey forever after an upgrade/downgrade,
+        // even though Stripe billed the new price correctly. subscription.metadata.planKey is stale here
+        // (it's the plan bought at checkout time, not updated on a portal plan-switch), so the new plan is
+        // derived from the subscription's current price instead — same mapping `plans()` uses in reverse.
+        const priceId = subscription.items.data[0]?.price?.id;
+        const newPlanKey = priceId ? planKeyForPriceId(priceId) : null;
+        if (newPlanKey) {
+          const [current] = await this.db
+            .select({ planKey: schema.entitlements.planKey })
+            .from(schema.entitlements)
+            .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)))
+            .limit(1);
+          if (current && current.planKey !== newPlanKey) {
+            await this.db
+              .update(schema.entitlements)
+              .set({ effectiveTo: new Date() })
+              .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)));
+            await this.db.insert(schema.entitlements).values({
+              id: generateId("entitlement"),
+              userId,
+              planKey: newPlanKey,
+              source: "web_stripe",
+              effectiveFrom: new Date(),
+              effectiveTo: null,
+            });
+          }
+        }
       }
     }
   }
+}
+
+/** Reverse of `plans()`'s priceId lookup — maps a Stripe Price back onto the Veynlo plan it represents, so
+ * a portal-initiated upgrade/downgrade (which only ever changes the subscription's price, not its
+ * metadata) can be detected from the webhook payload alone. */
+function planKeyForPriceId(priceId: string): PlanKey | null {
+  const env = loadEnv();
+  const entries: Array<[string | undefined, PlanKey]> = [
+    [env.STRIPE_PRICE_PLUS_MONTHLY, "plus"],
+    [env.STRIPE_PRICE_PLUS_ANNUAL, "plus"],
+    [env.STRIPE_PRICE_FAMILY_MONTHLY, "family"],
+    [env.STRIPE_PRICE_FAMILY_ANNUAL, "family"],
+  ];
+  return entries.find(([id]) => id === priceId)?.[1] ?? null;
 }

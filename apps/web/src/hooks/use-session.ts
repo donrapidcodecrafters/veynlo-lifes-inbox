@@ -12,6 +12,7 @@ export interface SessionUser {
   currency: string;
   status: string;
   themePreference: "system" | "light" | "dark";
+  hasPassword: boolean;
 }
 
 export function useSession() {

@@ -141,6 +141,20 @@
       "when": 1788024774894,
       "tag": "0019_peaceful_captain_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788026714955,
+      "tag": "0020_wooden_iron_fist",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788026851904,
+      "tag": "0021_right_tattoo",
+      "breakpoints": true
     }
   ]
 }

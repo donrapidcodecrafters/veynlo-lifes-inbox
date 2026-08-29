@@ -47,7 +47,7 @@ export default function SettingsPage() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await api.post("/v1/auth/delete-account", { password: deletePassword });
+      await api.post("/v1/auth/delete-account", user?.hasPassword ? { password: deletePassword } : {});
       await refresh();
       router.push("/sign-in");
     } catch (err) {
@@ -236,17 +236,23 @@ export default function SettingsPage() {
               </Button>
             ) : (
               <form onSubmit={deleteAccount} className="space-y-4" noValidate>
-                <div>
-                  <Label htmlFor="delete-password">Confirm your password</Label>
-                  <Input
-                    id="delete-password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                    required
-                  />
-                </div>
+                {user?.hasPassword ? (
+                  <div>
+                    <Label htmlFor="delete-password">Confirm your password</Label>
+                    <Input
+                      id="delete-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-tertiary">
+                    Your account uses Google/Microsoft sign-in with no separate password — confirming here is enough.
+                  </p>
+                )}
                 {deleteError && (
                   <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
                     {deleteError}

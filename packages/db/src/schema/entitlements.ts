@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./identity";
 import { households } from "./household";
 import { encryptedJsonb } from "./encrypted-type";
@@ -19,15 +19,21 @@ export const entitlements = pgTable("entitlements", {
 });
 
 /** Normalized ledger of raw store/processor billing events, source-of-truth reconciliation input (§46.2). */
-export const billingEvents = pgTable("billing_events", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  source: text("source").notNull(), // "app_store" | "play_store" | "web_stripe"
-  externalEventId: text("external_event_id").notNull(),
-  eventType: text("event_type").notNull(),
-  payloadJson: encryptedJsonb<unknown>("payload_json").notNull(),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const billingEvents = pgTable(
+  "billing_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").notNull(), // "app_store" | "play_store" | "web_stripe"
+    externalEventId: text("external_event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payloadJson: encryptedJsonb<unknown>("payload_json").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // A replayed webhook (Stripe/RevenueCat both retry on anything but a 2xx) must not double-process —
+  // this was previously unconstrained, so a retried delivery could double-insert an entitlement.
+  (t) => [uniqueIndex("billing_events_source_external_event_idx").on(t.source, t.externalEventId)],
+);

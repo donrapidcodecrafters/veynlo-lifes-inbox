@@ -219,6 +219,7 @@ async function main() {
     .insert(schema.shipments)
     .values({
       id: "shp_demo_vacuum",
+      ownerUserId: userId,
       purchaseId: vacuumPurchaseId,
       carrier: "UPS",
       trackingNumber: "1Z999AA10123456784",
