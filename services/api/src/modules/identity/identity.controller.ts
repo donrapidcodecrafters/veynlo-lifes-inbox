@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { SignJWT, jwtVerify } from "jose";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -18,6 +18,7 @@ import {
   SetDisabledMailCategoriesDtoSchema,
   SetDataRetentionDaysDtoSchema,
   RegisterPushTokenDtoSchema,
+  NativeOAuthSignInDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
@@ -27,6 +28,7 @@ import {
   type SetDisabledMailCategoriesDto,
   type SetDataRetentionDaysDto,
   type RegisterPushTokenDto,
+  type NativeOAuthSignInDto,
 } from "./dto";
 
 const SESSION_COOKIE = "veynlo_session";
@@ -139,6 +141,33 @@ export class IdentityController {
     } catch (err) {
       return res.redirect(oauthErrorRedirect(env, err), 302);
     }
+  }
+
+  /**
+   * §Account/security "Sign in with Apple"/"Sign in with Google" (native) — unlike the google/microsoft
+   * authorize→callback redirect pair above, these take a POST with an already-signed identity token from
+   * the mobile app's on-device auth sheet (expo-apple-authentication / native Google Sign-In) rather than
+   * a browser round trip, so they respond with the same JSON session shape as sign-up/sign-in instead of a
+   * redirect.
+   */
+  @Post("apple/sign-in")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UsePipes(new ZodValidationPipe(NativeOAuthSignInDtoSchema))
+  async appleSignIn(@Body() dto: NativeOAuthSignInDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+    const platform = detectPlatform(req);
+    const session = await rethrowOAuthNotConfigured(() => this.identity.verifyAppleIdentityToken(dto.identityToken, { platform }));
+    setSessionCookie(res, session.token, session.expiresAt);
+    return { userId: session.userId, ...nativeTokenPayload(platform, session) };
+  }
+
+  @Post("google/native-sign-in")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UsePipes(new ZodValidationPipe(NativeOAuthSignInDtoSchema))
+  async googleNativeSignIn(@Body() dto: NativeOAuthSignInDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+    const platform = detectPlatform(req);
+    const session = await rethrowOAuthNotConfigured(() => this.identity.verifyGoogleNativeIdentityToken(dto.identityToken, { platform }));
+    setSessionCookie(res, session.token, session.expiresAt);
+    return { userId: session.userId, ...nativeTokenPayload(platform, session) };
   }
 
   @Post("sign-out")
@@ -254,6 +283,21 @@ async function signOAuthState(): Promise<string> {
 async function verifyOAuthState(state: string): Promise<void> {
   if (!state) throw new Error("missing_state");
   await jwtVerify(state, new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
+}
+
+/** The redirect-based flows above map OAuthNotConfiguredError to a `/sign-in?error=...` redirect code via
+ * oauthErrorRedirect below; these POST-based native flows return JSON like every other auth endpoint
+ * instead, so it needs converting to a real HttpException here or GlobalExceptionFilter would fall through
+ * to a generic, code-less 500. */
+async function rethrowOAuthNotConfigured<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof OAuthNotConfiguredError) {
+      throw new BadRequestException({ code: "OAUTH_NOT_CONFIGURED", message: err.message });
+    }
+    throw err;
+  }
 }
 
 /** Maps a thrown error to a `/sign-in?error=...` code the sign-in page can show a specific message for. */

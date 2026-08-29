@@ -953,3 +953,44 @@ still open:
   blocked in this environment by an Xcode/CocoaPods build-script bug with the project's parent folder path
   containing spaces ("Mac Projects and Files") — disclosed rather than worked around. Test account and all
   scratch files deleted afterward; a full before/after screenshot gallery was published for the user separately.
+
+- **Eleventh gap-closing pass (2026-08-29): native Apple/Google sign-in.**
+  The web app's Google/Microsoft sign-in has always been a browser redirect round trip — no equivalent
+  existed for the mobile app, which had email/password only. Apple requires "Sign in with Apple" for any
+  app offering another third-party sign-in option, so this was a genuine App Store submission blocker, not
+  just a nice-to-have. A native flow is a different trust model from the web redirect: there's no
+  server-to-server token exchange we control, since Apple/Google hand the mobile app an already-signed
+  identity token directly from the on-device auth sheet — verification means checking that signature
+  ourselves against the provider's published JWKS, not trusting a same-process fetch like the web
+  callbacks already do for Google.
+  1. Added `IdentityService.verifyAppleIdentityToken`/`verifyGoogleNativeIdentityToken`, both using jose's
+     `createRemoteJWKSet` + `jwtVerify` against Apple's (`https://appleid.apple.com/auth/keys`) and Google's
+     (`https://www.googleapis.com/oauth2/v3/certs`) real JWKS endpoints, checking issuer + audience, then
+     delegating to the existing generic `oauthSignIn` — reused as-is, no changes needed. Google native
+     deliberately still uses `provider: "google"` (not a separate value): the `sub` claim is the same stable
+     per-account id across every OAuth client that account has used, so a user who signed in via the web
+     flow and later via native Google Sign-In on mobile correctly matches the same `identity_links` row.
+  2. New env vars `APPLE_SIGN_IN_CLIENT_ID` (the app's bundle id, `app.veynlo.mobile` — NOT a web "Services
+     ID", a different audience only the browser-redirect flow would use) and `GOOGLE_OAUTH_NATIVE_CLIENT_ID`
+     (a separate OAuth client from the existing web `GOOGLE_OAUTH_CLIENT_ID` — Google registers native and
+     web apps as distinct clients and the audience check requires an exact match); both unset in dev, same
+     "not configured" degradation as every other optional external dependency.
+  3. New `POST /v1/auth/apple/sign-in` / `POST /v1/auth/google/native-sign-in` (`{identityToken}` in, same
+     JSON session shape as sign-up/sign-in out) — a plain-`Error` `OAuthNotConfiguredError` needed converting
+     to a real `HttpException` here (unlike the redirect flows, which map it to a `?error=` query param
+     instead), or it would've fallen through `GlobalExceptionFilter` to a generic code-less 500.
+  4. Mobile UI: added `expo-apple-authentication` (its config plugin adds the required
+     `com.apple.developer.applesignin` entitlement automatically) and a native `AppleAuthenticationButton`
+     on the sign-in screen, shown only when `isAvailableAsync()` resolves true. Scoped to Apple only —
+     Google's native SDK needs a custom dev client/EAS build to work (unlike Apple's, which works in Expo
+     Go), a real, disclosed limitation rather than glossed over as equally simple; the backend endpoint for
+     it is built and ready regardless, for whenever a dev client build happens.
+  **Verified live**: with both env vars unset (this deployment's real state), both new endpoints correctly
+  returned a structured `OAUTH_NOT_CONFIGURED` JSON error rather than a generic 500; with fake-but-
+  correctly-shaped values set temporarily, both endpoints proceeded past that check and failed instead at
+  real JWKS signature verification against a garbage token (proving `createRemoteJWKSet` genuinely fetched
+  Apple's and Google's live public keys and rejected it, not a stub) — then restarted clean with both unset
+  again. Confirmed no regression: a real sign-up → session issuance → account deletion round trip against
+  the rebuilt `identity.service.ts`/`identity.controller.ts` still worked end to end. Test account deleted
+  afterward. **Not done this pass**: Passkey/WebAuthn (schema exists, zero implementation) and the native
+  Google Sign-In mobile UI (blocked on the dev-client build note above) remain open.

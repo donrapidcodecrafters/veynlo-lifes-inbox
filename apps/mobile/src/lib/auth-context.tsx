@@ -15,6 +15,7 @@ interface AuthContextValue {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signInWithApple: (identityToken: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -68,6 +69,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const signInWithApple = useCallback(
+    async (identityToken: string) => {
+      const result = await api.post<{ userId: string; token?: string }>("/v1/auth/apple/sign-in", { identityToken });
+      if (result.token) await tokenStore.set(result.token);
+      await refresh();
+    },
+    [refresh],
+  );
+
   const signOut = useCallback(async () => {
     try {
       await api.post("/v1/auth/sign-out");
@@ -78,7 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ user, isLoading, signIn, signUp, signOut }), [user, isLoading, signIn, signUp, signOut]);
+  const value = useMemo(
+    () => ({ user, isLoading, signIn, signUp, signInWithApple, signOut }),
+    [user, isLoading, signIn, signUp, signInWithApple, signOut],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

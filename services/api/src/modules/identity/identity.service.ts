@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, Unauthorize
 import { randomBytes, createHash } from "node:crypto";
 import { and, eq, isNull, ne, gt } from "drizzle-orm";
 import * as argon2 from "argon2";
-import { SignJWT } from "jose";
+import { SignJWT, createRemoteJWKSet, jwtVerify } from "jose";
 import { google } from "googleapis";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -20,6 +20,26 @@ const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 14; // 14 days; short-lived-enou
 const MICROSOFT_AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const MICROSOFT_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const OIDC_SCOPES = "openid email profile";
+
+const APPLE_ISSUER = "https://appleid.apple.com";
+const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
+const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+
+// createRemoteJWKSet keeps its own internal key cache keyed by the JWKSet instance itself, not the URL —
+// building a fresh one per request would refetch Apple/Google's public keys on every single native sign-in.
+// Module-level singletons, lazily created on first use so a deployment with neither configured never fetches.
+let appleJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+function getAppleJwks() {
+  if (!appleJwks) appleJwks = createRemoteJWKSet(new URL(APPLE_JWKS_URL));
+  return appleJwks;
+}
+
+let googleJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+function getGoogleJwks() {
+  if (!googleJwks) googleJwks = createRemoteJWKSet(new URL(GOOGLE_JWKS_URL));
+  return googleJwks;
+}
 
 export class OAuthNotConfiguredError extends Error {
   constructor(public readonly provider: string) {
@@ -242,6 +262,60 @@ export class IdentityService {
       },
       deviceInfo,
     );
+  }
+
+  /**
+   * §Account/security "Sign in with Apple" — native-only (there's no web redirect flow here; the mobile
+   * app gets a signed identity token straight from the on-device Apple auth sheet via
+   * expo-apple-authentication and posts it here). Apple's identity token only carries an email on the
+   * FIRST-ever sign-in for a given app+user pair — every subsequent token omits it once the private-relay
+   * pairing is already established server-side on Apple's end — and never carries a display name at all
+   * (that comes back from the native SDK's one-time AuthorizationCredential.fullName, which the client
+   * already has and could pass along, but isn't required here since oauthSignIn already falls back to the
+   * email like the Google/Microsoft callbacks above).
+   */
+  async verifyAppleIdentityToken(identityToken: string, deviceInfo: { platform: string }): Promise<SessionIssued> {
+    const env = loadEnv();
+    if (!env.APPLE_SIGN_IN_CLIENT_ID) throw new OAuthNotConfiguredError("apple");
+
+    let payload;
+    try {
+      ({ payload } = await jwtVerify(identityToken, getAppleJwks(), { issuer: APPLE_ISSUER, audience: env.APPLE_SIGN_IN_CLIENT_ID }));
+    } catch {
+      throw new UnauthorizedException({ code: "OAUTH_INVALID_TOKEN", message: "Couldn't verify your Apple identity." });
+    }
+    if (!payload.sub) throw new UnauthorizedException({ code: "OAUTH_INVALID_TOKEN", message: "Couldn't verify your Apple identity." });
+
+    const email = typeof payload.email === "string" ? payload.email : null;
+    return this.oauthSignIn({ provider: "apple", providerSubject: payload.sub, email, displayName: email ?? "Veynlo user" }, deviceInfo);
+  }
+
+  /**
+   * §Account/security "Sign in with Google" (native) — a separate verification path from
+   * handleGoogleCallback above even though both end up in the same oauthSignIn: the web flow's code gets
+   * exchanged server-to-server with our own client_secret, so the id_token that comes back is already
+   * something we fetched ourselves. A native app has no client_secret to hold, so Google's native SDK hands
+   * the mobile app an already-signed identity token directly, which is verified here against Google's JWKS
+   * instead of trusting a same-process fetch. Deliberately reuses provider: "google" (not e.g.
+   * "google_native") — Google's `sub` claim is the same stable per-account identifier across every OAuth
+   * client that account has ever used, so a user who first signed in via the web flow and later via native
+   * Google Sign-In on mobile correctly matches the same identity_links row instead of creating a duplicate.
+   */
+  async verifyGoogleNativeIdentityToken(identityToken: string, deviceInfo: { platform: string }): Promise<SessionIssued> {
+    const env = loadEnv();
+    if (!env.GOOGLE_OAUTH_NATIVE_CLIENT_ID) throw new OAuthNotConfiguredError("google");
+
+    let payload;
+    try {
+      ({ payload } = await jwtVerify(identityToken, getGoogleJwks(), { issuer: GOOGLE_ISSUERS, audience: env.GOOGLE_OAUTH_NATIVE_CLIENT_ID }));
+    } catch {
+      throw new UnauthorizedException({ code: "OAUTH_INVALID_TOKEN", message: "Couldn't verify your Google identity." });
+    }
+    if (!payload.sub) throw new UnauthorizedException({ code: "OAUTH_INVALID_TOKEN", message: "Couldn't verify your Google identity." });
+
+    const email = typeof payload.email === "string" ? payload.email : null;
+    const displayName = typeof payload.name === "string" ? payload.name : (email ?? "Veynlo user");
+    return this.oauthSignIn({ provider: "google", providerSubject: payload.sub, email, displayName }, deviceInfo);
   }
 
   /**

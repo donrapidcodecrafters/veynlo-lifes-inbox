@@ -36,6 +36,18 @@ const EnvSchema = z.object({
   MICROSOFT_OAUTH_CLIENT_ID: z.string().optional(),
   MICROSOFT_OAUTH_CLIENT_SECRET: z.string().optional(),
 
+  // Native mobile sign-in (§Account/security). Unlike the redirect-based web OAuth above, these tokens
+  // arrive already signed by Apple/Google from an on-device auth sheet — there's no server-to-server
+  // token exchange we control, so verification checks the signature against the provider's published JWKS
+  // instead. APPLE_SIGN_IN_CLIENT_ID is the app's bundle identifier (the `aud` claim Sign in with Apple
+  // puts in a native app's identity token — NOT a web "Services ID", which is a different audience used
+  // only by the browser-redirect flow). GOOGLE_OAUTH_NATIVE_CLIENT_ID is a SEPARATE OAuth client from
+  // GOOGLE_OAUTH_CLIENT_ID above — Google registers native and web apps as distinct OAuth clients, and
+  // verification requires an exact audience match. Both unset in dev, same "not configured" degradation as
+  // every other optional external dependency.
+  APPLE_SIGN_IN_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_NATIVE_CLIENT_ID: z.string().optional(),
+
   // AI
   ANTHROPIC_API_KEY: z.string().optional(),
 

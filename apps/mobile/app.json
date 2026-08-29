@@ -38,6 +38,7 @@
       "expo-secure-store",
       "expo-local-authentication",
       "expo-notifications",
+      "expo-apple-authentication",
       [
         "expo-image-picker",
         {

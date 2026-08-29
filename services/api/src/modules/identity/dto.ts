@@ -60,3 +60,12 @@ export const RegisterPushTokenDtoSchema = z.object({
   pushToken: z.string().min(1).max(400),
 });
 export type RegisterPushTokenDto = z.infer<typeof RegisterPushTokenDtoSchema>;
+
+/** Native "Sign in with Apple"/"Sign in with Google" — the mobile app posts the already-signed identity
+ * token it got back from the on-device auth sheet; the server verifies it against the provider's JWKS
+ * (see IdentityService.verifyAppleIdentityToken/verifyGoogleNativeIdentityToken). No redirect URI or code
+ * here — unlike the web OAuth flows, there's no server-to-server exchange for these. */
+export const NativeOAuthSignInDtoSchema = z.object({
+  identityToken: z.string().min(1).max(4000),
+});
+export type NativeOAuthSignInDto = z.infer<typeof NativeOAuthSignInDtoSchema>;
