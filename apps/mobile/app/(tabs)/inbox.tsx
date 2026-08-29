@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
+import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -109,6 +110,8 @@ export default function InboxScreen() {
   const [capturing, setCapturing] = useState(false);
   const [filter, setFilter] = useState<FilterTab>("needs_review");
   const [category, setCategory] = useState("");
+  const [pasting, setPasting] = useState(false);
+  const [pasteMessage, setPasteMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await api.get<InboxItem[]>(queryFor(filter, category));
@@ -146,6 +149,32 @@ export default function InboxScreen() {
     load();
   }
 
+  /** §CAP-008 "Clipboard Quick Capture" — same one-tap paste-and-file flow as the web Inbox page. */
+  async function quickPasteCapture() {
+    setPasting(true);
+    setPasteMessage(null);
+    try {
+      const text = await Clipboard.getStringAsync();
+      if (!text.trim()) {
+        setPasteMessage("Your clipboard is empty.");
+        return;
+      }
+      const isUrl = /^https?:\/\/\S+$/i.test(text.trim());
+      if (isUrl) {
+        await api.post("/v1/ingestion/url", { url: text.trim() });
+      } else {
+        const firstLine = text.trim().split("\n")[0]?.slice(0, 500) || "Pasted note";
+        await api.post("/v1/ingestion/manual", { subject: firstLine, bodyText: text });
+      }
+      setPasteMessage("Captured from clipboard.");
+      load();
+    } catch {
+      setPasteMessage("Couldn't read your clipboard. Please try again.");
+    } finally {
+      setPasting(false);
+    }
+  }
+
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -153,10 +182,19 @@ export default function InboxScreen() {
           <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }}>Inbox</Text>
           <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>Newly discovered information to review.</Text>
         </View>
-        <Button variant="secondary" onPress={() => setCapturing((v) => !v)}>
-          {capturing ? "Cancel" : "Add manually"}
-        </Button>
+        <View style={{ gap: 6, alignItems: "flex-end" }}>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button variant="ghost" onPress={quickPasteCapture} loading={pasting}>
+              Paste
+            </Button>
+            <Button variant="secondary" onPress={() => setCapturing((v) => !v)}>
+              {capturing ? "Cancel" : "Add manually"}
+            </Button>
+          </View>
+        </View>
       </View>
+
+      {pasteMessage && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{pasteMessage}</Text>}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
         {FILTER_TABS.map((f) => {

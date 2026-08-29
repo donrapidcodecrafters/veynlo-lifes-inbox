@@ -61,10 +61,11 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pendingDuplicate, setPendingDuplicate] = useState<{ file: File; duplicateOfTitle: string } | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const dragDepth = useRef(0);
 
-  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function performUpload(file: File, force: boolean) {
     setUploading(true);
     setUploadError(null);
     try {
@@ -73,15 +74,60 @@ export default function DocumentsPage() {
       const formData = new FormData();
       formData.append("title", file.name);
       formData.append("documentType", documentType);
+      if (force) formData.append("force", "true");
       formData.append("file", file);
-      await api.upload("/v1/documents/upload", formData);
-      mutate();
+      const result = await api.upload<{ documentId: string; duplicate?: true; duplicateOfTitle?: string }>(
+        "/v1/documents/upload",
+        formData,
+      );
+      if (result.duplicate) {
+        setPendingDuplicate({ file, duplicateOfTitle: result.duplicateOfTitle ?? "an existing document" });
+      } else {
+        setPendingDuplicate(null);
+        mutate();
+      }
     } catch (err) {
       setUploadError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await performUpload(file, false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  /**
+   * §CAP-007 "Desktop drag/drop" — apps/desktop is a Tauri webview wrapping this exact web app (no
+   * separate desktop UI), so a plain DOM drag-and-drop zone here covers desktop capture too without any
+   * Rust-side file-drop handling. Depth-counted enter/leave (rather than a naive boolean) because a drag
+   * over child elements fires dragenter/dragleave on each one, which would otherwise flicker the overlay.
+   */
+  function onDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current += 1;
+    setIsDraggingOver(true);
+  }
+  function onDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current -= 1;
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setIsDraggingOver(false);
+    }
+  }
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+  }
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setIsDraggingOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) await performUpload(file, false);
   }
 
   async function openDocument(id: string, versionId?: string) {
@@ -91,7 +137,18 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div
+      className="relative space-y-6"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {isDraggingOver && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center border-4 border-dashed border-brand bg-surface/90">
+          <p className="text-lg font-semibold text-primary">Drop to upload</p>
+        </div>
+      )}
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-primary">Documents</h1>
@@ -127,6 +184,22 @@ export default function DocumentsPage() {
         <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
           {uploadError}
         </p>
+      )}
+
+      {pendingDuplicate && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-warning-subtle px-3 py-2">
+          <p className="text-sm text-warning-subtle-text">
+            You already have &ldquo;{pendingDuplicate.duplicateOfTitle}&rdquo; — this looks like the same file.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => performUpload(pendingDuplicate.file, true)} loading={uploading}>
+              Upload anyway
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPendingDuplicate(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
       )}
 
       {isLoading && (

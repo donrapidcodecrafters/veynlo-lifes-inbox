@@ -49,7 +49,9 @@ export class DocumentsService {
     buffer: Buffer;
     /** TIME-002 "attach document" — an opaque `resourceId`, self-describing via its own generateId prefix (same "opaque, prefixed resource IDs" design already used everywhere else), not a separate resourceType column. */
     linkedResourceId?: string;
-  }): Promise<{ documentId: string }> {
+    /** CAP-004 "duplicate hash detection" — set once the caller has seen a `duplicate: true` response and wants to upload anyway (e.g. a genuinely separate copy for another purpose). */
+    force?: boolean;
+  }): Promise<{ documentId: string; duplicate?: true; duplicateOfTitle?: string }> {
     if (params.buffer.length === 0) {
       throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
     }
@@ -88,6 +90,23 @@ export class DocumentsService {
     }
 
     const contentHash = createHash("sha256").update(params.buffer).digest("hex");
+
+    // CAP-004 "duplicate hash detection" — `contentHash` was computed and stored on every version already,
+    // but nothing ever checked it against existing rows, so uploading the same file twice silently created
+    // two fully independent documents. Scoped to this owner's own documents, not global, so someone else
+    // having uploaded byte-identical content (e.g. a shared form's boilerplate PDF) never surfaces.
+    if (!params.force) {
+      const [existingMatch] = await this.db
+        .select({ documentId: schema.documentVersions.documentId, title: schema.documents.title })
+        .from(schema.documentVersions)
+        .innerJoin(schema.documents, eq(schema.documentVersions.documentId, schema.documents.id))
+        .where(and(eq(schema.documentVersions.contentHash, contentHash), eq(schema.documents.ownerUserId, params.ownerUserId)))
+        .limit(1);
+      if (existingMatch) {
+        return { documentId: existingMatch.documentId, duplicate: true, duplicateOfTitle: existingMatch.title };
+      }
+    }
+
     const documentId = generateId("document");
     const versionId = generateId("documentVersion");
     const blobKey = `documents/${params.ownerUserId}/${documentId}/v1`;

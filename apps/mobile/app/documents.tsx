@@ -68,6 +68,7 @@ export default function DocumentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pendingDuplicate, setPendingDuplicate] = useState<{ file: PickedFile; duplicateOfTitle: string } | null>(null);
 
   const load = useCallback(async () => {
     setDocuments(await api.get<DocumentRow[]>("/v1/documents"));
@@ -99,12 +100,23 @@ export default function DocumentsScreen() {
     }
   }
 
-  async function doUpload(file: PickedFile) {
+  async function doUpload(file: PickedFile, force = false) {
     setUploading(true);
     setUploadError(null);
     try {
-      await api.upload("/v1/documents/upload", { title: file.name, documentType }, file);
-      await load();
+      const fields: Record<string, string> = { title: file.name, documentType };
+      if (force) fields.force = "true";
+      const result = await api.upload<{ documentId: string; duplicate?: true; duplicateOfTitle?: string }>(
+        "/v1/documents/upload",
+        fields,
+        file,
+      );
+      if (result.duplicate) {
+        setPendingDuplicate({ file, duplicateOfTitle: result.duplicateOfTitle ?? "an existing document" });
+      } else {
+        setPendingDuplicate(null);
+        await load();
+      }
     } catch (err) {
       setUploadError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");
     } finally {
@@ -118,7 +130,11 @@ export default function DocumentsScreen() {
       setUploadError("Camera access is off — enable it in your device settings to scan a document.");
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    // §CAP-003 "Camera Scanner" — expo-image-picker has no document-edge-detection mode (that needs a
+    // native scanner module and a dev-client rebuild, deferred for the same reason mobile voice input was:
+    // see docs/ROADMAP.md), but `allowsEditing` does give a real crop/retake confirmation step before the
+    // photo is used — a bounded, zero-new-dependency step toward the spec's fuller ask, not the full thing.
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: true });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
     await doUpload({ uri: asset.uri, name: asset.fileName ?? `scan-${Date.now()}.jpg`, type: asset.mimeType ?? "image/jpeg" });
@@ -193,6 +209,22 @@ export default function DocumentsScreen() {
         </View>
         {uploadError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{uploadError}</Text>}
       </View>
+
+      {pendingDuplicate && (
+        <Card style={{ gap: 8, backgroundColor: theme.colors.bgSubtle }}>
+          <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>
+            You already have &ldquo;{pendingDuplicate.duplicateOfTitle}&rdquo; — this looks like the same file.
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button variant="ghost" onPress={() => doUpload(pendingDuplicate.file, true)} loading={uploading}>
+              Upload anyway
+            </Button>
+            <Button variant="ghost" onPress={() => setPendingDuplicate(null)}>
+              Cancel
+            </Button>
+          </View>
+        </Card>
+      )}
 
       {!documents && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
 

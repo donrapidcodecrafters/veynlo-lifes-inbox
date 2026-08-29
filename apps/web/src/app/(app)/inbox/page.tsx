@@ -106,7 +106,37 @@ export default function InboxPage() {
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasteMessage, setPasteMessage] = useState<string | null>(null);
   const { data, isLoading, mutate } = useSWR<InboxItem[]>(queryFor(filter, category), swrFetcher);
+
+  /** §CAP-008 "Clipboard Quick Capture" — a one-tap capture of whatever's already on the clipboard, without
+   * opening the manual-add form and pasting it in by hand. Reuses the same manual/url ingestion endpoints
+   * CaptureForm's "Paste text"/"From a URL" modes use — this is just a faster path into the same pipeline. */
+  async function quickPasteCapture() {
+    setPasting(true);
+    setPasteMessage(null);
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        setPasteMessage("Your clipboard is empty.");
+        return;
+      }
+      const isUrl = /^https?:\/\/\S+$/i.test(text.trim());
+      if (isUrl) {
+        await api.post("/v1/ingestion/url", { url: text.trim() });
+      } else {
+        const firstLine = text.trim().split("\n")[0]?.slice(0, 500) || "Pasted note";
+        await api.post("/v1/ingestion/manual", { subject: firstLine, bodyText: text });
+      }
+      setPasteMessage("Captured from clipboard.");
+      mutate();
+    } catch {
+      setPasteMessage("Couldn't read your clipboard. Your browser may be blocking clipboard access.");
+    } finally {
+      setPasting(false);
+    }
+  }
 
   async function act(id: string, action: "confirm" | "archive" | "dismiss") {
     await api.post(`/v1/inbox/${id}/${action}`);
@@ -132,10 +162,16 @@ export default function InboxPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-primary">Inbox</h1>
             <p className="mt-1 text-sm text-tertiary">Newly discovered information to review.</p>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => setCapturing((v) => !v)}>
-            {capturing ? "Cancel" : "Add manually"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={quickPasteCapture} loading={pasting}>
+              Paste from clipboard
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setCapturing((v) => !v)}>
+              {capturing ? "Cancel" : "Add manually"}
+            </Button>
+          </div>
         </div>
+        {pasteMessage && <p className="text-sm text-tertiary">{pasteMessage}</p>}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex gap-1 rounded-lg bg-subtle p-1">
             {FILTER_TABS.map((f) => (

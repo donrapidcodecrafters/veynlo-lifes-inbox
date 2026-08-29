@@ -90,6 +90,8 @@ export class DocumentsController {
     const title = titleField && "value" in titleField ? String(titleField.value) : file.filename;
     const linkedResourceIdField = file.fields.linkedResourceId;
     const linkedResourceId = linkedResourceIdField && "value" in linkedResourceIdField ? String(linkedResourceIdField.value) : undefined;
+    const forceField = file.fields.force;
+    const force = forceField && "value" in forceField && String(forceField.value) === "true";
 
     const buffer = await file.toBuffer();
     return this.documents.upload({
@@ -97,6 +99,7 @@ export class DocumentsController {
       householdId: null,
       title,
       documentType,
+      force,
       mimeType: file.mimetype,
       buffer,
       linkedResourceId,
