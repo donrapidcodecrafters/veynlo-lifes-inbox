@@ -3,6 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser";
+import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -22,6 +24,8 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -30,7 +34,28 @@ export default function SignInPage() {
       setFormError(OAUTH_ERROR_MESSAGE[error] ?? "Couldn't complete that sign-in. Please try again.");
       window.history.replaceState(null, "", window.location.pathname);
     }
+    setPasskeyAvailable(browserSupportsWebAuthn());
   }, []);
+
+  async function onPasskeySignIn() {
+    setPasskeyLoading(true);
+    setFormError(null);
+    try {
+      const { attemptId, options } = await api.post<{ attemptId: string; options: PublicKeyCredentialRequestOptionsJSON }>(
+        "/v1/auth/passkeys/authentication-options",
+      );
+      const response = await startAuthentication({ optionsJSON: options });
+      await api.post("/v1/auth/passkeys/authenticate", { attemptId, response });
+      router.push("/home");
+    } catch (err) {
+      if (err instanceof ApiError) setFormError(err.message);
+      else if (err instanceof Error && err.name !== "AbortError" && err.name !== "NotAllowedError") {
+        setFormError("Couldn't sign in with that passkey. Please try again.");
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -86,6 +111,11 @@ export default function SignInPage() {
           <div className="h-px flex-1 bg-border-subtle" />
         </div>
         <div className="space-y-2">
+          {passkeyAvailable && (
+            <Button variant="secondary" className="w-full" onClick={onPasskeySignIn} loading={passkeyLoading}>
+              Sign in with a passkey
+            </Button>
+          )}
           <Button variant="secondary" className="w-full" onClick={() => (window.location.href = `${API_BASE_URL}/v1/auth/google/authorize`)}>
             Continue with Google
           </Button>

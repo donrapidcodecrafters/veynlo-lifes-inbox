@@ -69,3 +69,17 @@ export const NativeOAuthSignInDtoSchema = z.object({
   identityToken: z.string().min(1).max(4000),
 });
 export type NativeOAuthSignInDto = z.infer<typeof NativeOAuthSignInDtoSchema>;
+
+/** Passkey (WebAuthn) ceremony payloads are the browser's own complex, nested JSON response objects —
+ * @simplewebauthn/server's verify calls are themselves the real structural validation (they throw on
+ * anything malformed), so these deliberately don't hand-duplicate that shape field by field. */
+export const PasskeyRegisterDtoSchema = z.object({
+  response: z.unknown(),
+});
+export type PasskeyRegisterDto = z.infer<typeof PasskeyRegisterDtoSchema>;
+
+export const PasskeyAuthenticateDtoSchema = z.object({
+  attemptId: z.string().min(1).max(200),
+  response: z.unknown(),
+});
+export type PasskeyAuthenticateDto = z.infer<typeof PasskeyAuthenticateDtoSchema>;

@@ -62,6 +62,7 @@ export const ID_PREFIXES = {
   savedQuery: "svq",
   objectNote: "note",
   passwordResetToken: "prt",
+  passkey: "pky",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

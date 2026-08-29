@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { SignJWT, jwtVerify } from "jose";
+import type { RegistrationResponseJSON, AuthenticationResponseJSON } from "@simplewebauthn/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
@@ -19,6 +20,8 @@ import {
   SetDataRetentionDaysDtoSchema,
   RegisterPushTokenDtoSchema,
   NativeOAuthSignInDtoSchema,
+  PasskeyRegisterDtoSchema,
+  PasskeyAuthenticateDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
@@ -29,6 +32,8 @@ import {
   type SetDataRetentionDaysDto,
   type RegisterPushTokenDto,
   type NativeOAuthSignInDto,
+  type PasskeyRegisterDto,
+  type PasskeyAuthenticateDto,
 } from "./dto";
 
 const SESSION_COOKIE = "veynlo_session";
@@ -170,6 +175,28 @@ export class IdentityController {
     return { userId: session.userId, ...nativeTokenPayload(platform, session) };
   }
 
+  /**
+   * §5 "account recovery"/Devices & security "Passkeys" — a usernameless WebAuthn sign-in, so these two
+   * live here alongside the other unauthenticated sign-in routes rather than under the authed passkey
+   * management routes below. See IdentityService.generatePasskeyAuthenticationOptions/
+   * verifyPasskeyAuthentication for why there's no username step.
+   */
+  @Post("passkeys/authentication-options")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async passkeyAuthenticationOptions() {
+    return this.identity.generatePasskeyAuthenticationOptions();
+  }
+
+  @Post("passkeys/authenticate")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UsePipes(new ZodValidationPipe(PasskeyAuthenticateDtoSchema))
+  async passkeyAuthenticate(@Body() dto: PasskeyAuthenticateDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+    const platform = detectPlatform(req);
+    const session = await this.identity.verifyPasskeyAuthentication(dto.attemptId, dto.response as AuthenticationResponseJSON, { platform });
+    setSessionCookie(res, session.token, session.expiresAt);
+    return { userId: session.userId, ...nativeTokenPayload(platform, session) };
+  }
+
   @Post("sign-out")
   @UseGuards(AuthGuard)
   async signOut(@CurrentUser() user: AuthenticatedUser, @Res({ passthrough: true }) res: FastifyReply) {
@@ -260,6 +287,32 @@ export class IdentityController {
   @UseGuards(AuthGuard)
   async revokeOneSession(@CurrentUser() user: AuthenticatedUser, @Param("sessionId") sessionId: string) {
     await this.identity.revokeOwnSession(user.userId, sessionId);
+    return { success: true };
+  }
+
+  @Get("passkeys")
+  @UseGuards(AuthGuard)
+  async listPasskeys(@CurrentUser() user: AuthenticatedUser) {
+    return this.identity.listPasskeys(user.userId);
+  }
+
+  @Post("passkeys/registration-options")
+  @UseGuards(AuthGuard)
+  async passkeyRegistrationOptions(@CurrentUser() user: AuthenticatedUser) {
+    return this.identity.generatePasskeyRegistrationOptions(user.userId);
+  }
+
+  @Post("passkeys/register")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(PasskeyRegisterDtoSchema))
+  async registerPasskey(@CurrentUser() user: AuthenticatedUser, @Body() dto: PasskeyRegisterDto) {
+    return this.identity.verifyPasskeyRegistration(user.userId, dto.response as RegistrationResponseJSON);
+  }
+
+  @Delete("passkeys/:id")
+  @UseGuards(AuthGuard)
+  async deletePasskey(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    await this.identity.deletePasskey(user.userId, id);
     return { success: true };
   }
 }

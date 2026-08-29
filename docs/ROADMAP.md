@@ -994,3 +994,36 @@ still open:
   the rebuilt `identity.service.ts`/`identity.controller.ts` still worked end to end. Test account deleted
   afterward. **Not done this pass**: Passkey/WebAuthn (schema exists, zero implementation) and the native
   Google Sign-In mobile UI (blocked on the dev-client build note above) remain open.
+
+- **Twelfth gap-closing pass (2026-08-29): Passkeys (WebAuthn), web-only.**
+  The `passkeys` table existed in the schema from the very first migration with zero code behind it. Built
+  a real, usernameless (discoverable-credential) WebAuthn flow using `@simplewebauthn/server`/`browser`
+  rather than hand-rolling ceremony verification — this is exactly the kind of security-critical crypto
+  code a project shouldn't reimplement.
+  1. `IdentityService` gained `generatePasskeyRegistrationOptions`/`verifyPasskeyRegistration` (authed —
+     "add a passkey" from an already-signed-in session) and `generatePasskeyAuthenticationOptions`/
+     `verifyPasskeyAuthentication` (public — deliberately no username step: `residentKey: "required"` at
+     registration means the credential itself is discoverable, so sign-in only needs the credential id the
+     browser hands back to look up which `passkeys` row — and therefore which user — it belongs to).
+     Ceremony challenges live in Redis keyed by userId (registration) or a fresh random attemptId
+     (authentication, since there's no user to key by yet), 5-minute TTL, single-use (deleted on verify).
+     The relying party ID/origin are derived from `WEB_APP_URL` rather than a new env var — they're
+     properties of wherever the app is served, not independent config.
+  2. New routes: `GET /v1/auth/passkeys` (list), `POST /v1/auth/passkeys/registration-options` +
+     `POST /v1/auth/passkeys/register` (authed pair), `DELETE /v1/auth/passkeys/:id`, and the public
+     `POST /v1/auth/passkeys/authentication-options` + `POST /v1/auth/passkeys/authenticate` pair.
+  3. Web UI: a "Passkeys" card on Settings → Devices & sessions (add/list/remove, using
+     `@simplewebauthn/browser`'s `startRegistration`) and a "Sign in with a passkey" button on the sign-in
+     page (`startAuthentication`, shown only when `browserSupportsWebAuthn()`), both treating a
+     dismissed/cancelled browser prompt (`AbortError`/`NotAllowedError`) as silent, not an error to surface.
+  4. Deliberately web-only: the browser's native `navigator.credentials` API has no mobile equivalent here
+     without a native module port (e.g. `react-native-passkeys`) — a separate, larger effort, not attempted
+     alongside this, same reasoning as native Google Sign-In above.
+  **Verified live**: a real, complete WebAuthn ceremony end to end using Chromium's CDP virtual
+  authenticator (`WebAuthn.addVirtualAuthenticator`, real ES256 key generation/signing, not a stub) —
+  first driven directly against the API (register → authenticate → matched back to the same user, correct
+  cross-check), then re-verified through the actual production UI itself: real sign-up, clicked "Add a
+  passkey" and watched it appear in the list, signed out, clicked "Sign in with a passkey" and landed on
+  `/home`, removed the passkey, deleted the account — all real browser interactions, not code inspection.
+  Test accounts and scratch files deleted afterward (including one orphaned by an early script bug,
+  cleaned up via direct SQL once identified).

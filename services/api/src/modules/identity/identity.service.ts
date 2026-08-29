@@ -1,15 +1,24 @@
 import { BadRequestException, ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { randomBytes, createHash } from "node:crypto";
-import { and, eq, isNull, ne, gt } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, gt } from "drizzle-orm";
 import * as argon2 from "argon2";
 import { SignJWT, createRemoteJWKSet, jwtVerify } from "jose";
 import { google } from "googleapis";
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+  type RegistrationResponseJSON,
+  type AuthenticationResponseJSON,
+} from "@simplewebauthn/server";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured, isInboundEmailConfigured } from "../../config/env";
 import { QueueProducerService } from "../../queue/queue-producer.service";
+import { getRedisConnection } from "../../queue/redis-connection";
 import { MailerService } from "../notifications/mailer.service";
 import type { SignInDto, SignUpDto } from "./dto";
 
@@ -39,6 +48,18 @@ let googleJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 function getGoogleJwks() {
   if (!googleJwks) googleJwks = createRemoteJWKSet(new URL(GOOGLE_JWKS_URL));
   return googleJwks;
+}
+
+// WebAuthn (passkeys) — web-only this pass; the browser's native navigator.credentials API has no mobile
+// equivalent here without a native module port (react-native-passkeys or similar), a separate, larger
+// effort tracked as a follow-up rather than attempted alongside this. The relying party ID/origin are
+// derived from WEB_APP_URL rather than a new env var — they're not independent config, they're properties
+// of wherever the web app is actually served from, and getting rpID wrong silently breaks every ceremony.
+const PASSKEY_CHALLENGE_TTL_SECONDS = 5 * 60;
+
+function webauthnRelyingParty(): { rpName: string; rpID: string; origin: string } {
+  const url = new URL(loadEnv().WEB_APP_URL);
+  return { rpName: "Veynlo", rpID: url.hostname, origin: url.origin };
 }
 
 export class OAuthNotConfiguredError extends Error {
@@ -586,5 +607,144 @@ export class IdentityService {
   /** PRIV-001 "retention policy settings beyond Documents" — see the schema comment on `users.dataRetentionDays` for what this actually gates. */
   async setDataRetentionDays(userId: string, days: number | null): Promise<void> {
     await this.db.update(schema.users).set({ dataRetentionDays: days, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+  }
+
+  /**
+   * Devices & security "Passkeys" — registration ceremony, step 1: generate the challenge the browser's
+   * authenticator will sign. `residentKey: "required"` asks for a discoverable credential specifically so
+   * sign-in (below) can be usernameless — otherwise the server would need to know who's signing in before
+   * it could tell the browser which credential IDs to look for. The challenge is stashed in Redis (not the
+   * DB — it's a short-lived ceremony artifact, not a durable record) keyed by userId, since registration is
+   * always for the already-signed-in caller.
+   */
+  async generatePasskeyRegistrationOptions(userId: string) {
+    const [user] = await this.db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    if (!user) throw new UnauthorizedException({ code: "ACCOUNT_NOT_FOUND", message: "Account not found." });
+
+    const existing = await this.db
+      .select({ credentialId: schema.passkeys.credentialId })
+      .from(schema.passkeys)
+      .where(eq(schema.passkeys.userId, userId));
+
+    const { rpName, rpID } = webauthnRelyingParty();
+    const options = await generateRegistrationOptions({
+      rpName,
+      rpID,
+      userName: user.email ?? userId,
+      userID: new TextEncoder().encode(userId),
+      userDisplayName: user.displayName,
+      attestationType: "none",
+      excludeCredentials: existing.map((p) => ({ id: p.credentialId })),
+      authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+    });
+    await getRedisConnection().set(`webauthn:reg:${userId}`, options.challenge, "EX", PASSKEY_CHALLENGE_TTL_SECONDS);
+    return options;
+  }
+
+  /** Registration ceremony, step 2: verify the signed challenge came back from a real authenticator and
+   * persist the resulting credential. The public key is stored base64url-encoded — it's a WebAuthn
+   * *public* key by design, nothing here to encrypt, same reasoning as the schema comment on this column. */
+  async verifyPasskeyRegistration(userId: string, response: RegistrationResponseJSON): Promise<{ id: string }> {
+    const redis = getRedisConnection();
+    const challenge = await redis.get(`webauthn:reg:${userId}`);
+    if (!challenge) {
+      throw new BadRequestException({ code: "PASSKEY_CHALLENGE_EXPIRED", message: "That passkey setup attempt expired. Please try again." });
+    }
+
+    const { rpID, origin } = webauthnRelyingParty();
+    let verified: boolean;
+    let credential: { id: string; publicKey: Uint8Array; counter: number };
+    try {
+      const result = await verifyRegistrationResponse({ response, expectedChallenge: challenge, expectedOrigin: origin, expectedRPID: rpID });
+      verified = result.verified;
+      credential = result.registrationInfo?.credential ?? { id: "", publicKey: new Uint8Array(), counter: 0 };
+    } catch {
+      throw new BadRequestException({ code: "PASSKEY_VERIFICATION_FAILED", message: "Couldn't verify that passkey. Please try again." });
+    }
+    await redis.del(`webauthn:reg:${userId}`);
+    if (!verified) throw new BadRequestException({ code: "PASSKEY_VERIFICATION_FAILED", message: "Couldn't verify that passkey. Please try again." });
+
+    const id = generateId("passkey");
+    await this.db.insert(schema.passkeys).values({
+      id,
+      userId,
+      credentialId: credential.id,
+      publicKey: Buffer.from(credential.publicKey).toString("base64url"),
+      counter: String(credential.counter),
+    });
+    return { id };
+  }
+
+  async listPasskeys(userId: string) {
+    return this.db
+      .select({ id: schema.passkeys.id, createdAt: schema.passkeys.createdAt })
+      .from(schema.passkeys)
+      .where(eq(schema.passkeys.userId, userId))
+      .orderBy(desc(schema.passkeys.createdAt));
+  }
+
+  async deletePasskey(userId: string, id: string): Promise<void> {
+    await this.db.delete(schema.passkeys).where(and(eq(schema.passkeys.id, id), eq(schema.passkeys.userId, userId)));
+  }
+
+  /**
+   * Sign-in ceremony, step 1 — deliberately usernameless (no `allowCredentials`): the whole point of a
+   * resident/discoverable credential is that the browser can present a picker without the server naming
+   * candidates first. There's no signed-in user yet to key the challenge by, unlike registration above, so
+   * this mints a random, single-use attemptId instead and returns it alongside the options for the client
+   * to echo back in step 2.
+   */
+  async generatePasskeyAuthenticationOptions(): Promise<{ attemptId: string; options: Awaited<ReturnType<typeof generateAuthenticationOptions>> }> {
+    const { rpID } = webauthnRelyingParty();
+    const options = await generateAuthenticationOptions({ rpID, userVerification: "preferred" });
+    const attemptId = randomBytes(16).toString("hex");
+    await getRedisConnection().set(`webauthn:auth:${attemptId}`, options.challenge, "EX", PASSKEY_CHALLENGE_TTL_SECONDS);
+    return { attemptId, options };
+  }
+
+  /** Sign-in ceremony, step 2 — the credential id in the response is the only thing that identifies which
+   * user is signing in (there was no username step), so the matching `passkeys` row is looked up by it
+   * directly rather than by any caller-supplied userId. */
+  async verifyPasskeyAuthentication(
+    attemptId: string,
+    response: AuthenticationResponseJSON,
+    deviceInfo: { platform: string },
+  ): Promise<SessionIssued> {
+    const redis = getRedisConnection();
+    const challenge = await redis.get(`webauthn:auth:${attemptId}`);
+    if (!challenge) {
+      throw new UnauthorizedException({ code: "PASSKEY_CHALLENGE_EXPIRED", message: "That sign-in attempt expired. Please try again." });
+    }
+    await redis.del(`webauthn:auth:${attemptId}`);
+
+    const [passkey] = await this.db.select().from(schema.passkeys).where(eq(schema.passkeys.credentialId, response.id)).limit(1);
+    if (!passkey) throw new UnauthorizedException({ code: "PASSKEY_NOT_FOUND", message: "That passkey isn't registered with any account." });
+
+    const { rpID, origin } = webauthnRelyingParty();
+    let verification;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response,
+        expectedChallenge: challenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+        credential: { id: passkey.credentialId, publicKey: Buffer.from(passkey.publicKey, "base64url"), counter: Number(passkey.counter) },
+      });
+    } catch {
+      throw new UnauthorizedException({ code: "PASSKEY_VERIFICATION_FAILED", message: "Couldn't verify that passkey." });
+    }
+    if (!verification.verified) throw new UnauthorizedException({ code: "PASSKEY_VERIFICATION_FAILED", message: "Couldn't verify that passkey." });
+
+    await this.db
+      .update(schema.passkeys)
+      .set({ counter: String(verification.authenticationInfo.newCounter) })
+      .where(eq(schema.passkeys.id, passkey.id));
+
+    const [user] = await this.db.select().from(schema.users).where(eq(schema.users.id, passkey.userId)).limit(1);
+    if (!user || user.status === "deletion_pending" || user.status === "deleted") {
+      throw new UnauthorizedException({ code: "ACCOUNT_NOT_FOUND", message: "This account is no longer available." });
+    }
+    await this.activatePendingHouseholdInvites(user.id, user.email);
+    return this.issueSession(user.id, deviceInfo);
   }
 }
