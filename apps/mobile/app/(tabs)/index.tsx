@@ -18,6 +18,25 @@ interface AttentionItem {
   dueAt: TemporalValueLike | null;
   moneyAtStakeMinorUnits: number | null;
   moneyAtStakeCurrency: string | null;
+  linkedResourceType: string | null;
+  linkedResourceId: string | null;
+}
+
+/** HOME-001 "open" action — same missing-navigation fix as web's Home page. */
+function resourceRoute(type: string | null, id: string | null): string | null {
+  if (!type || !id) return null;
+  switch (type) {
+    case "bill":
+      return `/bill/${id}`;
+    case "return_case":
+      return `/return-case/${id}`;
+    case "warranty":
+      return `/warranty/${id}`;
+    case "person":
+      return `/person/${id}`;
+    default:
+      return null;
+  }
 }
 
 interface HomeResponse {
@@ -141,14 +160,17 @@ export default function HomeScreen() {
         <View style={{ gap: 8 }}>
           <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Today</Text>
           <Card style={{ gap: 10 }}>
-            {today.map((item) => (
-              <View key={`${item.kind}-${item.id}`}>
-                <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{item.title}</Text>
-                <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
-                  {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                </Text>
-              </View>
-            ))}
+            {today.map((item) => {
+              const route = item.kind === "event" ? `/event/${item.id}` : item.kind === "bill" ? `/bill/${item.id}` : "/(tabs)/life";
+              return (
+                <Pressable key={`${item.kind}-${item.id}`} onPress={() => router.push(route)}>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{item.title}</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                    {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </Card>
         </View>
       )}
@@ -229,6 +251,13 @@ function AttentionItemCard({
         </View>
       </View>
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        {resourceRoute(item.linkedResourceType, item.linkedResourceId) && (
+          <View style={{ flex: 1, minWidth: 90 }}>
+            <Button variant="secondary" onPress={() => router.push(resourceRoute(item.linkedResourceType, item.linkedResourceId)!)}>
+              Open
+            </Button>
+          </View>
+        )}
         <View style={{ flex: 1, minWidth: 110 }}>
           <Button variant="secondary" onPress={onResolve}>
             Mark handled

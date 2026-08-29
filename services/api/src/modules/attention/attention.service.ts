@@ -10,6 +10,13 @@ import { loadEnv } from "../../config/env";
 
 const LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
 const SHARE_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// HOME-004 "freshness SLA" — connector sync runs on a 15-minute repeat tick (queue-producer.service.ts);
+// this is a generous multiple of that, not the expected cadence itself, so a normal delayed tick or a
+// slow provider response doesn't false-positive. Before this, `lastSuccessfulSyncAt` was written on every
+// successful sync but never read anywhere — a connector whose sync silently stopped running (a misfired
+// job, a crashed worker, an expired webhook with no polling fallback) but never threw an exception stayed
+// `health: "healthy"` forever, exactly the false-caught-up failure mode the spec calls out as critical.
+const SYNC_STALENESS_THRESHOLD_MS = 2 * 60 * 60 * 1000;
 
 /**
  * HOME-001's ranking model, scoped down from the spec's full list (urgency, severity, certainty, user
@@ -70,7 +77,17 @@ export class AttentionService {
     const ranked = [...items].sort((a, b) => scoreFor(b, now) - scoreFor(a, now));
 
     const connections = await this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, userId));
-    const unhealthyConnections = connections.filter((c) => !["healthy", "initializing"].includes(c.health));
+    const unhealthyConnections = connections.filter((c) => {
+      if (!["healthy", "initializing"].includes(c.health)) return true;
+      // A connection reporting "healthy" whose sync hasn't actually run recently is functionally
+      // unhealthy — see SYNC_STALENESS_THRESHOLD_MS above. Never flags "initializing" (no first sync
+      // has had a chance to run yet) — this only ever downgrades an already-"healthy" connection.
+      if (c.health === "healthy") {
+        const staleness = c.lastSuccessfulSyncAt ? now.getTime() - c.lastSuccessfulSyncAt.getTime() : Infinity;
+        return staleness > SYNC_STALENESS_THRESHOLD_MS;
+      }
+      return false;
+    });
 
     return {
       items: ranked,

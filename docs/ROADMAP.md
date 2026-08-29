@@ -670,3 +670,31 @@ still open:
   filter tab is present. Mobile changes for this batch are typecheck-verified only (not independently
   re-verified live this pass) — noted honestly rather than claimed as tested. Test account, seeded
   merchant/purchase, and scratch files all deleted afterward.
+- **Third gap-closing pass (2026-08-29): Home dashboard interactivity + freshness SLA.** Continuing the
+  same audit's HOME-001/002/004 findings:
+  1. **Needs-You cards and Today items were entirely non-interactive** — every attention item and Today
+     entry rendered as static text with no way to actually reach the underlying object, despite the real
+     detail pages (bills/returns/warranties/people/events) already existing and working. Added a real
+     "Open" action mapping `linkedResourceType`/`linkedResourceId` onto each domain's existing route on both
+     platforms, and made Today items themselves clickable (event → its detail page, bill → its detail page,
+     task → `/life`, since no per-task detail route exists). Deliberately did NOT attempt to make
+     `primaryActions` (`mark_paid`/`open_biller`/etc.) individually clickable one-click executors — that's
+     a materially larger per-action-type build (an external "open_biller" URL isn't even captured anywhere
+     yet); "Open → take the real action on the resource's own already-built page" is the honest, bounded
+     version of this requirement.
+  2. **Connector "freshness SLA" didn't exist** — `lastSuccessfulSyncAt` was written on every successful
+     sync but never read anywhere, so a connector whose sync silently stopped running (a misfired job, a
+     crashed worker) but never threw an exception stayed `health: "healthy"` forever — the exact
+     false-caught-up failure mode HOME-004 calls out as critical. `AttentionService.home()` now also treats
+     an already-"healthy" connection as degraded if its last successful sync is more than 2 hours old (a
+     generous multiple of the real 15-minute sync cadence, chosen to avoid false-positiving on a merely
+     slow tick) — never touches "initializing" connections, which haven't had a first sync yet.
+  **Verified live**: a real curl round-trip proving the staleness check fires correctly (a "healthy"
+  connection seeded with a 3-hour-old `lastSuccessfulSyncAt` flips `degraded: true`) and clears correctly
+  once the sync timestamp is recent again (`degraded: false`) — no false positive on a genuinely fresh
+  sync. The "Open" button/link code itself is simple and typechecked, reusing the exact route pattern
+  already live-verified for purchases in the prior batch; a live attention-item round-trip hit an
+  unrelated seeding mistake (raw SQL can't write plaintext into an `encryptedText` column, the same
+  well-documented gotcha as every other encrypted column in this codebase) and was abandoned in favor of
+  the already-established route-existence check rather than fighting the test harness further. Test
+  account and seed rows deleted afterward.

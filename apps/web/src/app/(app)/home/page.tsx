@@ -19,6 +19,27 @@ interface AttentionItem {
   moneyAtStakeCurrency: string | null;
   primaryActions: string[];
   assignedToUserId: string | null;
+  linkedResourceType: string | null;
+  linkedResourceId: string | null;
+}
+
+/** HOME-001 "open" action — attention items were entirely un-clickable before this; a card told you
+ * something needed attention with no way to actually get to it. Maps the linked resource onto its real
+ * detail route (all of which already existed, just never linked from here). */
+function resourceHref(type: string | null, id: string | null): string | null {
+  if (!type || !id) return null;
+  switch (type) {
+    case "bill":
+      return `/life/bills/${id}`;
+    case "return_case":
+      return `/life/returns/${id}`;
+    case "warranty":
+      return `/life/warranties/${id}`;
+    case "person":
+      return `/people/${id}`;
+    default:
+      return null;
+  }
 }
 
 interface HomeResponse {
@@ -122,16 +143,19 @@ export default function HomePage() {
           </h2>
           <Card>
             <CardBody className="divide-y divide-border-subtle p-0">
-              {today.items.map((item) => (
-                <div key={`${item.kind}-${item.id}`} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div>
-                    <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
-                    <p className="text-sm text-tertiary">
-                      {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                    </p>
-                  </div>
-                </div>
-              ))}
+              {today.items.map((item) => {
+                const href = item.kind === "event" ? `/life/events/${item.id}` : item.kind === "bill" ? `/life/bills/${item.id}` : "/life";
+                return (
+                  <Link key={`${item.kind}-${item.id}`} href={href} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-subtle">
+                    <div>
+                      <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
+                      <p className="text-sm text-tertiary">
+                        {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
             </CardBody>
           </Card>
         </section>
@@ -238,6 +262,13 @@ function AttentionItemCard({
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {resourceHref(item.linkedResourceType, item.linkedResourceId) && (
+              <Link href={resourceHref(item.linkedResourceType, item.linkedResourceId)!}>
+                <Button size="sm" variant="secondary">
+                  Open
+                </Button>
+              </Link>
+            )}
             <Button size="sm" onClick={onResolve}>
               Mark handled
             </Button>
