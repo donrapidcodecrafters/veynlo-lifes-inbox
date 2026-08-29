@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -14,7 +15,18 @@ interface TimelineItem {
   kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case" | "warranty";
   title: string;
   occurredAt: string;
+  resourceType: string;
+  resourceId: string;
 }
+
+const KIND_ROUTE: Record<TimelineItem["kind"], (resourceId: string) => string> = {
+  calendar_event: (id) => `/event/${id}`,
+  purchase: (id) => `/purchase/${id}`,
+  bill: (id) => `/bill/${id}`,
+  return_case: (id) => `/return-case/${id}`,
+  warranty: (id) => `/warranty/${id}`,
+  document: () => `/documents`, // no per-document detail screen exists yet — the list is the closest real destination
+};
 
 interface TimelineResponse {
   items: TimelineItem[];
@@ -54,6 +66,7 @@ function groupByDay(items: TimelineItem[]): Array<[string, TimelineItem[]]> {
 
 export default function TimelineScreen() {
   const { theme } = useAppTheme();
+  const router = useRouter();
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -107,17 +120,19 @@ export default function TimelineScreen() {
               <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{day}</Text>
               <View style={{ gap: 8 }}>
                 {dayItems.map((item) => (
-                  <Card key={`${item.kind}-${item.id}`} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 }}>
-                      <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
-                      <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary, flexShrink: 1 }} numberOfLines={2}>
-                        {item.title}
+                  <Pressable key={`${item.kind}-${item.id}`} onPress={() => router.push(KIND_ROUTE[item.kind](item.resourceId))}>
+                    <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 }}>
+                        <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
+                        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary, flexShrink: 1 }} numberOfLines={2}>
+                          {item.title}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                        {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </Text>
-                    </View>
-                    <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
-                      {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                    </Text>
-                  </Card>
+                    </Card>
+                  </Pressable>
                 ))}
               </View>
             </View>

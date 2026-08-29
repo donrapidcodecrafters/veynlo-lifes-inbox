@@ -43,6 +43,14 @@ interface BillRow {
   };
 }
 
+interface EventRow {
+  id: string;
+  title: string;
+  start: TemporalValueLike;
+  isAllDay: boolean;
+  location: string | null;
+}
+
 interface Warranty {
   id: string;
   productLabel: string;
@@ -60,6 +68,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function LifePage() {
+  const { data: events, isLoading: loadingEvents } = useSWR<EventRow[]>("/v1/events", swrFetcher);
   const { data: purchases, isLoading: loadingPurchases } = useSWR<Purchase[]>("/v1/purchases", swrFetcher);
   const { data: returns, isLoading: loadingReturns } = useSWR<ReturnRow[]>("/v1/returns", swrFetcher);
   const { data: subscriptions, isLoading: loadingSubs } = useSWR<SubscriptionRow[]>("/v1/subscriptions", swrFetcher);
@@ -88,6 +97,29 @@ export default function LifePage() {
           </Link>
         </div>
       </header>
+
+      <Section title="Appointments">
+        {loadingEvents && <div className="h-16 animate-pulse rounded-xl bg-subtle" />}
+        {!loadingEvents && (!events || events.length === 0) && (
+          <EmptyState title="No upcoming appointments" description="Appointments and events discovered from email or a connected calendar will show up here." />
+        )}
+        {events && events.length > 0 && (
+          <div className="divide-y divide-border-subtle rounded-xl border border-border-subtle bg-surface">
+            {events.map((e) => {
+              const when = formatTemporal(e.start);
+              return (
+                <Link key={e.id} href={`/life/events/${e.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-subtle">
+                  <div>
+                    <p className="text-sm font-medium text-primary">{e.title}</p>
+                    {e.location && <p className="text-xs text-tertiary">{e.location}</p>}
+                  </div>
+                  {when && <p className="text-sm text-tertiary">{when}</p>}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </Section>
 
       <Section title="Returns">
         {loadingReturns && <div className="h-16 animate-pulse rounded-xl bg-subtle" />}

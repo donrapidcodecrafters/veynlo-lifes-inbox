@@ -151,17 +151,30 @@ export default function SettingsPage() {
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">Your data</h2>
-        <Card>
-          <CardBody className="flex items-center justify-between">
-            <div>
-              <p className="text-[0.9375rem] font-medium text-primary">Export your data</p>
-              <p className="text-sm text-tertiary">Download a copy of everything Veynlo has recorded for you.</p>
-            </div>
-            <Link href="/settings/data-export">
-              <Button variant="secondary">Export</Button>
-            </Link>
-          </CardBody>
-        </Card>
+        <div className="space-y-3">
+          <Card>
+            <CardBody className="flex items-center justify-between">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Connections</p>
+                <p className="text-sm text-tertiary">Manage what Veynlo reads from — email, calendars, and feeds.</p>
+              </div>
+              <Link href="/connections">
+                <Button variant="secondary">Manage</Button>
+              </Link>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody className="flex items-center justify-between">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Export your data</p>
+                <p className="text-sm text-tertiary">Download a copy of everything Veynlo has recorded for you.</p>
+              </div>
+              <Link href="/settings/data-export">
+                <Button variant="secondary">Export</Button>
+              </Link>
+            </CardBody>
+          </Card>
+        </div>
       </section>
 
       <Button variant="secondary" onClick={signOut}>

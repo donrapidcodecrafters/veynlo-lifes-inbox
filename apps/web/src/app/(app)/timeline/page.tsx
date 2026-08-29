@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,15 @@ const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | 
   document: "neutral",
   return_case: "critical",
   warranty: "neutral",
+};
+
+const KIND_HREF: Record<TimelineItem["kind"], (resourceId: string) => string> = {
+  calendar_event: (id) => `/life/events/${id}`,
+  purchase: (id) => `/life/purchases/${id}`,
+  bill: (id) => `/life/bills/${id}`,
+  return_case: (id) => `/life/returns/${id}`,
+  warranty: (id) => `/life/warranties/${id}`,
+  document: () => `/documents`, // no per-document detail page exists yet — the list is the closest real destination
 };
 
 function groupByDay(items: TimelineItem[]): Array<[string, TimelineItem[]]> {
@@ -112,17 +122,19 @@ export default function TimelinePage() {
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-tertiary">{day}</h2>
               <div className="space-y-2">
                 {dayItems.map((item) => (
-                  <Card key={`${item.kind}-${item.id}`}>
-                    <CardBody className="flex items-center justify-between gap-3 py-3">
-                      <div className="flex items-center gap-3">
-                        <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
-                        <p className="text-sm font-medium text-primary">{item.title}</p>
-                      </div>
-                      <p className="text-xs text-tertiary">
-                        {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                      </p>
-                    </CardBody>
-                  </Card>
+                  <Link key={`${item.kind}-${item.id}`} href={KIND_HREF[item.kind](item.resourceId)}>
+                    <Card className="transition-colors hover:bg-subtle">
+                      <CardBody className="flex items-center justify-between gap-3 py-3">
+                        <div className="flex items-center gap-3">
+                          <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
+                          <p className="text-sm font-medium text-primary">{item.title}</p>
+                        </div>
+                        <p className="text-xs text-tertiary">
+                          {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                        </p>
+                      </CardBody>
+                    </Card>
+                  </Link>
                 ))}
               </div>
             </div>

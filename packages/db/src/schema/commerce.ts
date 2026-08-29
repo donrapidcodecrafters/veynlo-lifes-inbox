@@ -122,6 +122,7 @@ export const shipments = pgTable("shipments", {
   carrier: text("carrier").notNull(),
   trackingNumber: text("tracking_number").notNull(), // dedup lookup key — see findExistingShipment
   status: text("status").notNull().default("label_created"),
+  confidenceBand: text("confidence_band"),
   estimatedDelivery: jsonb("estimated_delivery").$type<TemporalValue>(),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   isGiftPrivate: boolean("is_gift_private").notNull().default(false),
@@ -152,6 +153,7 @@ export const subscriptions = pgTable("subscriptions", {
     .notNull()
     .references(() => recurringStreams.id, { onDelete: "cascade" }),
   state: text("state").notNull().default("candidate"),
+  confidenceBand: text("confidence_band"),
   trialEndsAt: jsonb("trial_ends_at").$type<TemporalValue>(),
   cancellationInstructionsUrl: encryptedText("cancellation_instructions_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -174,6 +176,7 @@ export const bills = pgTable(
     amountDueCurrency: text("amount_due_currency"),
     dueDate: jsonb("due_date").$type<TemporalValue>().notNull(),
     dueDateSort: timestamp("due_date_sort", { withTimezone: true }),
+    confidenceBand: text("confidence_band"),
     autopayBelieved: boolean("autopay_believed"),
     paymentObservedTransactionId: encryptedText("payment_observed_transaction_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -197,6 +200,7 @@ export const warranties = pgTable(
     warrantyLengthMonths: integer("warranty_length_months"),
     expirationDate: jsonb("expiration_date").$type<TemporalValue>().notNull(),
     expirationDateSort: timestamp("expiration_date_sort", { withTimezone: true }),
+    confidenceBand: text("confidence_band"),
     registrationConfirmed: boolean("registration_confirmed"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

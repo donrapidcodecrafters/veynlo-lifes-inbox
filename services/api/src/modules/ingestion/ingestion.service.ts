@@ -398,6 +398,7 @@ export class IngestionService {
         carrier,
         trackingNumber: result.data.trackingNumber,
         status: result.data.status ?? "in_transit",
+        confidenceBand,
         estimatedDelivery,
         isGiftPrivate: false,
       });
@@ -517,6 +518,7 @@ export class IngestionService {
       billerLabel: result.data.billerName,
       amountDueMinorUnits: result.data.amountDueMinorUnits,
       amountDueCurrency: result.data.currency,
+      confidenceBand,
       dueDate,
       dueDateSort: temporalToSortDate(dueDate),
       autopayBelieved: result.data.autopayMentioned,
@@ -585,6 +587,7 @@ export class IngestionService {
       id: subscriptionId,
       recurringStreamId,
       state: result.data.isTrial ? "trial" : "candidate",
+      confidenceBand,
       trialEndsAt,
       cancellationInstructionsUrl: result.data.cancellationInstructionsUrl,
     });
@@ -691,6 +694,7 @@ export class IngestionService {
       purchaseLineId: matchedLine?.id ?? null,
       productLabel: result.data.productLabel,
       warrantyLengthMonths: result.data.warrantyLengthMonths,
+      confidenceBand,
       expirationDate,
       expirationDateSort: temporalToSortDate(expirationDate),
       registrationConfirmed: result.data.registrationConfirmed,

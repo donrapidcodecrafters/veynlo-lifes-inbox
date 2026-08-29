@@ -40,6 +40,46 @@ export class ScheduleService {
       .orderBy(asc(schema.calendarEvents.startSort));
   }
 
+  /** Same indirect evidence-resolution pattern as CommerceService (calendar_events has no direct sourceEventId column — traced via the inbox_items row that filed it). Kept local rather than shared to avoid coupling two otherwise-independent services over a few lines of logic. */
+  private async evidenceForSourceEvent(sourceEventId: string | null) {
+    if (!sourceEventId) return null;
+    const [row] = await this.db
+      .select({ event: schema.sourceEvents, connection: schema.connections })
+      .from(schema.sourceEvents)
+      .leftJoin(schema.connections, eq(schema.connections.id, schema.sourceEvents.connectionId))
+      .where(eq(schema.sourceEvents.id, sourceEventId))
+      .limit(1);
+    if (!row) return null;
+    return {
+      sourceEventId: row.event.id,
+      kind: row.event.kind,
+      subjectLine: row.event.subjectLine,
+      snippet: row.event.snippet,
+      fromAddress: row.event.fromAddress,
+      occurredAt: row.event.occurredAt,
+      provider: row.connection?.provider ?? null,
+    };
+  }
+
+  private async evidenceViaInboxItem(linkedResourceType: string, linkedResourceId: string) {
+    const [inboxItem] = await this.db
+      .select({ sourceEventId: schema.inboxItems.sourceEventId })
+      .from(schema.inboxItems)
+      .where(and(eq(schema.inboxItems.linkedResourceType, linkedResourceType), eq(schema.inboxItems.linkedResourceId, linkedResourceId)))
+      .limit(1);
+    return this.evidenceForSourceEvent(inboxItem?.sourceEventId ?? null);
+  }
+
+  async eventDetail(eventId: string, userId: string) {
+    const [event] = await this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
+    if (!event) return null;
+    if (event.ownerUserId !== userId) {
+      const householdIds = event.householdId ? await this.households.delegatedHouseholdIds(userId, "schedule:read") : [];
+      if (!event.householdId || !householdIds.includes(event.householdId) || event.visibility === "private") return null;
+    }
+    return { event, evidence: await this.evidenceViaInboxItem("calendar_event", eventId) };
+  }
+
   async tasks(userId: string) {
     return this.db
       .select()

@@ -14,6 +14,11 @@ export class ScheduleController {
     return this.schedule.upcomingEvents(user.userId);
   }
 
+  @Get("events/:id")
+  eventDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.schedule.eventDetail(id, user.userId);
+  }
+
   @Get("tasks")
   tasks(@CurrentUser() user: AuthenticatedUser) {
     return this.schedule.tasks(user.userId);

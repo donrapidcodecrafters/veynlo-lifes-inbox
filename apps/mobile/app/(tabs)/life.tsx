@@ -11,6 +11,14 @@ import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
 
+interface EventRow {
+  id: string;
+  title: string;
+  start: TemporalValueLike;
+  isAllDay: boolean;
+  location: string | null;
+}
+
 interface Purchase {
   id: string;
   orderNumber: string | null;
@@ -57,6 +65,7 @@ function SectionHeading({ title }: { title: string }) {
 export default function LifeScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
+  const [events, setEvents] = useState<EventRow[] | null>(null);
   const [purchases, setPurchases] = useState<Purchase[] | null>(null);
   const [returns, setReturns] = useState<ReturnRow[] | null>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
@@ -65,13 +74,15 @@ export default function LifeScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [p, r, s, b, w] = await Promise.all([
+    const [ev, p, r, s, b, w] = await Promise.all([
+      api.get<EventRow[]>("/v1/events"),
       api.get<Purchase[]>("/v1/purchases"),
       api.get<ReturnRow[]>("/v1/returns"),
       api.get<SubscriptionRow[]>("/v1/subscriptions"),
       api.get<BillRow[]>("/v1/bills"),
       api.get<Warranty[]>("/v1/warranties"),
     ]);
+    setEvents(ev);
     setPurchases(p);
     setReturns(r);
     setSubscriptions(s);
@@ -109,6 +120,42 @@ export default function LifeScreen() {
             Documents
           </Button>
         </View>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <SectionHeading title="Appointments" />
+        {!events && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
+        {events?.length === 0 && (
+          <EmptyState title="No upcoming appointments" description="Appointments and events discovered from email or a connected calendar will show up here." />
+        )}
+        {events && events.length > 0 && (
+          <Card style={{ padding: 0 }}>
+            {events.map((e, i) => {
+              const when = formatTemporal(e.start);
+              return (
+                <Pressable
+                  key={e.id}
+                  onPress={() => router.push(`/event/${e.id}`)}
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: theme.colors.borderSubtle,
+                  }}
+                >
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{e.title}</Text>
+                    {e.location && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{e.location}</Text>}
+                  </View>
+                  {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{when}</Text>}
+                </Pressable>
+              );
+            })}
+          </Card>
+        )}
       </View>
 
       <View style={{ gap: 8 }}>
