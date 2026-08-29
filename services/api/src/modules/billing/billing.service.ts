@@ -49,15 +49,21 @@ export class BillingService {
     return { planKey, entitlements: active, capabilities };
   }
 
-  /** §46 — the plan catalog this deployment can actually sell, i.e. only the plans with a real Stripe
-   * Price configured. Unconfigured plans are omitted entirely rather than shown with a broken "Subscribe"
-   * button — same "not configured" degradation as every other optional external dependency. */
+  /** §46 — the plan catalog this deployment can actually sell, i.e. only the (plan, interval) combinations
+   * with a real Stripe Price configured. Unconfigured combinations are omitted entirely rather than shown
+   * with a broken "Subscribe" button — same "not configured" degradation as every other optional external
+   * dependency. A plan can be monthly-only, annual-only, or both; the client groups rows by planKey. */
   plans() {
     const env = loadEnv();
-    const priceByPlan: Partial<Record<PlanKey, string>> = { plus: env.STRIPE_PRICE_PLUS_MONTHLY, family: env.STRIPE_PRICE_FAMILY_MONTHLY };
-    return (Object.keys(priceByPlan) as PlanKey[])
-      .filter((planKey) => priceByPlan[planKey])
-      .map((planKey) => ({ planKey, priceId: priceByPlan[planKey]!, capabilities: PLAN_CATALOG[planKey] }));
+    const rows: Array<{ planKey: PlanKey; interval: "month" | "year"; priceId: string | undefined }> = [
+      { planKey: "plus", interval: "month", priceId: env.STRIPE_PRICE_PLUS_MONTHLY },
+      { planKey: "plus", interval: "year", priceId: env.STRIPE_PRICE_PLUS_ANNUAL },
+      { planKey: "family", interval: "month", priceId: env.STRIPE_PRICE_FAMILY_MONTHLY },
+      { planKey: "family", interval: "year", priceId: env.STRIPE_PRICE_FAMILY_ANNUAL },
+    ];
+    return rows
+      .filter((row): row is { planKey: PlanKey; interval: "month" | "year"; priceId: string } => Boolean(row.priceId))
+      .map((row) => ({ planKey: row.planKey, interval: row.interval, priceId: row.priceId, capabilities: PLAN_CATALOG[row.planKey] }));
   }
 
   async createCheckoutSession(userId: string, planKey: PlanKey, priceId: string) {

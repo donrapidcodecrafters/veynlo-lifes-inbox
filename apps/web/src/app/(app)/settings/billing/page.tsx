@@ -7,6 +7,7 @@ import type { CapabilityKey, CapabilityValue, PlanKey } from "@veynlo/core";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 
 interface EntitlementsResponse {
   planKey: PlanKey;
@@ -15,6 +16,7 @@ interface EntitlementsResponse {
 
 interface PlanOption {
   planKey: PlanKey;
+  interval: "month" | "year";
   priceId: string;
   capabilities: Record<CapabilityKey, CapabilityValue>;
 }
@@ -44,6 +46,16 @@ const CAPABILITY_LABELS: Record<CapabilityKey, string> = {
   household_members_max: "Household members",
 };
 
+function groupPlansByKey(plans: PlanOption[]): Array<{ planKey: PlanKey; options: Partial<Record<"month" | "year", PlanOption>> }> {
+  const byPlan = new Map<PlanKey, Partial<Record<"month" | "year", PlanOption>>>();
+  for (const plan of plans) {
+    const options = byPlan.get(plan.planKey) ?? {};
+    options[plan.interval] = plan;
+    byPlan.set(plan.planKey, options);
+  }
+  return Array.from(byPlan.entries()).map(([planKey, options]) => ({ planKey, options }));
+}
+
 function formatCapability(key: CapabilityKey, value: CapabilityValue): string {
   if (typeof value === "boolean") return value ? "Included" : "Not included";
   if (value === null) return "Unlimited";
@@ -58,6 +70,7 @@ export default function BillingPage() {
   const [pendingPlan, setPendingPlan] = useState<PlanKey | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intervalByPlan, setIntervalByPlan] = useState<Partial<Record<PlanKey, "month" | "year">>>({});
 
   async function subscribe(plan: PlanOption) {
     setError(null);
@@ -152,20 +165,37 @@ export default function BillingPage() {
         )}
         {plans && plans.length > 0 && (
           <div className="space-y-3">
-            {plans.map((plan) => (
-              <Card key={plan.planKey}>
-                <CardBody className="flex items-center justify-between">
-                  <p className="text-[0.9375rem] font-medium text-primary">{PLAN_LABELS[plan.planKey]}</p>
-                  {currentPlan === plan.planKey ? (
-                    <span className="text-sm text-tertiary">Current plan</span>
-                  ) : (
-                    <Button onClick={() => subscribe(plan)} loading={pendingPlan === plan.planKey}>
-                      Subscribe
-                    </Button>
-                  )}
-                </CardBody>
-              </Card>
-            ))}
+            {groupPlansByKey(plans).map(({ planKey, options }) => {
+              const selectedInterval = intervalByPlan[planKey] ?? (options.month ? "month" : "year");
+              const selected = options[selectedInterval] ?? options.month ?? options.year!;
+              return (
+                <Card key={planKey}>
+                  <CardBody className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <p className="text-[0.9375rem] font-medium text-primary">{PLAN_LABELS[planKey]}</p>
+                      {options.month && options.year && (
+                        <SegmentedControl
+                          aria-label={`${PLAN_LABELS[planKey]} billing interval`}
+                          value={selectedInterval}
+                          onChange={(v) => setIntervalByPlan((prev) => ({ ...prev, [planKey]: v }))}
+                          options={[
+                            { value: "month", label: "Monthly" },
+                            { value: "year", label: "Annual" },
+                          ]}
+                        />
+                      )}
+                    </div>
+                    {currentPlan === planKey ? (
+                      <span className="text-sm text-tertiary">Current plan</span>
+                    ) : (
+                      <Button onClick={() => subscribe(selected)} loading={pendingPlan === planKey}>
+                        Subscribe
+                      </Button>
+                    )}
+                  </CardBody>
+                </Card>
+              );
+            })}
           </div>
         )}
       </section>

@@ -61,6 +61,11 @@ const EnvSchema = z.object({
   // pretending a subscribe button works with no real price behind it.
   STRIPE_PRICE_PLUS_MONTHLY: z.string().optional(),
   STRIPE_PRICE_FAMILY_MONTHLY: z.string().optional(),
+  // Annual variants are independently optional — a deployment can sell monthly-only, annual-only, or
+  // both; GET /v1/billing/plans reflects exactly the (plan, interval) combinations that actually have a
+  // configured price, same "not configured" degradation as the monthly prices above.
+  STRIPE_PRICE_PLUS_ANNUAL: z.string().optional(),
+  STRIPE_PRICE_FAMILY_ANNUAL: z.string().optional(),
   // RevenueCat normalizes Apple/Google/web subscription entitlements (§SEC-BILLING). Unset in dev —
   // the webhook route returns a clear "not configured" state rather than pretending to work, same as
   // the Google/Microsoft connectors above. RevenueCat webhook auth is a static shared header value it
