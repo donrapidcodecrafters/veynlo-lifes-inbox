@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -69,6 +71,12 @@ const FILTER_KINDS: Array<{ value: TimelineKind | ""; label: string }> = [
   { value: "document", label: "Documents" },
 ];
 
+const EXPORT_PRESETS = [
+  { label: "Last 30 days", days: 30 },
+  { label: "Last 90 days", days: 90 },
+  { label: "This year", days: 365 },
+];
+
 type ZoomLevel = "day" | "week" | "month";
 
 function groupKey(date: Date, zoom: ZoomLevel): string {
@@ -92,9 +100,6 @@ function groupByZoom(items: TimelineItem[], zoom: ZoomLevel): Array<[string, Tim
   return Array.from(groups.entries());
 }
 
-// CSV export is web-only this pass — a real download there is just a Content-Disposition navigation
-// (window.location.href); native has no equivalent without adding expo-file-system/expo-sharing and a
-// rebuild, a separate effort from the rest of this pass (same reasoning as mobile voice input on Ask).
 export default function TimelineScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
@@ -104,6 +109,28 @@ export default function TimelineScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [zoom, setZoom] = useState<ZoomLevel>("day");
   const [kindFilter, setKindFilter] = useState<TimelineKind | "">("");
+  const [showExport, setShowExport] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  /** Same "no browser download here" reasoning as Documents export: the CSV is written to the cache
+   * directory and handed to the OS share sheet via expo-sharing. */
+  async function exportRange(days: number) {
+    setExporting(true);
+    try {
+      const to = new Date();
+      const from = new Date(Date.now() - days * 86_400_000);
+      const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+      const buffer = await api.downloadBinary(`/v1/timeline/export?${params.toString()}`, undefined, "GET");
+      const destination = new File(Paths.cache, `veynlo-timeline-${Date.now()}.csv`);
+      destination.write(new Uint8Array(buffer));
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(destination.uri, { mimeType: "text/csv" });
+      }
+      setShowExport(false);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     setIsLoading(true);
@@ -133,7 +160,27 @@ export default function TimelineScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title="Timeline" subtitle="Everything Veynlo knows, in order." />
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <ScreenHeader title="Timeline" subtitle="Everything Veynlo knows, in order." />
+        </View>
+        <Button variant="secondary" onPress={() => setShowExport((v) => !v)}>
+          {showExport ? "Cancel" : "Export"}
+        </Button>
+      </View>
+
+      {showExport && (
+        <Card style={{ gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Download a CSV of:</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {EXPORT_PRESETS.map((p) => (
+              <Button key={p.label} variant="secondary" onPress={() => exportRange(p.days)} loading={exporting}>
+                {p.label}
+              </Button>
+            ))}
+          </View>
+        </Card>
+      )}
 
       <View style={{ flexDirection: "row", gap: 6, padding: 6, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.sm }}>
         {(["day", "week", "month"] as const).map((z) => {

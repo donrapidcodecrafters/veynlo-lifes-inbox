@@ -104,14 +104,16 @@ export const api = {
     }
     return body as T;
   },
-  /** Raw-binary POST response (e.g. a ZIP), for endpoints whose body can't be a plain GET/redirect. */
-  async downloadBinary(path: string, data?: unknown): Promise<ArrayBuffer> {
+  /** Raw-binary response (e.g. a ZIP or CSV) for an endpoint whose result can't be a plain browser
+   * GET/redirect on native (no address bar to navigate, so the bytes have to be fetched directly). Defaults
+   * to POST (Documents export's shape); Timeline's export is a plain GET with query params, no body. */
+  async downloadBinary(path: string, data?: unknown, method: "GET" | "POST" = "POST"): Promise<ArrayBuffer> {
     const token = await tokenStore.get();
     const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: "POST",
+      method,
       credentials: "include",
       headers: {
-        "Content-Type": "application/json",
+        ...(data ? { "Content-Type": "application/json" } : {}),
         "x-veynlo-platform": Platform.OS,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
