@@ -18,3 +18,8 @@ export const DeleteAccountDtoSchema = z.object({
   password: z.string().min(1).max(200),
 });
 export type DeleteAccountDto = z.infer<typeof DeleteAccountDtoSchema>;
+
+export const SetAiProcessingDtoSchema = z.object({
+  enabled: z.boolean(),
+});
+export type SetAiProcessingDto = z.infer<typeof SetAiProcessingDtoSchema>;

@@ -356,4 +356,9 @@ export class IdentityService {
     const { passwordHash: _passwordHash, ...safe } = user;
     return safe;
   }
+
+  /** PRIV-001 privacy/consent center — see the schema comment on `users.aiProcessingEnabled` for what this actually gates. */
+  async setAiProcessingEnabled(userId: string, enabled: boolean): Promise<void> {
+    await this.db.update(schema.users).set({ aiProcessingEnabled: enabled, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+  }
 }

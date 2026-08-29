@@ -21,6 +21,11 @@ export const users = pgTable("users", {
   // Customer Portal (billingPortal.sessions.create requires a customer id, not just a subscription id).
   // Nothing wrote this before the billing UI existed, since the webhook never had a reason to persist it.
   stripeCustomerId: text("stripe_customer_id"),
+  // PRIV-001 "privacy/consent center" — real, checked opt-out: IngestionService.classifyAndExtract reads
+  // this before ever calling the AI classifier/extractor, not just a cosmetic settings toggle. Off means
+  // every captured item is filed unprocessed (same "nothing extracted" shape as ANTHROPIC_API_KEY being
+  // unset) rather than silently still running AI behind a switch that looked like it worked.
+  aiProcessingEnabled: boolean("ai_processing_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

@@ -12,9 +12,11 @@ import {
   DeleteAccountDtoSchema,
   SignInDtoSchema,
   SignUpDtoSchema,
+  SetAiProcessingDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
+  type SetAiProcessingDto,
 } from "./dto";
 
 const SESSION_COOKIE = "veynlo_session";
@@ -140,6 +142,14 @@ export class IdentityController {
   @UseGuards(AuthGuard)
   async me(@CurrentUser() user: AuthenticatedUser) {
     return this.identity.me(user.userId);
+  }
+
+  @Post("ai-processing")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(SetAiProcessingDtoSchema))
+  async setAiProcessing(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetAiProcessingDto) {
+    await this.identity.setAiProcessingEnabled(user.userId, dto.enabled);
+    return { enabled: dto.enabled };
   }
 
   @Get("sessions")

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "ai_processing_enabled" boolean DEFAULT true NOT NULL;

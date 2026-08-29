@@ -116,6 +116,9 @@ export default function SettingsScreen() {
 
       <View style={{ gap: 8 }}>
         <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Data</Text>
+        <Button variant="secondary" onPress={() => router.push("/privacy")}>
+          Privacy
+        </Button>
         <Button variant="secondary" onPress={() => router.push("/connections")}>
           Connections
         </Button>

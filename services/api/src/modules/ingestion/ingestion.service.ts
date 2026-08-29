@@ -176,6 +176,16 @@ export class IngestionService {
     householdId: string | null;
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<void> {
+    // PRIV-001 privacy/consent center's "AI processing" opt-out — checked here, before ANY AI call, not
+    // just the domain-classifier one below: a known-sender match still routes into extractReceipt/
+    // extractBill/etc., which themselves call the AI extractor for field-level extraction, so gating only
+    // the classifier wouldn't actually stop AI processing for a user who opted out.
+    const [user] = await this.db.select({ aiProcessingEnabled: schema.users.aiProcessingEnabled }).from(schema.users).where(eq(schema.users.id, ctx.ownerUserId)).limit(1);
+    if (user && !user.aiProcessingEnabled) {
+      await this.markProcessed(ctx.sourceEventId, "filed");
+      return;
+    }
+
     const known = matchKnownSender(ctx.parsed.fromAddress, `${ctx.parsed.subject}\n${ctx.parsed.snippet}`);
     let domains: string[];
 

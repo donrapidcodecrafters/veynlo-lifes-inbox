@@ -70,6 +70,20 @@ export default function SettingsPage() {
       </Card>
 
       <section>
+        <Card>
+          <CardBody className="flex items-center justify-between">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Privacy</p>
+              <p className="text-sm text-tertiary">What Veynlo can see, AI processing, and your data controls — all in one place.</p>
+            </div>
+            <Link href="/settings/privacy">
+              <Button variant="secondary">Open</Button>
+            </Link>
+          </CardBody>
+        </Card>
+      </section>
+
+      <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">Appearance</h2>
         <Card>
           <CardBody className="flex items-center justify-between">
@@ -181,7 +195,7 @@ export default function SettingsPage() {
         Sign out
       </Button>
 
-      <section>
+      <section id="danger-zone">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">Danger zone</h2>
         <Card>
           <CardBody className="space-y-4">
