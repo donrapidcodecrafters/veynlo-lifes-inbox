@@ -1092,3 +1092,32 @@ still open:
   remaining 5 with `nextCursor: null`. Test accounts and all seeded rows deleted afterward — one account from
   an earlier attempt (a shell-scripting mistake meant its delete-account call was never actually issued, not
   a product bug) was caught during cleanup and removed the same way.
+
+- **Fifteenth gap-closing pass (2026-08-29): mobile accessibility markup — a bounded first pass, not full
+  coverage.** Confirmed via a repo-wide grep that literally zero of the mobile app's 45 screen/component
+  files used `accessibilityLabel`/`accessibilityRole` anywhere — a real, previously-flagged gap. Fixed the
+  highest-leverage spots rather than attempting an exhaustive per-screen sweep in one pass:
+  1. The shared `Button` component (used on nearly every screen) gained `accessibilityRole="button"` and
+     `accessibilityState={{disabled, busy: loading}}` — Pressable has no default role, so without this a
+     screen reader doesn't announce these as buttons at all, and a loading button reads as silently inert
+     rather than "busy."
+  2. The shared `TextField` component gained `accessibilityLabel` derived from its own already-required
+     `label` prop (falling back to `"label, error"` when one is set) — every text field across sign-in,
+     sign-up, Inbox corrections, and Documents editing was completely unlabeled for a screen reader despite
+     rendering a visible label right above the input; this is the single highest-leverage fix in this pass.
+  3. The shared `ActionMenu` bottom sheet gained `accessibilityRole="menuitem"` on its items,
+     `accessibilityViewIsModal` on its sheet content, and a real `accessibilityLabel` on its backdrop
+     dismiss-tap (previously an unlabeled full-screen Pressable).
+  4. The Documents screen's custom checkbox (a bare icon-only Pressable — a checkmark glyph with zero text,
+     the worst single gap found) gained `accessibilityRole="checkbox"` + `accessibilityState={{checked}}` +
+     a real label; its sibling row-expand Pressable gained a role + label too.
+  5. The Inbox screen's filter-tab Pressables gained `accessibilityRole="tab"` + `accessibilityState`
+     `{selected}`.
+  **Not done this pass** (disclosed, not silently skipped): the category-chip/document-type-chip/retention-
+  policy-chip Pressables repeated across Inbox and Documents, and every OTHER screen in the app (Timeline,
+  Home, Settings, People, Connections, etc.) — a real, larger follow-up, not attempted here given the size
+  of a genuinely exhaustive pass. **Verified**: typecheck-clean (RN's `AccessibilityState` type doesn't
+  include a web-ARIA-style `invalid` field, caught and fixed during this pass) and logically reviewed: live
+  screen-reader verification (VoiceOver/TalkBack on a real device or simulator) was not possible in this
+  environment, for the same reason every other native-build attempt this session was blocked — the
+  Xcode/CocoaPods parent-folder-path-with-spaces issue already disclosed earlier in this file.

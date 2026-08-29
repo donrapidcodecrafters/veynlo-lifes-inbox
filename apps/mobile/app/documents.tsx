@@ -315,11 +315,16 @@ export default function DocumentsScreen() {
             <Card key={doc.id} style={{ gap: 10 }}>
               <Pressable
                 onPress={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
+                accessibilityRole="button"
+                accessibilityLabel={expandedId === doc.id ? `Collapse ${doc.title}` : `Edit ${doc.title}`}
                 style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
               >
                 <Pressable
                   onPress={() => toggleSelected(doc.id)}
                   hitSlop={8}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selectedIds.has(doc.id) }}
+                  accessibilityLabel={`Select ${doc.title} for export`}
                   style={{
                     width: 20,
                     height: 20,

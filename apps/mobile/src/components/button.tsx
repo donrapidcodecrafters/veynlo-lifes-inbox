@@ -26,6 +26,8 @@ export function Button({ variant = "primary", loading, disabled, children, style
   return (
     <Pressable
       disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
       style={(state) => [
         {
           backgroundColor,

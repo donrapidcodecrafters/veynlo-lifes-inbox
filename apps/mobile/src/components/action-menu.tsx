@@ -29,8 +29,14 @@ export function ActionMenu({ items }: { items: ActionMenuItem[] }) {
         </Button>
       </View>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }} onPress={() => setOpen(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
+          onPress={() => setOpen(false)}
+          accessibilityLabel="Dismiss menu"
+          accessibilityRole="button"
+        >
           <Pressable
+            accessibilityViewIsModal
             style={{
               backgroundColor: theme.colors.bgSurface,
               borderTopLeftRadius: theme.radius.xl,
@@ -46,6 +52,7 @@ export function ActionMenu({ items }: { items: ActionMenuItem[] }) {
                   setOpen(false);
                   item.onSelect();
                 }}
+                accessibilityRole="menuitem"
                 style={{ paddingHorizontal: 20, paddingVertical: 14 }}
               >
                 <Text style={{ fontSize: 16, fontWeight: "500", color: item.tone === "critical" ? theme.colors.critical : theme.colors.textPrimary }}>
@@ -53,7 +60,11 @@ export function ActionMenu({ items }: { items: ActionMenuItem[] }) {
                 </Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => setOpen(false)} style={{ paddingHorizontal: 20, paddingVertical: 14, marginTop: 4 }}>
+            <Pressable
+              onPress={() => setOpen(false)}
+              accessibilityRole="button"
+              style={{ paddingHorizontal: 20, paddingVertical: 14, marginTop: 4 }}
+            >
               <Text style={{ fontSize: 16, fontWeight: "600", color: theme.colors.textSecondary }}>Cancel</Text>
             </Pressable>
           </Pressable>

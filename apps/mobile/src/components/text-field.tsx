@@ -13,6 +13,7 @@ export function TextField({ label, error, style, ...props }: TextFieldProps) {
       <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>{label}</Text>
       <TextInput
         placeholderTextColor={theme.colors.textTertiary}
+        accessibilityLabel={error ? `${label}, ${error}` : label}
         style={[
           {
             height: 48,

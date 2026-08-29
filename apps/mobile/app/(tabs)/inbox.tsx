@@ -239,6 +239,8 @@ export default function InboxScreen() {
             <Pressable
               key={f.value}
               onPress={() => setFilter(f.value)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
               style={{
                 paddingVertical: 6,
                 paddingHorizontal: 12,
