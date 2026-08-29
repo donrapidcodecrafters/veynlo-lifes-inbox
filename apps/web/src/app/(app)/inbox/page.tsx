@@ -15,8 +15,38 @@ interface InboxItem {
   summary: string;
   confidenceBand: string;
   reviewState: string;
+  autoFiled: boolean;
   suggestedActions: string[];
   linkedResourceType: string | null;
+}
+
+interface SourceInspection {
+  kind: string;
+  subjectLine: string | null;
+  snippet: string | null;
+  fromAddress: string | null;
+  occurredAt: string;
+}
+
+type FilterTab = "needs_review" | "auto_filed" | "low_confidence" | "all";
+
+const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
+  { value: "needs_review", label: "Needs Review" },
+  { value: "auto_filed", label: "Auto-filed" },
+  { value: "low_confidence", label: "Low Confidence" },
+  { value: "all", label: "All" },
+];
+
+const CATEGORIES = ["purchase", "shipment", "bill", "subscription", "appointment", "warranty", "task"];
+
+function queryFor(filter: FilterTab, category: string): string {
+  const params = new URLSearchParams();
+  if (filter === "needs_review") params.set("reviewState", "new");
+  if (filter === "auto_filed") params.set("autoFiled", "true");
+  if (filter === "low_confidence") params.set("confidenceBand", "needs_review");
+  if (category) params.set("category", category);
+  const qs = params.toString();
+  return qs ? `/v1/inbox?${qs}` : "/v1/inbox";
 }
 
 const CONFIDENCE_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
@@ -71,13 +101,12 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
 };
 
 export default function InboxPage() {
-  const [filter, setFilter] = useState<"new" | "all">("new");
+  const [filter, setFilter] = useState<FilterTab>("needs_review");
+  const [category, setCategory] = useState("");
   const [correctingId, setCorrectingId] = useState<string | null>(null);
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
-  const { data, isLoading, mutate } = useSWR<InboxItem[]>(
-    filter === "new" ? "/v1/inbox?reviewState=new" : "/v1/inbox",
-    swrFetcher,
-  );
+  const { data, isLoading, mutate } = useSWR<InboxItem[]>(queryFor(filter, category), swrFetcher);
 
   async function act(id: string, action: "confirm" | "archive" | "dismiss") {
     await api.post(`/v1/inbox/${id}/${action}`);
@@ -90,30 +119,49 @@ export default function InboxPage() {
     mutate();
   }
 
+  async function blockSender(id: string) {
+    await api.post(`/v1/inbox/${id}/block-sender`);
+    mutate();
+  }
+
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-primary">Inbox</h1>
-          <p className="mt-1 text-sm text-tertiary">Newly discovered information to review.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1 rounded-lg bg-subtle p-1">
-            {(["new", "all"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
-                  filter === f ? "bg-surface text-primary shadow-xs" : "text-tertiary"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
+      <header className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-primary">Inbox</h1>
+            <p className="mt-1 text-sm text-tertiary">Newly discovered information to review.</p>
           </div>
           <Button size="sm" variant="secondary" onClick={() => setCapturing((v) => !v)}>
             {capturing ? "Cancel" : "Add manually"}
           </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1 rounded-lg bg-subtle p-1">
+            {FILTER_TABS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setFilter(f.value)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  filter === f.value ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="rounded-lg border border-border-default bg-surface px-2.5 py-1.5 text-sm text-primary"
+          >
+            <option value="">All categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c.replace("_", " ")}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
@@ -157,12 +205,13 @@ export default function InboxPage() {
                           <Badge tone={CONFIDENCE_TONE[item.confidenceBand] ?? "neutral"}>
                             {item.confidenceBand.replace("_", " ")}
                           </Badge>
+                          {item.autoFiled && <Badge tone="neutral">auto-filed</Badge>}
                         </div>
                         <p className="text-[0.9375rem] font-medium text-primary">{item.summary}</p>
                       </div>
                     </div>
                     {item.reviewState === "new" && correctingId !== item.id && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button size="sm" onClick={() => act(item.id, "confirm")}>
                           Confirm
                         </Button>
@@ -180,6 +229,12 @@ export default function InboxPage() {
                         <Button size="sm" variant="ghost" onClick={() => act(item.id, "dismiss")}>
                           Dismiss
                         </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setInspectingId(inspectingId === item.id ? null : item.id)}>
+                          Inspect source
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => blockSender(item.id)}>
+                          Block sender
+                        </Button>
                       </div>
                     )}
                     {item.reviewState === "new" && correctingId === item.id && fields && (
@@ -193,6 +248,7 @@ export default function InboxPage() {
                         onCancel={() => setCorrectingId(null)}
                       />
                     )}
+                    {inspectingId === item.id && <SourceInspectionPanel itemId={item.id} />}
                   </CardBody>
                 </Card>
               </li>
@@ -421,5 +477,31 @@ function CorrectionForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/** INB-001 "inspect source" — the bounded fields source_events actually stores (never a full body, see the schema comment); "why am I seeing this?" not a durable copy of the original message. */
+function SourceInspectionPanel({ itemId }: { itemId: string }) {
+  const { data, error } = useSWR<SourceInspection>(`/v1/inbox/${itemId}/source`, swrFetcher);
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border-subtle bg-subtle p-3 text-sm">
+      {error && <p className="text-tertiary">The original source is no longer available.</p>}
+      {!error && !data && <p className="text-tertiary">Loading…</p>}
+      {data && (
+        <>
+          <p className="text-tertiary">
+            <span className="font-medium text-primary">From:</span> {data.fromAddress ?? "Unknown"}
+          </p>
+          {data.subjectLine && (
+            <p className="text-tertiary">
+              <span className="font-medium text-primary">Subject:</span> {data.subjectLine}
+            </p>
+          )}
+          {data.snippet && <p className="text-tertiary">{data.snippet}</p>}
+          <p className="text-xs text-tertiary">Received {new Date(data.occurredAt).toLocaleString()}</p>
+        </>
+      )}
+    </div>
   );
 }

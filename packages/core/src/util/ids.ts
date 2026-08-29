@@ -56,6 +56,7 @@ export const ID_PREFIXES = {
   adminSession: "adms",
   extractorVersion: "exv",
   extractionRun: "exr",
+  senderRule: "sndr",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

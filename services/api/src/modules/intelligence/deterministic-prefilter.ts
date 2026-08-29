@@ -66,11 +66,25 @@ export const KNOWN_SENDER_DOMAINS: Record<string, { merchantName: string; catego
   "usps.com": { merchantName: "USPS", category: "shipment" },
 };
 
+/**
+ * A raw `From` header is usually `"Display Name" <address@domain.com>`, not a bare address — extracts
+ * just the address so callers can reliably get its domain. Falls back to the input as-is when there's no
+ * `<...>` wrapper (a bare address, which is what every existing test/caller happened to pass).
+ */
+export function extractEmailAddress(fromHeader: string): string {
+  const angleMatch = fromHeader.match(/<([^>]+)>/);
+  return (angleMatch?.[1] ?? fromHeader).trim().toLowerCase();
+}
+
 export function matchKnownSender(
   fromAddress: string,
   subjectAndSnippet = "",
 ): { merchantName: string; category: "receipt" | "shipment" } | null {
-  const domain = fromAddress.split("@")[1]?.toLowerCase().trim();
+  // Previously `fromAddress.split("@")[1]` directly on the raw header — correct only for a bare address
+  // with no display name. A real "From: \"Amazon.com\" <auto-confirm@amazon.com>" header (the common case
+  // for real bulk senders) produced domain "amazon.com>" (with a trailing angle bracket), which never
+  // matched KNOWN_SENDER_DOMAINS — silently defeating this entire fast path for most real Gmail messages.
+  const domain = extractEmailAddress(fromAddress).split("@")[1];
   if (!domain) return null;
   const entry = KNOWN_SENDER_DOMAINS[domain];
   if (!entry) return null;

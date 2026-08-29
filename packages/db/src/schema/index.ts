@@ -16,3 +16,4 @@ export * from "./search";
 export * from "./data-export";
 export * from "./feature-flags";
 export * from "./onboarding";
+export * from "./sender-rules";

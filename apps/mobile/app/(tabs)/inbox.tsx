@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { Pressable, RefreshControl, Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -16,7 +16,37 @@ interface InboxItem {
   summary: string;
   confidenceBand: string;
   reviewState: string;
+  autoFiled: boolean;
   linkedResourceType: string | null;
+}
+
+interface SourceInspection {
+  kind: string;
+  subjectLine: string | null;
+  snippet: string | null;
+  fromAddress: string | null;
+  occurredAt: string;
+}
+
+type FilterTab = "needs_review" | "auto_filed" | "low_confidence" | "all";
+
+const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
+  { value: "needs_review", label: "Needs Review" },
+  { value: "auto_filed", label: "Auto-filed" },
+  { value: "low_confidence", label: "Low Confidence" },
+  { value: "all", label: "All" },
+];
+
+const CATEGORIES = ["purchase", "shipment", "bill", "subscription", "appointment", "warranty", "task"];
+
+function queryFor(filter: FilterTab, category: string): string {
+  const params = new URLSearchParams();
+  if (filter === "needs_review") params.set("reviewState", "new");
+  if (filter === "auto_filed") params.set("autoFiled", "true");
+  if (filter === "low_confidence") params.set("confidenceBand", "needs_review");
+  if (category) params.set("category", category);
+  const qs = params.toString();
+  return qs ? `/v1/inbox?${qs}` : "/v1/inbox";
 }
 
 const CONFIDENCE_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
@@ -75,12 +105,15 @@ export default function InboxScreen() {
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [filter, setFilter] = useState<FilterTab>("needs_review");
+  const [category, setCategory] = useState("");
 
   const load = useCallback(async () => {
-    const res = await api.get<InboxItem[]>("/v1/inbox?reviewState=new");
+    const res = await api.get<InboxItem[]>(queryFor(filter, category));
     setItems(res);
-  }, []);
+  }, [filter, category]);
 
   useFocusEffect(
     useCallback(() => {
@@ -108,6 +141,11 @@ export default function InboxScreen() {
     load();
   }
 
+  async function blockSender(id: string) {
+    await api.post(`/v1/inbox/${id}/block-sender`);
+    load();
+  }
+
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -119,6 +157,44 @@ export default function InboxScreen() {
           {capturing ? "Cancel" : "Add manually"}
         </Button>
       </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+        {FILTER_TABS.map((f) => {
+          const active = filter === f.value;
+          return (
+            <Pressable
+              key={f.value}
+              onPress={() => setFilter(f.value)}
+              style={{
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                borderRadius: theme.radius.sm,
+                backgroundColor: active ? theme.colors.bgSurface : theme.colors.bgSubtle,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>{f.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+        <Pressable
+          onPress={() => setCategory("")}
+          style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: category === "" ? theme.colors.bgSurface : "transparent", borderWidth: 1, borderColor: theme.colors.borderSubtle }}
+        >
+          <Text style={{ fontSize: 12, color: category === "" ? theme.colors.textPrimary : theme.colors.textTertiary }}>All categories</Text>
+        </Pressable>
+        {CATEGORIES.map((c) => (
+          <Pressable
+            key={c}
+            onPress={() => setCategory(c)}
+            style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: category === c ? theme.colors.bgSurface : "transparent", borderWidth: 1, borderColor: theme.colors.borderSubtle }}
+          >
+            <Text style={{ fontSize: 12, color: category === c ? theme.colors.textPrimary : theme.colors.textTertiary }}>{c.replace("_", " ")}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
 
       {capturing && (
         <Card style={{ gap: 12 }}>
@@ -149,6 +225,7 @@ export default function InboxScreen() {
                   <View style={{ flexDirection: "row", gap: 6 }}>
                     <Badge>{item.category}</Badge>
                     <Badge tone={CONFIDENCE_TONE[item.confidenceBand] ?? "neutral"}>{item.confidenceBand.replace("_", " ")}</Badge>
+                    {item.autoFiled && <Badge tone="neutral">auto-filed</Badge>}
                   </View>
                   <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>{item.summary}</Text>
                 </View>
@@ -179,6 +256,16 @@ export default function InboxScreen() {
                         Dismiss
                       </Button>
                     </View>
+                    <View style={{ flex: 1, minWidth: 90 }}>
+                      <Button variant="ghost" onPress={() => setInspectingId(inspectingId === item.id ? null : item.id)}>
+                        Inspect source
+                      </Button>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 90 }}>
+                      <Button variant="ghost" onPress={() => blockSender(item.id)}>
+                        Block sender
+                      </Button>
+                    </View>
                   </View>
                 )}
                 {isCorrecting && fields && (
@@ -192,6 +279,7 @@ export default function InboxScreen() {
                     onCancel={() => setCorrectingId(null)}
                   />
                 )}
+                {inspectingId === item.id && <SourceInspectionPanel itemId={item.id} />}
               </Card>
             );
           })}
@@ -373,6 +461,42 @@ function CorrectionForm({
           </Button>
         </View>
       </View>
+    </View>
+  );
+}
+
+/** INB-001 "inspect source" — mirrors the web Inbox page's identical panel. */
+function SourceInspectionPanel({ itemId }: { itemId: string }) {
+  const { theme } = useAppTheme();
+  const [source, setSource] = useState<SourceInspection | "loading" | "error">("loading");
+
+  useEffect(() => {
+    api
+      .get<SourceInspection>(`/v1/inbox/${itemId}/source`)
+      .then(setSource)
+      .catch(() => setSource("error"));
+  }, [itemId]);
+
+  return (
+    <View style={{ gap: 4, borderRadius: theme.radius.md, backgroundColor: theme.colors.bgSubtle, padding: 12 }}>
+      {source === "loading" && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Loading…</Text>}
+      {source === "error" && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>The original source is no longer available.</Text>}
+      {source !== "loading" && source !== "error" && (
+        <>
+          <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+            <Text style={{ fontWeight: "600", color: theme.colors.textPrimary }}>From: </Text>
+            {source.fromAddress ?? "Unknown"}
+          </Text>
+          {source.subjectLine && (
+            <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+              <Text style={{ fontWeight: "600", color: theme.colors.textPrimary }}>Subject: </Text>
+              {source.subjectLine}
+            </Text>
+          )}
+          {source.snippet && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{source.snippet}</Text>}
+          <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>Received {new Date(source.occurredAt).toLocaleString()}</Text>
+        </>
+      )}
     </View>
   );
 }

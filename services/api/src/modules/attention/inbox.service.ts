@@ -2,9 +2,10 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from "@nes
 import { and, eq, isNotNull, lte } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
-import type { TemporalValue } from "@veynlo/core";
+import { generateId, type TemporalValue } from "@veynlo/core";
 import { DATABASE } from "../../database/database.module";
 import { temporalToSortDate } from "../ingestion/temporal.util";
+import { extractEmailAddress } from "../intelligence/deterministic-prefilter";
 import type { CorrectInboxItemDto } from "./dto";
 
 function dateTemporal(iso: string): TemporalValue {
@@ -24,19 +25,91 @@ function instantTemporal(iso: string): TemporalValue {
 export class InboxService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  async list(userId: string, filter: { reviewState?: string; category?: string } = {}) {
+  async list(userId: string, filter: { reviewState?: string; category?: string; autoFiled?: boolean; confidenceBand?: string } = {}) {
     await this.unsnoozeExpired(userId);
     const conditions = [eq(schema.inboxItems.ownerUserId, userId)];
     if (filter.reviewState) conditions.push(eq(schema.inboxItems.reviewState, filter.reviewState));
     if (filter.category) conditions.push(eq(schema.inboxItems.category, filter.category));
+    if (filter.autoFiled !== undefined) conditions.push(eq(schema.inboxItems.autoFiled, filter.autoFiled));
+    if (filter.confidenceBand) conditions.push(eq(schema.inboxItems.confidenceBand, filter.confidenceBand));
     return this.db.select().from(schema.inboxItems).where(and(...conditions));
   }
 
   /**
-   * Real, previously-missing fix: nothing anywhere flipped `reviewState` back once `snoozedUntil` passed
-   * — a snoozed item stayed invisible to `?reviewState=new` forever, and a `?reviewState=snoozed` filter
-   * kept showing items whose snooze had already expired. Runs on every list() call rather than a
-   * background tick, so it's always correct by the time a client actually reads the data.
+   * INB-001 "inspect source" — the original message's recognizable-but-bounded fields (source_events
+   * deliberately never stores a full body, see packages/db/src/schema/graph.ts), never the raw content
+   * itself.
+   */
+  async inspectSource(id: string, userId: string) {
+    const item = await this.assertOwned(id, userId);
+    const [source] = await this.db
+      .select({
+        kind: schema.sourceEvents.kind,
+        subjectLine: schema.sourceEvents.subjectLine,
+        snippet: schema.sourceEvents.snippet,
+        fromAddress: schema.sourceEvents.fromAddress,
+        occurredAt: schema.sourceEvents.occurredAt,
+      })
+      .from(schema.sourceEvents)
+      .where(eq(schema.sourceEvents.id, item.sourceEventId))
+      .limit(1);
+    if (!source) throw new NotFoundException({ code: "SOURCE_NOT_FOUND", message: "The original source is no longer available." });
+    return source;
+  }
+
+  /** INB-001/MAIL-006 "block sender" — future messages from this exact address are filed with no inbox item created at all (IngestionService.classifyAndExtract). Doesn't touch anything already filed. */
+  async blockSender(id: string, userId: string) {
+    const address = await this.senderAddressFor(id, userId);
+    await this.upsertSenderRule(userId, address, "block", null);
+  }
+
+  /** MAIL-006 "always treat messages from this sender as X" — forces future messages from this exact address into one category, skipping AI classification for them entirely. */
+  async setSenderCategoryRule(id: string, userId: string, category: string) {
+    const address = await this.senderAddressFor(id, userId);
+    await this.upsertSenderRule(userId, address, "category_override", category);
+  }
+
+  async listSenderRules(userId: string) {
+    return this.db.select().from(schema.senderRules).where(eq(schema.senderRules.ownerUserId, userId));
+  }
+
+  async deleteSenderRule(ruleId: string, userId: string) {
+    await this.db.delete(schema.senderRules).where(and(eq(schema.senderRules.id, ruleId), eq(schema.senderRules.ownerUserId, userId)));
+  }
+
+  private async senderAddressFor(inboxItemId: string, userId: string): Promise<string> {
+    const item = await this.assertOwned(inboxItemId, userId);
+    const [source] = await this.db
+      .select({ fromAddress: schema.sourceEvents.fromAddress })
+      .from(schema.sourceEvents)
+      .where(eq(schema.sourceEvents.id, item.sourceEventId))
+      .limit(1);
+    if (!source?.fromAddress) {
+      throw new BadRequestException({ code: "NO_SENDER", message: "This item has no sender to create a rule for." });
+    }
+    return extractEmailAddress(source.fromAddress);
+  }
+
+  private async upsertSenderRule(ownerUserId: string, senderAddress: string, action: string, categoryOverride: string | null): Promise<void> {
+    const [existing] = await this.db
+      .select({ id: schema.senderRules.id })
+      .from(schema.senderRules)
+      .where(and(eq(schema.senderRules.ownerUserId, ownerUserId), eq(schema.senderRules.senderAddress, senderAddress)))
+      .limit(1);
+    if (existing) {
+      await this.db.update(schema.senderRules).set({ action, categoryOverride }).where(eq(schema.senderRules.id, existing.id));
+    } else {
+      await this.db.insert(schema.senderRules).values({ id: generateId("senderRule"), ownerUserId, senderAddress, action, categoryOverride });
+    }
+  }
+
+  /**
+   * Correction to this file's own earlier comment (and docs/ROADMAP.md's Home-dashboard entry): a global
+   * `inbox-unsnooze` worker tick already does this exact flip every 15 minutes (worker-main.ts,
+   * queue-producer.service.ts) — this was NOT actually a missing fix for inbox_items. This per-user call
+   * is a genuine but modest improvement on top of that: it makes the flip immediately consistent at read
+   * time instead of waiting up to 15 minutes for the next tick, at the cost of one extra UPDATE per
+   * list() call. Kept for that reason, not because the worker tick didn't exist.
    */
   private async unsnoozeExpired(userId: string): Promise<void> {
     await this.db

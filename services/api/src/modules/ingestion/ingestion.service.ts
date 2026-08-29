@@ -17,7 +17,7 @@ import {
   WarrantyExtractionSchema,
   SubscriptionExtractionSchema,
 } from "../intelligence/extraction-schemas";
-import { evaluateRelevance, matchKnownSender } from "../intelligence/deterministic-prefilter";
+import { evaluateRelevance, matchKnownSender, extractEmailAddress } from "../intelligence/deterministic-prefilter";
 import { parseGmailMessage, type ParsedEmail } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, temporalToSortDate } from "./temporal.util";
@@ -176,6 +176,14 @@ export class IngestionService {
     householdId: string | null;
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<void> {
+    // MAIL-006 "user sender rules" — checked first, before even the AI-processing opt-out: a blocked
+    // sender should never surface at all, opt-out or not.
+    const senderRule = await this.findSenderRule(ctx.ownerUserId, ctx.parsed.fromAddress);
+    if (senderRule?.action === "block") {
+      await this.markProcessed(ctx.sourceEventId, "filed");
+      return;
+    }
+
     // PRIV-001 privacy/consent center's "AI processing" opt-out — checked here, before ANY AI call, not
     // just the domain-classifier one below: a known-sender match still routes into extractReceipt/
     // extractBill/etc., which themselves call the AI extractor for field-level extraction, so gating only
@@ -189,7 +197,9 @@ export class IngestionService {
     const known = matchKnownSender(ctx.parsed.fromAddress, `${ctx.parsed.subject}\n${ctx.parsed.snippet}`);
     let domains: string[];
 
-    if (known) {
+    if (senderRule?.action === "category_override" && senderRule.categoryOverride) {
+      domains = [senderRule.categoryOverride];
+    } else if (known) {
       domains = [known.category];
     } else if (this.ai.isConfigured()) {
       const classification = await this.ai.extractStructured({
@@ -983,5 +993,21 @@ export class IngestionService {
 
   private async markProcessed(sourceEventId: string, state: string): Promise<void> {
     await this.db.update(schema.sourceEvents).set({ processingState: state }).where(eq(schema.sourceEvents.id, sourceEventId));
+  }
+
+  /**
+   * MAIL-006 — matched against the address extracted from the just-parsed, still-in-memory From header,
+   * never a DB-side query against `source_events.fromAddress` (encrypted, non-deterministic IV, so it
+   * can't support equality lookups — same reasoning as users.email elsewhere in this codebase).
+   */
+  private async findSenderRule(ownerUserId: string, fromHeader: string) {
+    const address = extractEmailAddress(fromHeader);
+    if (!address) return null;
+    const [rule] = await this.db
+      .select()
+      .from(schema.senderRules)
+      .where(and(eq(schema.senderRules.ownerUserId, ownerUserId), eq(schema.senderRules.senderAddress, address)))
+      .limit(1);
+    return rule ?? null;
   }
 }

@@ -70,4 +70,15 @@ describe("matchKnownSender", () => {
   it("returns null for a malformed address instead of throwing", () => {
     expect(matchKnownSender("not-an-email")).toBeNull();
   });
+
+  it("matches a real 'Display Name <address>' From header, not just a bare address — the real bug this fixes", () => {
+    // Before this fix, `fromAddress.split("@")[1]` on the raw header produced domain "amazon.com>" (with a
+    // trailing angle bracket) for any header carrying a display name — the common real-world shape for
+    // bulk senders — so this entire fast path silently never matched real Gmail/Outlook messages.
+    expect(matchKnownSender('"Amazon.com" <auto-confirm@amazon.com>', "Your order has shipped")).toEqual({
+      merchantName: "Amazon",
+      category: "shipment",
+    });
+    expect(matchKnownSender("UPS <mcinfo@ups.com>")).toEqual({ merchantName: "UPS", category: "shipment" });
+  });
 });
