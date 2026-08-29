@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "disabled_mail_categories" jsonb DEFAULT '[]'::jsonb NOT NULL;

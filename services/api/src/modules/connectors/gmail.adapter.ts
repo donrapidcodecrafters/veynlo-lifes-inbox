@@ -10,6 +10,8 @@ import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
+import { extractGmailAttachmentRefs } from "../ingestion/gmail-message-parser";
+import type { gmail_v1 } from "googleapis";
 
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 
@@ -92,6 +94,28 @@ export class GmailAdapter {
     return { connectionId };
   }
 
+  /**
+   * MAIL-004 "attachment intelligence" — Gmail's `messages.get(format:"full")` response only carries
+   * attachment metadata (filename/mimeType/attachmentId), never the bytes; a separate
+   * `messages.attachments.get` call per attachment is required to actually fetch content, base64url-
+   * encoded the same way inline part bodies are. Best-effort: one failed attachment fetch (a since-deleted
+   * attachment, a transient API error) logs and skips rather than failing the whole message's ingestion.
+   */
+  private async downloadAttachments(gmail: ReturnType<typeof google.gmail>, messageId: string, message: gmail_v1.Schema$Message) {
+    const refs = extractGmailAttachmentRefs(message.payload ?? undefined);
+    const attachments: Array<{ filename: string; mimeType: string; buffer: Buffer }> = [];
+    for (const ref of refs) {
+      try {
+        const attachment = await gmail.users.messages.attachments.get({ userId: "me", messageId, id: ref.attachmentId });
+        if (!attachment.data.data) continue;
+        attachments.push({ filename: ref.filename, mimeType: ref.mimeType, buffer: Buffer.from(attachment.data.data, "base64url") });
+      } catch {
+        // Best-effort — see doc comment above.
+      }
+    }
+    return attachments;
+  }
+
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
     const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
     if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
@@ -112,11 +136,13 @@ export class GmailAdapter {
       for (const message of list.data.messages ?? []) {
         if (!message.id) continue;
         const full = await gmail.users.messages.get({ userId: "me", id: message.id, format: "full" });
+        const attachments = await this.downloadAttachments(gmail, message.id, full.data);
         await this.ingestion.ingestGmailMessage({
           ownerUserId: connection.ownerUserId,
           householdId: connection.householdId,
           connectionId,
           message: full.data,
+          attachments,
         });
         itemCount += 1;
       }
@@ -183,11 +209,13 @@ export class GmailAdapter {
             if (!messageId || seenMessageIds.has(messageId)) continue;
             seenMessageIds.add(messageId);
             const full = await gmail.users.messages.get({ userId: "me", id: messageId, format: "full" });
+            const attachments = await this.downloadAttachments(gmail, messageId, full.data);
             await this.ingestion.ingestGmailMessage({
               ownerUserId: connection.ownerUserId,
               householdId: connection.householdId,
               connectionId,
               message: full.data,
+              attachments,
             });
             itemCount += 1;
           }

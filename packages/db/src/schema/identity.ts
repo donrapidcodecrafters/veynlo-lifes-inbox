@@ -32,6 +32,11 @@ export const users = pgTable("users", {
   // the inbound webhook must look a sender up by exact match on this column, and AES-GCM's non-
   // deterministic IV rules out an encrypted column for equality lookups (same reasoning as `email` above).
   inboundEmailAlias: text("inbound_email_alias").unique(),
+  // MAIL-002 "category privacy controls" — life domains (receipt/shipment/bill/subscription/calendar_event/
+  // warranty) the user has opted OUT of extracting from mail entirely. Checked in the same
+  // IngestionService.classifyAndExtract chokepoint as aiProcessingEnabled above, but per-category rather
+  // than all-or-nothing: a disabled category is filtered out of `domains` before any extractor runs for it.
+  disabledMailCategories: jsonb("disabled_mail_categories").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

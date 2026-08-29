@@ -7,7 +7,7 @@ import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
-import type { GraphMessage } from "../ingestion/outlook-message-parser";
+import type { GraphMessage, GraphAttachment } from "../ingestion/outlook-message-parser";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 
@@ -15,7 +15,7 @@ const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/auth
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const OUTLOOK_SCOPES = ["offline_access", "Mail.Read"];
-const MESSAGE_SELECT = "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,internetMessageHeaders";
+const MESSAGE_SELECT = "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,internetMessageHeaders,hasAttachments";
 
 interface OutlookCredentials {
   access_token: string;
@@ -94,6 +94,27 @@ export class OutlookAdapter {
     return { connectionId };
   }
 
+  /**
+   * MAIL-004 "attachment intelligence" — mirrors GmailAdapter.downloadAttachments. Graph's message list
+   * response never inlines attachment bytes (only `hasAttachments`), so a message flagged true gets one
+   * follow-up `GET /messages/{id}/attachments` call. Filters to `#microsoft.graph.fileAttachment` only —
+   * `itemAttachment` (a forwarded email/contact/event) and `referenceAttachment` (a OneDrive/SharePoint
+   * link) have no file bytes to OCR. Best-effort per attachment, same as Gmail's version.
+   */
+  private async downloadAttachments(connection: { credentialRef: string | null }, messageId: string) {
+    const page = await this.graphGet<{ value: GraphAttachment[] }>(connection, `${GRAPH_BASE}/me/messages/${messageId}/attachments`);
+    const attachments: Array<{ filename: string; mimeType: string; buffer: Buffer }> = [];
+    for (const item of page.value) {
+      if (item["@odata.type"] !== "#microsoft.graph.fileAttachment" || !item.contentBytes || !item.name || !item.contentType) continue;
+      try {
+        attachments.push({ filename: item.name, mimeType: item.contentType, buffer: Buffer.from(item.contentBytes, "base64") });
+      } catch {
+        // Best-effort — see doc comment above.
+      }
+    }
+    return attachments;
+  }
+
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
     const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
     if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
@@ -106,11 +127,13 @@ export class OutlookAdapter {
     do {
       const page = await this.graphGet<{ value: GraphMessage[]; "@odata.nextLink"?: string }>(connection, url);
       for (const message of page.value) {
+        const attachments = message.hasAttachments && message.id ? await this.downloadAttachments(connection, message.id) : [];
         await this.ingestion.ingestOutlookMessage({
           ownerUserId: connection.ownerUserId,
           householdId: connection.householdId,
           connectionId,
           message,
+          attachments,
         });
         itemCount += 1;
       }
@@ -161,11 +184,13 @@ export class OutlookAdapter {
           url,
         );
         for (const message of page.value) {
+          const attachments = message.hasAttachments && message.id ? await this.downloadAttachments(connection, message.id) : [];
           await this.ingestion.ingestOutlookMessage({
             ownerUserId: connection.ownerUserId,
             householdId: connection.householdId,
             connectionId,
             message,
+            attachments,
           });
           itemCount += 1;
         }

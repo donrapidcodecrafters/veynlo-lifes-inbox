@@ -127,6 +127,13 @@
       "when": 1788018758320,
       "tag": "0017_marvelous_wrecker",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788024164831,
+      "tag": "0018_unique_valkyrie",
+      "breakpoints": true
     }
   ]
 }

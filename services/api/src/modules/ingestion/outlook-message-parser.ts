@@ -10,6 +10,19 @@ export interface GraphMessage {
   bodyPreview?: string | null;
   body?: { contentType?: "text" | "html" | null; content?: string | null } | null;
   internetMessageHeaders?: Array<{ name?: string | null; value?: string | null }> | null;
+  hasAttachments?: boolean | null;
+}
+
+/** MAIL-004 "attachment intelligence" — Graph's file-attachment resource shape from `GET
+ * /me/messages/{id}/attachments`. `contentBytes` is standard base64 (unlike Gmail's base64url) and is only
+ * present on `#microsoft.graph.fileAttachment` (not `itemAttachment`/`referenceAttachment`, which this
+ * pipeline doesn't handle — those aren't files with bytes to OCR in the first place). */
+export interface GraphAttachment {
+  "@odata.type"?: string;
+  name?: string | null;
+  contentType?: string | null;
+  contentBytes?: string | null;
+  isInline?: boolean | null;
 }
 
 export function parseOutlookMessage(message: GraphMessage): ParsedEmail {

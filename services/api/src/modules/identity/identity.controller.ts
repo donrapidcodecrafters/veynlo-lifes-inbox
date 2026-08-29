@@ -13,11 +13,13 @@ import {
   SignInDtoSchema,
   SignUpDtoSchema,
   SetAiProcessingDtoSchema,
+  SetDisabledMailCategoriesDtoSchema,
   RegisterPushTokenDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
   type SetAiProcessingDto,
+  type SetDisabledMailCategoriesDto,
   type RegisterPushTokenDto,
 } from "./dto";
 
@@ -152,6 +154,14 @@ export class IdentityController {
   async setAiProcessing(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetAiProcessingDto) {
     await this.identity.setAiProcessingEnabled(user.userId, dto.enabled);
     return { enabled: dto.enabled };
+  }
+
+  @Post("disabled-mail-categories")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(SetDisabledMailCategoriesDtoSchema))
+  async setDisabledMailCategories(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetDisabledMailCategoriesDto) {
+    await this.identity.setDisabledMailCategories(user.userId, dto.categories);
+    return { categories: dto.categories };
   }
 
   @Post("push-token")

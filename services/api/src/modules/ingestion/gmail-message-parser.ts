@@ -30,6 +30,29 @@ function extractPlainText(part: gmail_v1.Schema$MessagePart | undefined): string
   return "";
 }
 
+export interface GmailAttachmentRef {
+  filename: string;
+  mimeType: string;
+  attachmentId: string;
+}
+
+/** MAIL-004 "attachment intelligence" — a part counts as a real attachment when it has both a filename
+ * (an inline part like the plain-text/HTML body has none) and a separate `attachmentId` (Gmail's API
+ * splits large/binary part bodies out from the message payload; small inline parts embed `body.data`
+ * directly instead and have no attachmentId to fetch). Walks nested `multipart/*` parts recursively since
+ * a real multipart/mixed message with an attachment nests it under a multipart/alternative body part. */
+export function extractGmailAttachmentRefs(part: gmail_v1.Schema$MessagePart | undefined): GmailAttachmentRef[] {
+  if (!part) return [];
+  const refs: GmailAttachmentRef[] = [];
+  if (part.filename && part.body?.attachmentId && part.mimeType) {
+    refs.push({ filename: part.filename, mimeType: part.mimeType, attachmentId: part.body.attachmentId });
+  }
+  for (const child of part.parts ?? []) {
+    refs.push(...extractGmailAttachmentRefs(child));
+  }
+  return refs;
+}
+
 export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedEmail {
   const headers: Record<string, string> = {};
   for (const h of message.payload?.headers ?? []) {

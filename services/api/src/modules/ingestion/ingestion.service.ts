@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, lte, ne } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
 import { generateId, confidenceToBand, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -21,12 +21,20 @@ import { evaluateRelevance, matchKnownSender, extractEmailAddress } from "../int
 import { parseGmailMessage, type ParsedEmail } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, temporalToSortDate } from "./temporal.util";
+import { DocumentsService } from "../documents/documents.service";
+
+interface EmailAttachment {
+  filename: string;
+  mimeType: string;
+  buffer: Buffer;
+}
 
 interface IngestGmailParams {
   ownerUserId: string;
   householdId: string | null;
   connectionId: string;
   message: gmail_v1.Schema$Message;
+  attachments?: EmailAttachment[];
 }
 
 interface IngestOutlookParams {
@@ -34,9 +42,12 @@ interface IngestOutlookParams {
   householdId: string | null;
   connectionId: string;
   message: GraphMessage;
+  attachments?: EmailAttachment[];
 }
 
 const RISK_THRESHOLDS = { reviewThreshold: 0.55, highThreshold: 0.85 };
+/** MAIL-004 "attachment intelligence" — the OCR-capable subset of DocumentsService's own ALLOWED_MIME_TYPES (excludes text/plain: a .txt attachment has no OCR step to run and isn't the "PDF/image attachment as evidence" the spec means). */
+const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic"]);
 
 /**
  * Orchestrates pipeline stages 0-5 for a single source event (§39.1):
@@ -53,6 +64,7 @@ export class IngestionService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly ai: AnthropicExtractionService,
     private readonly notifications: NotificationDeliveryService,
+    private readonly documents: DocumentsService,
   ) {}
 
   async ingestGmailMessage(params: IngestGmailParams): Promise<void> {
@@ -80,6 +92,7 @@ export class IngestionService {
     providerPrefix: string;
     providerItemId: string | undefined;
     parsed: ParsedEmail;
+    attachments?: EmailAttachment[];
   }): Promise<void> {
     const { parsed, providerItemId } = params;
     const contentHash = createHash("sha256").update(parsed.subject + parsed.bodyText).digest("hex");
@@ -121,7 +134,13 @@ export class IngestionService {
       return;
     }
 
-    await this.classifyAndExtract({ sourceEventId, ownerUserId: params.ownerUserId, householdId: params.householdId, parsed });
+    await this.classifyAndExtract({
+      sourceEventId,
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      parsed,
+      attachments: params.attachments,
+    });
   }
 
   /** Entry point for share-capture/voice-note/manual-forward/URL-capture and for local testing without a live Gmail connection. */
@@ -175,6 +194,7 @@ export class IngestionService {
     ownerUserId: string;
     householdId: string | null;
     parsed: ReturnType<typeof parseGmailMessage>;
+    attachments?: EmailAttachment[];
   }): Promise<void> {
     // MAIL-006 "user sender rules" — checked first, before even the AI-processing opt-out: a blocked
     // sender should never surface at all, opt-out or not.
@@ -188,7 +208,11 @@ export class IngestionService {
     // just the domain-classifier one below: a known-sender match still routes into extractReceipt/
     // extractBill/etc., which themselves call the AI extractor for field-level extraction, so gating only
     // the classifier wouldn't actually stop AI processing for a user who opted out.
-    const [user] = await this.db.select({ aiProcessingEnabled: schema.users.aiProcessingEnabled }).from(schema.users).where(eq(schema.users.id, ctx.ownerUserId)).limit(1);
+    const [user] = await this.db
+      .select({ aiProcessingEnabled: schema.users.aiProcessingEnabled, disabledMailCategories: schema.users.disabledMailCategories })
+      .from(schema.users)
+      .where(eq(schema.users.id, ctx.ownerUserId))
+      .limit(1);
     if (user && !user.aiProcessingEnabled) {
       await this.markProcessed(ctx.sourceEventId, "filed");
       return;
@@ -218,7 +242,16 @@ export class IngestionService {
       domains = ["irrelevant"];
     }
 
-    if (domains.includes("irrelevant") && domains.length === 1) {
+    // MAIL-002 "category privacy controls" — a user-disabled domain is filtered out here, after
+    // classification but before any per-domain extractor runs, so a disabled category never gets its
+    // fields extracted at all (not just hidden from the Inbox afterward). A sender rule's forced category
+    // (checked above) still respects this — if a user has disabled "bill" entirely, a sender rule that
+    // forces "bill" shouldn't silently bypass that.
+    if (user?.disabledMailCategories.length) {
+      domains = domains.filter((d) => !user.disabledMailCategories.includes(d));
+    }
+
+    if (domains.length === 0 || (domains.includes("irrelevant") && domains.length === 1)) {
       await this.markProcessed(ctx.sourceEventId, "filed");
       return;
     }
@@ -243,7 +276,53 @@ export class IngestionService {
       filedAny = (await this.extractWarranty(ctx)) || filedAny;
     }
 
+    if (ctx.attachments?.length) {
+      await this.processAttachments(ctx.sourceEventId, ctx.ownerUserId, ctx.householdId, ctx.attachments);
+    }
+
     await this.markProcessed(ctx.sourceEventId, filedAny ? "needs_review" : "filed");
+  }
+
+  /**
+   * MAIL-004 "attachment intelligence" — attachments "inherit message provenance" by running through the
+   * exact same upload+OCR pipeline as a manually-uploaded document (DocumentsService.upload()), linked to
+   * whatever object(s) this message's own extraction just filed (looked up by sourceEventId rather than
+   * threading resource ids back out of every extract* function — every inbox item this message produced
+   * already carries this exact sourceEventId, see fileInboxItem below). A message that filed nothing (an
+   * irrelevant attachment-bearing email, or every domain disabled/blocked) still gets its attachments
+   * uploaded unlinked rather than silently dropped — the OCR text itself may be independently useful even
+   * with nothing to attach it to. "Link to exact page/region" from the spec's fuller ask isn't attempted —
+   * nothing in this codebase has a bounding-box/region data structure to link to; whole-document linking is
+   * the honest, bounded version of this requirement.
+   */
+  private async processAttachments(
+    sourceEventId: string,
+    ownerUserId: string,
+    householdId: string | null,
+    attachments: Array<{ filename: string; mimeType: string; buffer: Buffer }>,
+  ): Promise<void> {
+    const [firstLinked] = await this.db
+      .select({ linkedResourceId: schema.inboxItems.linkedResourceId })
+      .from(schema.inboxItems)
+      .where(and(eq(schema.inboxItems.sourceEventId, sourceEventId)))
+      .limit(1);
+
+    for (const attachment of attachments) {
+      if (!DOCUMENT_ATTACHMENT_MIME_TYPES.has(attachment.mimeType)) continue;
+      try {
+        await this.documents.upload({
+          ownerUserId,
+          householdId,
+          title: attachment.filename,
+          documentType: "other",
+          mimeType: attachment.mimeType,
+          buffer: attachment.buffer,
+          linkedResourceId: firstLinked?.linkedResourceId ?? undefined,
+        });
+      } catch (err) {
+        this.logger.warn(`Attachment upload failed for source event ${sourceEventId} ("${attachment.filename}"): ${String(err)}`);
+      }
+    }
   }
 
   private async extractReceipt(
@@ -530,32 +609,70 @@ export class IngestionService {
 
     const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
     const dueDate = toTemporalValue(result.data.dueDate);
-    const billId = generateId("bill");
-    await this.db.insert(schema.bills).values({
-      id: billId,
-      ownerUserId: ctx.ownerUserId,
-      householdId: ctx.householdId,
-      billerLabel: result.data.billerName,
-      amountDueMinorUnits: result.data.amountDueMinorUnits,
-      amountDueCurrency: result.data.currency,
-      confidenceBand,
-      dueDate,
-      dueDateSort: temporalToSortDate(dueDate),
-      autopayBelieved: result.data.autopayMentioned,
-    });
+    const dueDateSort = temporalToSortDate(dueDate);
+
+    // MAIL-003 "thread-aware extraction" — a revised invoice/bill for the same biller shouldn't create a
+    // sibling bill every time it's re-sent (a due-date push, a corrected amount). Same precision-first
+    // ambiguity handling as findExistingPurchaseByAmountAndDate: more than one candidate means no match.
+    const existing = await this.findExistingBill(ctx.ownerUserId, result.data.billerName, dueDateSort);
+    const billId = existing?.id ?? generateId("bill");
+    if (existing) {
+      await this.db
+        .update(schema.bills)
+        .set({
+          amountDueMinorUnits: result.data.amountDueMinorUnits ?? existing.amountDueMinorUnits,
+          dueDate,
+          dueDateSort,
+          autopayBelieved: result.data.autopayMentioned ?? existing.autopayBelieved,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.bills.id, billId));
+    } else {
+      await this.db.insert(schema.bills).values({
+        id: billId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
+        billerLabel: result.data.billerName,
+        amountDueMinorUnits: result.data.amountDueMinorUnits,
+        amountDueCurrency: result.data.currency,
+        confidenceBand,
+        dueDate,
+        dueDateSort,
+        autopayBelieved: result.data.autopayMentioned,
+      });
+    }
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "bill",
-      summary: `${result.data.billerName} bill detected`,
+      summary: existing ? `${result.data.billerName} bill updated` : `${result.data.billerName} bill detected`,
       linkedResourceType: "bill",
       linkedResourceId: billId,
       sourceEventId: ctx.sourceEventId,
-      suggestedActions: ["confirm", "correct", "dismiss"],
+      suggestedActions: existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
       confidenceBand,
     });
     return true;
+  }
+
+  /**
+   * MAIL-003 "thread-aware extraction" — matches a revised bill from the same biller within a generous
+   * two-week window (bills shift due dates more than purchase dates do on a reschedule). `billerLabel` is
+   * encrypted, so the equality check happens in app code after Drizzle's transparent decrypt-on-select,
+   * same approach as findMatchingPurchaseLine's already-established pattern for an encrypted field.
+   */
+  private async findExistingBill(ownerUserId: string, billerName: string, dueDateSort: Date | null) {
+    if (!dueDateSort) return null;
+    const windowStart = new Date(dueDateSort.getTime() - 14 * 86_400_000);
+    const windowEnd = new Date(dueDateSort.getTime() + 14 * 86_400_000);
+    const candidates = await this.db
+      .select()
+      .from(schema.bills)
+      .where(and(eq(schema.bills.ownerUserId, ownerUserId), gte(schema.bills.dueDateSort, windowStart), lte(schema.bills.dueDateSort, windowEnd)));
+    const normalized = billerName.trim().toLowerCase();
+    const matches = candidates.filter((c) => c.billerLabel.trim().toLowerCase() === normalized);
+    return matches.length === 1 ? matches[0] : null;
   }
 
   private async extractSubscription(ctx: {
@@ -648,33 +765,71 @@ export class IngestionService {
 
     const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
     const start = toTemporalValue(result.data.startDate, result.data.timezone);
-    const eventId = generateId("calendarEvent");
-    await this.db.insert(schema.calendarEvents).values({
-      id: eventId,
-      ownerUserId: ctx.ownerUserId,
-      householdId: ctx.householdId,
-      title: result.data.title,
-      start,
-      startSort: temporalToSortDate(start),
-      isAllDay: result.data.isAllDay,
-      location: result.data.location,
-      source: "discovered_from_evidence",
-      status: "confirmed",
-      visibility: "private",
-    });
+    const startSort = temporalToSortDate(start);
+
+    // MAIL-003 "thread-aware extraction" — "a changed flight, appointment reschedule... updates the
+    // existing object" per spec. Deliberately doesn't require the date to match (the whole point of a
+    // reschedule is that it changed) — only same owner + same title + not already cancelled + discovered
+    // the same way this extractor discovers events (never merges into a directly-synced calendar event,
+    // which uses `providerEventId` for its own dedup instead). Ambiguous (>1 match) means no merge, same
+    // precision-first precedent as every other findExisting* helper here.
+    const existing = await this.findExistingCalendarEvent(ctx.ownerUserId, result.data.title);
+    const eventId = existing?.id ?? generateId("calendarEvent");
+    if (existing) {
+      await this.db
+        .update(schema.calendarEvents)
+        .set({
+          start,
+          startSort,
+          isAllDay: result.data.isAllDay,
+          location: result.data.location ?? existing.location,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.calendarEvents.id, eventId));
+    } else {
+      await this.db.insert(schema.calendarEvents).values({
+        id: eventId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
+        title: result.data.title,
+        start,
+        startSort,
+        isAllDay: result.data.isAllDay,
+        location: result.data.location,
+        source: "discovered_from_evidence",
+        status: "confirmed",
+        visibility: "private",
+      });
+    }
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "appointment",
-      summary: `${result.data.title} discovered`,
+      summary: existing ? `${result.data.title} updated` : `${result.data.title} discovered`,
       linkedResourceType: "calendar_event",
       linkedResourceId: eventId,
       sourceEventId: ctx.sourceEventId,
-      suggestedActions: ["confirm", "add_to_calendar", "dismiss"],
+      suggestedActions: existing ? ["confirm", "add_to_calendar", "dismiss"] : ["confirm", "add_to_calendar", "dismiss"],
       confidenceBand,
     });
     return true;
+  }
+
+  private async findExistingCalendarEvent(ownerUserId: string, title: string) {
+    const candidates = await this.db
+      .select()
+      .from(schema.calendarEvents)
+      .where(
+        and(
+          eq(schema.calendarEvents.ownerUserId, ownerUserId),
+          eq(schema.calendarEvents.source, "discovered_from_evidence"),
+          ne(schema.calendarEvents.status, "cancelled"),
+        ),
+      );
+    const normalized = title.trim().toLowerCase();
+    const matches = candidates.filter((c) => c.title.trim().toLowerCase() === normalized);
+    return matches.length === 1 ? matches[0] : null;
   }
 
   private async extractWarranty(ctx: {

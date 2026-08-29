@@ -440,4 +440,9 @@ export class IdentityService {
   async setAiProcessingEnabled(userId: string, enabled: boolean): Promise<void> {
     await this.db.update(schema.users).set({ aiProcessingEnabled: enabled, updatedAt: new Date() }).where(eq(schema.users.id, userId));
   }
+
+  /** MAIL-002 "category privacy controls" — see the schema comment on `users.disabledMailCategories` for what this actually gates. */
+  async setDisabledMailCategories(userId: string, categories: string[]): Promise<void> {
+    await this.db.update(schema.users).set({ disabledMailCategories: categories, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+  }
 }

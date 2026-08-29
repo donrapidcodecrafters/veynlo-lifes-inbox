@@ -17,6 +17,26 @@ function extractAliasFromToHeader(to: string): string | null {
 }
 
 /**
+ * §12.1 "Authenticate inbound source with SPF/DKIM/DMARC signals" — a lightweight reading of the
+ * `Authentication-Results` header's standard `dmarc=<verdict>` token (RFC 8601), not a full parser for
+ * every field the header can carry. DMARC specifically (not SPF/DKIM individually) is the signal checked
+ * for outright rejection: DMARC is the policy layer that requires SPF-or-DKIM to align with the visible
+ * From domain, so a `dmarc=fail` means the sender is impersonating a domain it isn't authorized to send
+ * as — a real spoofing signal for a feature whose entire job is accepting mail from the open internet.
+ * SPF or DKIM failing alone is common for legitimately-forwarded mail (many forwarders break SPF) and
+ * isn't treated as disqualifying by itself.
+ */
+function dmarcVerdict(headers: Array<{ Name: string; Value: string }> | undefined): "pass" | "fail" | "none" | null {
+  const header = headers?.find((h) => h.Name.toLowerCase() === "authentication-results");
+  if (!header) return null;
+  const match = header.Value.match(/dmarc=(\w+)/i);
+  if (!match) return null;
+  const verdict = match[1]?.toLowerCase();
+  if (!verdict) return null;
+  return verdict === "pass" || verdict === "fail" ? verdict : "none";
+}
+
+/**
  * CAP-005 "forward-to-Life-Inbox address" (§12.1/§52.1) — the lowest-permission capture path: no OAuth
  * grant, no shared inbox access, just forwarding mail to a per-user alias. Deliberately NOT under
  * IngestionController's class-level AuthGuard — the caller is an inbound-email provider, not a signed-in
@@ -54,6 +74,11 @@ export class InboundEmailController {
       // permanently-unroutable message forever; 200 tells it the delivery attempt is done.
       this.logger.warn(`Inbound email to unrecognized alias "${body.To}" — dropped.`);
       return { received: true, routed: false };
+    }
+
+    if (dmarcVerdict(body.Headers) === "fail") {
+      this.logger.warn(`Inbound email to alias "${alias}" failed DMARC — dropped as likely spoofed.`);
+      return { received: true, routed: false, reason: "auth_failed" };
     }
 
     const { sourceEventId } = await this.ingestion.ingestManualText({

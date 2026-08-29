@@ -50,5 +50,12 @@ export const InboundEmailWebhookDtoSchema = z.object({
   From: z.string().min(1).max(500),
   Subject: z.string().max(500).default(""),
   TextBody: z.string().max(50_000).default(""),
+  // §12.1 "Authenticate inbound source with SPF/DKIM/DMARC signals" — Postmark's (and most inbound-parse
+  // providers') actual webhook shape includes every raw header as a Name/Value array, which is where the
+  // `Authentication-Results` header (the SPF/DKIM/DMARC verdict, already evaluated by the provider's own
+  // receiving MTA) shows up. Optional: a provider not configured to forward this header, or a payload
+  // built by hand (this session's own curl-based verification, since no live provider account exists),
+  // simply has no signal to check — same graceful-degradation posture as every other optional input here.
+  Headers: z.array(z.object({ Name: z.string(), Value: z.string() })).optional(),
 });
 export type InboundEmailWebhookDto = z.infer<typeof InboundEmailWebhookDtoSchema>;
