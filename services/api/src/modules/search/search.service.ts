@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -72,8 +73,15 @@ export class SearchService {
    * Documents (title + OCR'd body text) are included in the grounding context — previously excluded
    * entirely, so a question about something only stated in a scanned document/receipt had no way to be
    * answered even though the text had genuinely been extracted and stored.
+   *
+   * `history` (previous question/answer pairs, most recent last) is folded into the prompt so a follow-up
+   * like "what about last month?" resolves against the prior turn — a real, if lightweight, take on
+   * ASK-001's "refine" action. Deliberately NOT a server-persisted `query_session` (the spec's fuller
+   * model): the caller already holds its own conversation history client-side (it has to, to render the
+   * thread), so passing it through per-request avoids a whole session-storage/expiry design for the same
+   * result. Capped to the last 5 turns so a long conversation doesn't unboundedly grow the prompt.
    */
-  async ask(userId: string, question: string) {
+  async ask(userId: string, question: string, history: Array<{ question: string; answer: string }> = []) {
     const [purchases, bills, events, merchants, documentRows] = await Promise.all([
       this.db.select().from(schema.purchases).where(eq(schema.purchases.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)).limit(50),
@@ -128,15 +136,24 @@ export class SearchService {
       };
     }
 
+    const recentHistory = history.slice(-5);
+    const historyBlock =
+      recentHistory.length > 0
+        ? `Conversation so far (most recent last) — use this to resolve follow-ups like "what about last month?":\n${recentHistory
+            .map((turn) => `Q: ${turn.question}\nA: ${turn.answer}`)
+            .join("\n")}\n\n`
+        : "";
+
     const result = await this.ai.extractStructured({
       extractorName: "ask_synthesis_v1",
       model: "reasoning",
       systemPrompt:
         "You are Ask Veynlo. Answer ONLY using the provided context items — never invent facts, dates, or " +
-        "amounts not present in the context. If the context doesn't support a confident answer, set " +
-        "insufficientEvidence to true and say so plainly.",
+        "amounts not present in the context. If a conversation history is given, treat the new question as " +
+        "a possible follow-up/refinement of that conversation. If the context doesn't support a confident " +
+        "answer, set insufficientEvidence to true and say so plainly.",
       userContent:
-        `Question: ${question}\n\nContext items:\n` +
+        `${historyBlock}New question: ${question}\n\nContext items:\n` +
         context.map((c) => `[${c.resourceType}:${c.resourceId}] ${c.text}`).join("\n"),
       schema: AskAnswerSchema,
       toolDescription: "Emit the grounded answer.",
@@ -148,5 +165,20 @@ export class SearchService {
 
     const evidence = context.filter((c) => result.data.evidenceResourceIds.includes(c.resourceId));
     return { answer: result.data.answer, evidence, insufficientEvidence: result.data.insufficientEvidence };
+  }
+
+  /** ASK-001 "save query" — stores the question text only; re-running it (POST /v1/ask) always regenerates a fresh answer against current data. */
+  async saveQuery(userId: string, questionText: string) {
+    const id = generateId("savedQuery");
+    await this.db.insert(schema.savedQueries).values({ id, ownerUserId: userId, questionText });
+    return { id, questionText };
+  }
+
+  async listSavedQueries(userId: string) {
+    return this.db.select().from(schema.savedQueries).where(eq(schema.savedQueries.ownerUserId, userId)).orderBy(desc(schema.savedQueries.createdAt));
+  }
+
+  async deleteSavedQuery(id: string, userId: string) {
+    await this.db.delete(schema.savedQueries).where(and(eq(schema.savedQueries.id, id), eq(schema.savedQueries.ownerUserId, userId)));
   }
 }

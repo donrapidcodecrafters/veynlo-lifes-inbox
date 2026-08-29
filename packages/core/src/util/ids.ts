@@ -57,6 +57,7 @@ export const ID_PREFIXES = {
   extractorVersion: "exv",
   extractionRun: "exr",
   senderRule: "sndr",
+  savedQuery: "svq",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
