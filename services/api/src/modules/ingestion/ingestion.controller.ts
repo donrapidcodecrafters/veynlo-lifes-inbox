@@ -109,9 +109,11 @@ export class IngestionController {
   async ingestDeviceReminders(@CurrentUser() user: AuthenticatedUser, @Body() dto: IngestDeviceRemindersDto) {
     let filedCount = 0;
     for (const reminder of dto.reminders) {
-      const filed = await this.ingestion.ingestDeviceReminder({
+      const filed = await this.ingestion.ingestFeedTask({
+        provider: "apple_reminders",
         ownerUserId: user.userId,
         householdId: null,
+        connectionId: null,
         uid: reminder.uid,
         title: reminder.title,
         dueIso: reminder.dueIso,

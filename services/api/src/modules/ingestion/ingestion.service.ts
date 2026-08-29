@@ -1016,15 +1016,18 @@ export class IngestionService {
   }
 
   /**
-   * Apple Reminders sync (EventKit `EKReminder`, iOS only — Android has no equivalent OS framework, so
-   * this path is never reached there). Same push-from-client shape as `ingestFeedCalendarEvent` (no OAuth
-   * token or feed URL a server could poll for a device's own reminders), but writes into `tasks` instead
-   * of `calendar_events` — the first real writer into that table; `externalSyncProvider`/`externalSyncId`
-   * existed in the schema for exactly this dedup key but nothing ever populated them before now.
+   * Shared sync entry point for every "the source already IS a task" provider — Apple Reminders'
+   * push-from-device EventKit sync and the Google Tasks/Microsoft To Do pull-based OAuth connectors alike
+   * (mirrors `ingestFeedCalendarEvent`'s identical unification of ICS/Google/Microsoft Calendar). Writes
+   * into `tasks`; `externalSyncProvider`/`externalSyncId` existed in the schema for exactly this dedup key.
    */
-  async ingestDeviceReminder(params: {
+  async ingestFeedTask(params: {
+    provider: string;
     ownerUserId: string;
     householdId: string | null;
+    /** Null for a source with no `connections` row at all — e.g. a device's local reminders pushed
+     * directly from the mobile app, which has no OAuth connection to represent as one. */
+    connectionId: string | null;
     uid: string;
     title: string;
     dueIso: string | null;
@@ -1034,7 +1037,9 @@ export class IngestionService {
     const contentHash = createHash("sha256")
       .update(JSON.stringify({ title: params.title, dueIso: params.dueIso, notes: params.notes, completed: params.completed }))
       .digest("hex");
-    const idempotencyKey = `apple_reminders:${params.ownerUserId}:${params.uid}:${contentHash}`;
+    // Falls back to ownerUserId when there's no connection row to scope by (a device's local reminders) —
+    // still unique per user+provider+task, which is all this key needs to guarantee.
+    const idempotencyKey = `${params.provider}:${params.connectionId ?? params.ownerUserId}:${params.uid}:${contentHash}`;
 
     const [existingSourceEvent] = await this.db
       .select({ id: schema.sourceEvents.id })
@@ -1048,7 +1053,8 @@ export class IngestionService {
       id: sourceEventId,
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
-      kind: "device_reminder",
+      connectionId: params.connectionId,
+      kind: "task_feed_item",
       contentHash,
       occurredAt: new Date(),
       idempotencyKey,
@@ -1064,7 +1070,7 @@ export class IngestionService {
     const [existingTask] = await this.db
       .select({ id: schema.tasks.id })
       .from(schema.tasks)
-      .where(and(eq(schema.tasks.ownerUserId, params.ownerUserId), eq(schema.tasks.externalSyncProvider, "apple_reminders"), eq(schema.tasks.externalSyncId, params.uid)))
+      .where(and(eq(schema.tasks.ownerUserId, params.ownerUserId), eq(schema.tasks.externalSyncProvider, params.provider), eq(schema.tasks.externalSyncId, params.uid)))
       .limit(1);
 
     const taskId = existingTask?.id ?? generateId("task");
@@ -1084,7 +1090,7 @@ export class IngestionService {
         dueSort: dueCondition ? temporalToSortDate(dueCondition) : null,
         consequence: params.notes,
         state,
-        externalSyncProvider: "apple_reminders",
+        externalSyncProvider: params.provider,
         externalSyncId: params.uid,
       });
     }
@@ -1094,7 +1100,7 @@ export class IngestionService {
         ownerUserId: params.ownerUserId,
         householdId: params.householdId,
         category: "task",
-        summary: existingTask ? `${params.title} updated on your synced reminders` : `${params.title} added from your synced reminders`,
+        summary: existingTask ? `${params.title} updated on your synced task list` : `${params.title} added from your synced task list`,
         linkedResourceType: "task",
         linkedResourceId: taskId,
         sourceEventId,

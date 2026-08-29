@@ -12,6 +12,8 @@ import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
+import { GoogleTasksAdapter } from "./google-tasks.adapter";
+import { MicrosoftTodoAdapter } from "./microsoft-todo.adapter";
 import { IcsConnectDtoSchema, type IcsConnectDto } from "./dto";
 
 @Controller("v1/connectors")
@@ -24,6 +26,8 @@ export class ConnectorsController {
     private readonly ics: IcsAdapter,
     private readonly googleCalendar: GoogleCalendarAdapter,
     private readonly microsoftCalendar: MicrosoftCalendarAdapter,
+    private readonly googleTasks: GoogleTasksAdapter,
+    private readonly microsoftTodo: MicrosoftTodoAdapter,
   ) {}
 
   @Get()
@@ -171,6 +175,74 @@ export class ConnectorsController {
         historyDepthDays,
       });
       return res.redirect(`${env.WEB_APP_URL}/connections?connected=microsoft_calendar`, 302);
+    } catch (err) {
+      return res.redirect(connectorErrorRedirect(env, err), 302);
+    }
+  }
+
+  @Get("google-tasks/authorize")
+  async googleTasksAuthorize(@CurrentUser() user: AuthenticatedUser, @Query("historyDepthDays") historyDepthDaysRaw?: string) {
+    if (!this.googleTasks.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message: "Google Tasks isn't configured on this deployment yet. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/google-tasks/callback`;
+    const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
+    const authorizationUrl = this.googleTasks.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("google-tasks/callback")
+  async googleTasksCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
+    const env = loadEnv();
+    try {
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const { userId, historyDepthDays } = await verifyConnectState(state);
+      await this.googleTasks.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/google-tasks/callback`,
+        ownerUserId: userId,
+        householdId: null,
+        historyDepthDays,
+      });
+      return res.redirect(`${env.WEB_APP_URL}/connections?connected=google_tasks`, 302);
+    } catch (err) {
+      return res.redirect(connectorErrorRedirect(env, err), 302);
+    }
+  }
+
+  @Get("microsoft-todo/authorize")
+  async microsoftTodoAuthorize(@CurrentUser() user: AuthenticatedUser, @Query("historyDepthDays") historyDepthDaysRaw?: string) {
+    if (!this.microsoftTodo.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message: "Microsoft To Do isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/microsoft-todo/callback`;
+    const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
+    const authorizationUrl = this.microsoftTodo.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("microsoft-todo/callback")
+  async microsoftTodoCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
+    const env = loadEnv();
+    try {
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const { userId, historyDepthDays } = await verifyConnectState(state);
+      await this.microsoftTodo.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/microsoft-todo/callback`,
+        ownerUserId: userId,
+        householdId: null,
+        historyDepthDays,
+      });
+      return res.redirect(`${env.WEB_APP_URL}/connections?connected=microsoft_todo`, 302);
     } catch (err) {
       return res.redirect(connectorErrorRedirect(env, err), 302);
     }

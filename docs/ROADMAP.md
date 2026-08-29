@@ -761,3 +761,37 @@ still open:
   disabled-picker "original has been deleted" state render correctly afterward). Mobile changes are
   typecheck-verified only (no simulator available in this environment this pass) — noted honestly rather
   than claimed as tested. Migration applied, test account and all scratch files deleted afterward.
+- **Sixth gap-closing pass (2026-08-29): Google Tasks + Microsoft To Do connectors.**
+  1. **Task sync only ever worked for Apple Reminders** — Google Tasks and Microsoft To Do had no connector
+     at all, despite both being spec'd task-sync sources. Added `GoogleTasksAdapter` and `MicrosoftTodoAdapter`
+     (own `provider: "google_tasks"`/`"microsoft_todo"` connection rows, own OAuth scopes — `.../auth/tasks`
+     and `Tasks.ReadWrite` — layered onto the existing Google/Microsoft OAuth apps the same way Calendar sits
+     alongside Gmail/Outlook), wired into the connector-sync worker's dispatch switch and the recurring scan's
+     eligible-providers list, plus authorize/callback routes and Connections-page entries on both platforms.
+     Pull-only, matching Apple Reminders' own existing scope: no write-back to either provider. Google Tasks
+     has no delta/syncToken mechanism, so incremental sync polls `tasks.list` with `updatedMin` set to the
+     previous sync's start time instead (the documented way to poll this particular API); Microsoft To Do
+     does support delta (`/me/todo/lists/{id}/tasks/delta`), so that connector mirrors Microsoft Calendar's
+     existing deltaLink/410-recovery pattern exactly.
+  2. Generalized `IngestionService.ingestDeviceReminder` (hardcoded to `"apple_reminders"`) into a
+     provider-parameterized `ingestFeedTask`, the same unification `ingestFeedCalendarEvent` already applies
+     to ICS/Google/Microsoft Calendar — one shared method for "the source already IS a task," whether
+     pushed from a device or pulled from an OAuth connector, rather than three near-duplicate methods.
+  3. Caught and fixed one real, pre-existing bug in the same pass: `worker-main.ts`'s connection-data-deletion
+     job (the "disconnect & delete everything this connection found" flow) computed `billIds`/`warrantyIds`/
+     `calendarEventIds`/`shipmentIds` to clean up but never `taskIds` — a `linked_resource_type: "task"` inbox
+     item was silently never cleaned up on disconnect. This was latent for Apple Reminders too (no `connections`
+     row exists for it, so the job's `sourceEvents.connectionId` lookup never matched), but would have been a
+     real, immediately-hit data-integrity bug for these two new connectors' very first disconnect-and-delete.
+  **Verified live**: both connectors' `authorize` routes correctly reject with `CONNECTOR_NOT_CONFIGURED` (no
+  real Google/Microsoft OAuth app configured in this environment, same limitation as every other connector
+  here); a seeded fake connection row for each provider, run through the actual worker process, correctly
+  dispatched to the new adapter and failed exactly at the credential-vault-lookup boundary (each adapter's own
+  distinct error text, proving real dispatch rather than an accidental fallthrough to `GmailAdapter`) — the
+  same "verified to the real external boundary" proof already used for calendar write-back; a real task
+  ingested via `ingestFeedTask` with a genuine `connectionId` (encrypted fields intact, not raw SQL) confirmed
+  the connection-deletion fix end-to-end — the task, its `source_events` row, and its inbox item all existed
+  beforehand and were all gone after a real `disconnect(..., deleteDerivedData: true)` call; a real Playwright
+  session confirmed both new rows render on the web Connections page and clicking "Connect" surfaces the
+  correct not-configured message. Test account, seeded connection rows, and all scratch files deleted
+  afterward.

@@ -26,6 +26,8 @@ import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { IcsAdapter } from "./modules/connectors/ics.adapter";
 import { GoogleCalendarAdapter } from "./modules/connectors/google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./modules/connectors/microsoft-calendar.adapter";
+import { GoogleTasksAdapter } from "./modules/connectors/google-tasks.adapter";
+import { MicrosoftTodoAdapter } from "./modules/connectors/microsoft-todo.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { StorageService } from "./modules/documents/storage.service";
@@ -55,6 +57,8 @@ async function bootstrap() {
   const icsAdapter = appContext.get(IcsAdapter);
   const googleCalendarAdapter = appContext.get(GoogleCalendarAdapter);
   const microsoftCalendarAdapter = appContext.get(MicrosoftCalendarAdapter);
+  const googleTasksAdapter = appContext.get(GoogleTasksAdapter);
+  const microsoftTodoAdapter = appContext.get(MicrosoftTodoAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get(StorageService);
@@ -82,7 +86,11 @@ async function bootstrap() {
                 ? googleCalendarAdapter
                 : connection.provider === "microsoft_calendar"
                   ? microsoftCalendarAdapter
-                  : gmailAdapter;
+                  : connection.provider === "google_tasks"
+                    ? googleTasksAdapter
+                    : connection.provider === "microsoft_todo"
+                      ? microsoftTodoAdapter
+                      : gmailAdapter;
         if (kind === "incremental") {
           await adapter.incrementalSync(connectionId);
         } else {
@@ -112,7 +120,15 @@ async function bootstrap() {
         .from(schema.connections)
         .where(
           and(
-            inArray(schema.connections.provider, ["gmail", "outlook", "ics", "google_calendar", "microsoft_calendar"]),
+            inArray(schema.connections.provider, [
+              "gmail",
+              "outlook",
+              "ics",
+              "google_calendar",
+              "microsoft_calendar",
+              "google_tasks",
+              "microsoft_todo",
+            ]),
             eq(schema.connections.health, "healthy"),
             isNull(schema.connections.disconnectedAt),
           ),
@@ -265,12 +281,14 @@ async function bootstrap() {
       const warrantyIds = idsFor("warranty");
       const calendarEventIds = idsFor("calendar_event");
       const shipmentIds = idsFor("shipment");
+      const taskIds = idsFor("task");
       if (billIds.length > 0) await db.delete(schema.bills).where(inArray(schema.bills.id, billIds));
       if (warrantyIds.length > 0) await db.delete(schema.warranties).where(inArray(schema.warranties.id, warrantyIds));
       if (calendarEventIds.length > 0) await db.delete(schema.calendarEvents).where(inArray(schema.calendarEvents.id, calendarEventIds));
       if (shipmentIds.length > 0) await db.delete(schema.shipments).where(inArray(schema.shipments.id, shipmentIds));
+      if (taskIds.length > 0) await db.delete(schema.tasks).where(inArray(schema.tasks.id, taskIds));
 
-      const allLinkedIds = [...purchaseIds, ...billIds, ...warrantyIds, ...calendarEventIds, ...shipmentIds];
+      const allLinkedIds = [...purchaseIds, ...billIds, ...warrantyIds, ...calendarEventIds, ...shipmentIds, ...taskIds];
       if (allLinkedIds.length > 0) await db.delete(schema.attentionItems).where(inArray(schema.attentionItems.linkedResourceId, allLinkedIds));
 
       await db.delete(schema.inboxItems).where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));

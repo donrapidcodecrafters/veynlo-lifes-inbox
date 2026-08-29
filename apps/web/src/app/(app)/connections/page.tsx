@@ -47,6 +47,8 @@ const PROVIDER_LABEL: Record<string, string> = {
   ics: "Calendar feed",
   google_calendar: "Google Calendar",
   microsoft_calendar: "Microsoft Calendar",
+  google_tasks: "Google Tasks",
+  microsoft_todo: "Microsoft To Do",
 };
 
 const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
@@ -84,6 +86,18 @@ const AVAILABLE_CONNECTORS = [
     name: "Microsoft Calendar",
     description: "Sync your Outlook/Microsoft 365 calendar events directly — separate from Outlook mail.",
     notConfiguredMessage: "Microsoft Calendar isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
+  },
+  {
+    provider: "google-tasks",
+    name: "Google Tasks",
+    description: "Bring in your Google Tasks so they show up alongside everything else Veynlo tracks.",
+    notConfiguredMessage: "Google Tasks isn't configured on this deployment yet. An administrator needs to add Google OAuth credentials.",
+  },
+  {
+    provider: "microsoft-todo",
+    name: "Microsoft To Do",
+    description: "Bring in your Microsoft To Do tasks so they show up alongside everything else Veynlo tracks.",
+    notConfiguredMessage: "Microsoft To Do isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
   },
 ] as const;
 

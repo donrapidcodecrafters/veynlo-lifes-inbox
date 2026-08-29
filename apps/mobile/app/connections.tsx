@@ -19,6 +19,8 @@ const PROVIDER_LABEL: Record<string, string> = {
   ics: "Calendar feed",
   google_calendar: "Google Calendar",
   microsoft_calendar: "Microsoft Calendar",
+  google_tasks: "Google Tasks",
+  microsoft_todo: "Microsoft To Do",
 };
 
 interface Connection {
@@ -50,6 +52,8 @@ const AVAILABLE_CONNECTORS = [
   { provider: "outlook", name: "Outlook", description: "The same, from a Microsoft 365 or Outlook.com inbox." },
   { provider: "google-calendar", name: "Google Calendar", description: "Sync your Google Calendar events directly." },
   { provider: "microsoft-calendar", name: "Microsoft Calendar", description: "Sync your Outlook/Microsoft 365 calendar events directly." },
+  { provider: "google-tasks", name: "Google Tasks", description: "Bring in your Google Tasks alongside everything else Veynlo tracks." },
+  { provider: "microsoft-todo", name: "Microsoft To Do", description: "Bring in your Microsoft To Do tasks alongside everything else Veynlo tracks." },
 ] as const;
 
 const HISTORY_DEPTH_OPTIONS = [
