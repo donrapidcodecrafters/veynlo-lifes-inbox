@@ -84,6 +84,20 @@ export default function SettingsPage() {
       </section>
 
       <section>
+        <Card>
+          <CardBody className="flex items-center justify-between">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Devices &amp; sessions</p>
+              <p className="text-sm text-tertiary">See everywhere you're signed in, and sign out of any device remotely.</p>
+            </div>
+            <Link href="/settings/sessions">
+              <Button variant="secondary">Open</Button>
+            </Link>
+          </CardBody>
+        </Card>
+      </section>
+
+      <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">Appearance</h2>
         <Card>
           <CardBody className="flex items-center justify-between">

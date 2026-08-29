@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { SignJWT, jwtVerify } from "jose";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -177,7 +177,14 @@ export class IdentityController {
   @Get("sessions")
   @UseGuards(AuthGuard)
   async sessions(@CurrentUser() user: AuthenticatedUser) {
-    return this.identity.listSessions(user.userId);
+    return this.identity.listSessions(user.userId, user.sessionId);
+  }
+
+  @Post("sessions/:sessionId/revoke")
+  @UseGuards(AuthGuard)
+  async revokeOneSession(@CurrentUser() user: AuthenticatedUser, @Param("sessionId") sessionId: string) {
+    await this.identity.revokeOwnSession(user.userId, sessionId);
+    return { success: true };
   }
 }
 

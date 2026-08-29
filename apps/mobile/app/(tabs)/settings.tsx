@@ -128,6 +128,9 @@ export default function SettingsScreen() {
         <Button variant="secondary" onPress={() => router.push("/household")}>
           Household
         </Button>
+        <Button variant="secondary" onPress={() => router.push("/sessions")}>
+          Devices &amp; sessions
+        </Button>
         {messageCaptureAvailable && (
           <Button variant="secondary" onPress={() => router.push("/message-capture")}>
             Message capture

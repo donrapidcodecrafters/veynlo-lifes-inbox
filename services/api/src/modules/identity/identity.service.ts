@@ -341,18 +341,33 @@ export class IdentityService {
     return user?.id ?? null;
   }
 
-  async listSessions(userId: string) {
-    return this.db
+  async listSessions(userId: string, currentSessionId: string) {
+    const rows = await this.db
       .select({
         id: schema.sessions.id,
-        deviceId: schema.sessions.deviceId,
         createdAt: schema.sessions.createdAt,
         lastSeenAt: schema.sessions.lastSeenAt,
         expiresAt: schema.sessions.expiresAt,
         revokedAt: schema.sessions.revokedAt,
+        platform: schema.devices.platform,
+        displayName: schema.devices.displayName,
+        lastActiveAt: schema.devices.lastActiveAt,
       })
       .from(schema.sessions)
-      .where(eq(schema.sessions.userId, userId));
+      .leftJoin(schema.devices, eq(schema.devices.id, schema.sessions.deviceId))
+      .where(and(eq(schema.sessions.userId, userId), isNull(schema.sessions.revokedAt)));
+    return rows.map((r) => ({ ...r, isCurrent: r.id === currentSessionId }));
+  }
+
+  /** Unlike revokeSession (used for a user's own current-session sign-out, where ownership is implicit),
+   * this lets a user revoke a *different* one of their own sessions — e.g. from a device list UI — so it
+   * must check ownership explicitly. Without the userId scope this would let any signed-in user revoke
+   * any other user's session just by knowing/guessing its id. */
+  async revokeOwnSession(userId: string, sessionId: string): Promise<void> {
+    await this.db
+      .update(schema.sessions)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(schema.sessions.id, sessionId), eq(schema.sessions.userId, userId), isNull(schema.sessions.revokedAt)));
   }
 
   /**
