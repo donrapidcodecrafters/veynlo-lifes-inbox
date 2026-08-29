@@ -25,7 +25,7 @@ export default function SignUpPage() {
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       await api.post("/v1/auth/sign-up", { email, password, displayName, timezone });
-      router.push("/home");
+      router.push("/onboarding");
     } catch (err) {
       if (err instanceof ApiError) {
         setFormError(err.message);

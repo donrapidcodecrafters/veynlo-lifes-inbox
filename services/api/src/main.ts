@@ -53,7 +53,11 @@ async function bootstrap() {
   // so the Expo web preview (a real browser context, unlike the native app it mirrors) can hit the API too.
   const corsOrigin =
     env.NODE_ENV === "production" ? [env.WEB_APP_URL, env.ADMIN_APP_URL] : [env.WEB_APP_URL, env.ADMIN_APP_URL, /^http:\/\/localhost:\d+$/];
-  app.enableCors({ origin: corsOrigin, credentials: true });
+  // Explicit methods list: @fastify/cors's own default (via NestJS's enableCors) only allows
+  // GET/HEAD/POST — every PUT/PATCH/DELETE route in this API (notification-preferences, onboarding,
+  // sessions, disconnect, etc.) was silently failing CORS preflight from a real browser despite
+  // working fine over curl (same-origin tooling never triggers a preflight at all).
+  app.enableCors({ origin: corsOrigin, credentials: true, methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] });
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   await app.listen(env.PORT, "0.0.0.0");

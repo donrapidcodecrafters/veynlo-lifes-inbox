@@ -82,6 +82,7 @@ export class IdentityService {
       providerSubject: dto.email,
     });
     await this.db.insert(schema.notificationPreferences).values({ userId });
+    await this.db.insert(schema.onboardingState).values({ userId });
     await this.activatePendingHouseholdInvites(userId, dto.email);
 
     return this.issueSession(userId, deviceInfo);
@@ -284,6 +285,7 @@ export class IdentityService {
       .insert(schema.users)
       .values({ id: userId, email: params.email, displayName: params.displayName, status: "active", inboundEmailAlias: generateInboundAlias() });
     await this.db.insert(schema.notificationPreferences).values({ userId });
+    await this.db.insert(schema.onboardingState).values({ userId });
     await this.db.insert(schema.identityLinks).values({
       id: generateId("identityLink"),
       userId,

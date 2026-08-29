@@ -23,7 +23,7 @@ export default function SignUpScreen() {
     setError(null);
     try {
       await signUp(email, password, displayName);
-      router.replace("/(tabs)");
+      router.replace("/onboarding");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     } finally {

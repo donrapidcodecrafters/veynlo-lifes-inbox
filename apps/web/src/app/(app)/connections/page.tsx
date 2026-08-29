@@ -86,14 +86,22 @@ const AVAILABLE_CONNECTORS = [
   },
 ] as const;
 
+interface OnboardingState {
+  completedAt: string | null;
+  skippedAt: string | null;
+}
+
 export default function ConnectionsPage() {
   const { data, isLoading, mutate } = useSWR<Connection[]>("/v1/connectors", swrFetcher);
   const { data: inboundAlias, mutate: mutateInboundAlias } = useSWR<InboundAliasInfo>("/v1/auth/inbound-alias", swrFetcher);
+  const { data: onboarding } = useSWR<OnboardingState | null>("/v1/onboarding/state", swrFetcher);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [historyDepthDays, setHistoryDepthDays] = useState<(typeof HISTORY_DEPTH_OPTIONS)[number]["value"]>("90");
+
+  const onboardingIncomplete = Boolean(onboarding && !onboarding.completedAt && !onboarding.skippedAt);
 
   // Reads the ?connected=/?error= params the OAuth callback redirects here with (a real browser
   // navigation, not something this page's own JS ever sees mid-flow), then strips them from the URL so a
@@ -137,6 +145,20 @@ export default function ConnectionsPage() {
           Veynlo only reads what you connect, and you can disconnect or delete it at any time.
         </p>
       </header>
+
+      {onboardingIncomplete && data && data.length > 0 && (
+        <Card>
+          <CardBody className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Nice — you're connected.</p>
+              <p className="text-sm text-tertiary">Let's finish setting things up.</p>
+            </div>
+            <a href="/onboarding">
+              <Button size="sm">Continue setup</Button>
+            </a>
+          </CardBody>
+        </Card>
+      )}
 
       {connectedMessage && (
         <p role="status" className="rounded-lg bg-positive-subtle px-3 py-2 text-sm text-positive-subtle-text">
