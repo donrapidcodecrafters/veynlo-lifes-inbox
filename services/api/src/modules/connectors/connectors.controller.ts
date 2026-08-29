@@ -32,7 +32,7 @@ export class ConnectorsController {
   }
 
   @Get("gmail/authorize")
-  async gmailAuthorize(@CurrentUser() user: AuthenticatedUser) {
+  async gmailAuthorize(@CurrentUser() user: AuthenticatedUser, @Query("historyDepthDays") historyDepthDaysRaw?: string) {
     if (!this.gmail.isConfigured()) {
       throw new ServiceUnavailableException({
         code: "CONNECTOR_NOT_CONFIGURED",
@@ -42,11 +42,7 @@ export class ConnectorsController {
     }
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/gmail/callback`;
-    const state = await new SignJWT({ sub: user.userId })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("10m")
-      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
     const authorizationUrl = this.gmail.authorizationUrl({ redirectUri, state });
     return { authorizationUrl };
   }
@@ -61,12 +57,13 @@ export class ConnectorsController {
     const env = loadEnv();
     try {
       if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
-      const userId = await verifyConnectState(state);
+      const { userId, historyDepthDays } = await verifyConnectState(state);
       await this.gmail.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/gmail/callback`,
         ownerUserId: userId,
         householdId: null,
+        historyDepthDays,
       });
       return res.redirect(`${env.WEB_APP_URL}/connections?connected=gmail`, 302);
     } catch (err) {
@@ -75,7 +72,7 @@ export class ConnectorsController {
   }
 
   @Get("outlook/authorize")
-  async outlookAuthorize(@CurrentUser() user: AuthenticatedUser) {
+  async outlookAuthorize(@CurrentUser() user: AuthenticatedUser, @Query("historyDepthDays") historyDepthDaysRaw?: string) {
     if (!this.outlook.isConfigured()) {
       throw new ServiceUnavailableException({
         code: "CONNECTOR_NOT_CONFIGURED",
@@ -85,11 +82,7 @@ export class ConnectorsController {
     }
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/outlook/callback`;
-    const state = await new SignJWT({ sub: user.userId })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("10m")
-      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
     const authorizationUrl = this.outlook.authorizationUrl({ redirectUri, state });
     return { authorizationUrl };
   }
@@ -99,12 +92,13 @@ export class ConnectorsController {
     const env = loadEnv();
     try {
       if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
-      const userId = await verifyConnectState(state);
+      const { userId, historyDepthDays } = await verifyConnectState(state);
       await this.outlook.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/outlook/callback`,
         ownerUserId: userId,
         householdId: null,
+        historyDepthDays,
       });
       return res.redirect(`${env.WEB_APP_URL}/connections?connected=outlook`, 302);
     } catch (err) {
@@ -113,7 +107,7 @@ export class ConnectorsController {
   }
 
   @Get("google-calendar/authorize")
-  async googleCalendarAuthorize(@CurrentUser() user: AuthenticatedUser) {
+  async googleCalendarAuthorize(@CurrentUser() user: AuthenticatedUser, @Query("historyDepthDays") historyDepthDaysRaw?: string) {
     if (!this.googleCalendar.isConfigured()) {
       throw new ServiceUnavailableException({
         code: "CONNECTOR_NOT_CONFIGURED",
@@ -123,11 +117,7 @@ export class ConnectorsController {
     }
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/google-calendar/callback`;
-    const state = await new SignJWT({ sub: user.userId })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("10m")
-      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
     const authorizationUrl = this.googleCalendar.authorizationUrl({ redirectUri, state });
     return { authorizationUrl };
   }
@@ -137,12 +127,13 @@ export class ConnectorsController {
     const env = loadEnv();
     try {
       if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
-      const userId = await verifyConnectState(state);
+      const { userId, historyDepthDays } = await verifyConnectState(state);
       await this.googleCalendar.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/google-calendar/callback`,
         ownerUserId: userId,
         householdId: null,
+        historyDepthDays,
       });
       return res.redirect(`${env.WEB_APP_URL}/connections?connected=google_calendar`, 302);
     } catch (err) {
@@ -151,7 +142,7 @@ export class ConnectorsController {
   }
 
   @Get("microsoft-calendar/authorize")
-  async microsoftCalendarAuthorize(@CurrentUser() user: AuthenticatedUser) {
+  async microsoftCalendarAuthorize(@CurrentUser() user: AuthenticatedUser, @Query("historyDepthDays") historyDepthDaysRaw?: string) {
     if (!this.microsoftCalendar.isConfigured()) {
       throw new ServiceUnavailableException({
         code: "CONNECTOR_NOT_CONFIGURED",
@@ -161,11 +152,7 @@ export class ConnectorsController {
     }
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/microsoft-calendar/callback`;
-    const state = await new SignJWT({ sub: user.userId })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("10m")
-      .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
+    const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
     const authorizationUrl = this.microsoftCalendar.authorizationUrl({ redirectUri, state });
     return { authorizationUrl };
   }
@@ -175,12 +162,13 @@ export class ConnectorsController {
     const env = loadEnv();
     try {
       if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
-      const userId = await verifyConnectState(state);
+      const { userId, historyDepthDays } = await verifyConnectState(state);
       await this.microsoftCalendar.handleCallback({
         code,
         redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/microsoft-calendar/callback`,
         ownerUserId: userId,
         householdId: null,
+        historyDepthDays,
       });
       return res.redirect(`${env.WEB_APP_URL}/connections?connected=microsoft_calendar`, 302);
     } catch (err) {
@@ -213,12 +201,27 @@ export class ConnectorsController {
   }
 }
 
-async function verifyConnectState(state: string): Promise<string> {
+const VALID_HISTORY_DEPTH_DAYS = [0, 30, 90, 182, 365] as const;
+
+function parseHistoryDepthDays(raw: string | undefined): number {
+  const parsed = Number(raw);
+  return (VALID_HISTORY_DEPTH_DAYS as readonly number[]).includes(parsed) ? parsed : 90;
+}
+
+async function signConnectState(userId: string, historyDepthDays: number): Promise<string> {
+  return new SignJWT({ sub: userId, historyDepthDays })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
+}
+
+async function verifyConnectState(state: string): Promise<{ userId: string; historyDepthDays: number }> {
   try {
     const verified = await jwtVerify(state, new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
-    const userId = (verified.payload as { sub?: string }).sub;
-    if (!userId) throw new Error("missing sub");
-    return userId;
+    const payload = verified.payload as { sub?: string; historyDepthDays?: number };
+    if (!payload.sub) throw new Error("missing sub");
+    return { userId: payload.sub, historyDepthDays: payload.historyDepthDays ?? 90 };
   } catch {
     throw new BadRequestException({ code: "INVALID_OAUTH_STATE", message: "OAuth state is invalid or expired." });
   }

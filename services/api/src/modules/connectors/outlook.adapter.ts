@@ -62,6 +62,7 @@ export class OutlookAdapter {
     redirectUri: string;
     ownerUserId: string;
     householdId: string | null;
+    historyDepthDays: number;
   }): Promise<{ connectionId: string }> {
     if (!this.isConfigured()) throw new ConnectorNotConfiguredError("outlook");
 
@@ -77,7 +78,7 @@ export class OutlookAdapter {
       scopes: OUTLOOK_SCOPES,
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
       health: "initializing",
-      historyDepthDays: 90,
+      historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(
       connectionId,

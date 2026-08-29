@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Linking, Platform, RefreshControl, Text, View } from "react-native";
+import { Linking, Platform, Pressable, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as Calendar from "expo-calendar";
 import * as Clipboard from "expo-clipboard";
@@ -52,6 +52,14 @@ const AVAILABLE_CONNECTORS = [
   { provider: "microsoft-calendar", name: "Microsoft Calendar", description: "Sync your Outlook/Microsoft 365 calendar events directly." },
 ] as const;
 
+const HISTORY_DEPTH_OPTIONS = [
+  { value: "0", label: "New only" },
+  { value: "30", label: "30d" },
+  { value: "90", label: "90d" },
+  { value: "182", label: "6mo" },
+  { value: "365", label: "1yr" },
+] as const;
+
 export default function ConnectionsScreen() {
   const { theme } = useAppTheme();
   const [connections, setConnections] = useState<Connection[] | null>(null);
@@ -60,6 +68,7 @@ export default function ConnectionsScreen() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [historyDepthDays, setHistoryDepthDays] = useState<(typeof HISTORY_DEPTH_OPTIONS)[number]["value"]>("90");
   const [deviceCalendarSyncing, setDeviceCalendarSyncing] = useState(false);
   const [deviceCalendarMessage, setDeviceCalendarMessage] = useState<string | null>(null);
   const [remindersSyncing, setRemindersSyncing] = useState(false);
@@ -88,7 +97,9 @@ export default function ConnectionsScreen() {
   async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {
     setConnectError(null);
     try {
-      const { authorizationUrl } = await api.get<{ authorizationUrl: string }>(`/v1/connectors/${provider.provider}/authorize`);
+      const { authorizationUrl } = await api.get<{ authorizationUrl: string }>(
+        `/v1/connectors/${provider.provider}/authorize?historyDepthDays=${historyDepthDays}`,
+      );
       // Completes in the system browser, not an in-app deep-link handback — after finishing there, pull to
       // refresh here (or check the web app) to see the new connection. Real deep-link OAuth handback for
       // native is a follow-up (see ROADMAP).
@@ -221,6 +232,37 @@ export default function ConnectionsScreen() {
           <Text style={{ color: theme.colors.warningSubtleText, fontSize: 13 }}>{connectError}</Text>
         </View>
       )}
+
+      <Card style={{ gap: 8 }}>
+        <View>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>History to import</Text>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            How far back to look when you connect email or calendar below.
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", gap: 6, padding: 6, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.sm }}>
+          {HISTORY_DEPTH_OPTIONS.map((opt) => {
+            const active = historyDepthDays === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => setHistoryDepthDays(opt.value)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: theme.radius.sm,
+                  backgroundColor: active ? theme.colors.bgSurface : "transparent",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
 
       <View style={{ gap: 8 }}>
         {AVAILABLE_CONNECTORS.map((provider) => (

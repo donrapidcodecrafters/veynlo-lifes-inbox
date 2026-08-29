@@ -59,6 +59,7 @@ export class GoogleCalendarAdapter {
     redirectUri: string;
     ownerUserId: string;
     householdId: string | null;
+    historyDepthDays: number;
   }): Promise<{ connectionId: string }> {
     if (!this.isConfigured()) throw new ConnectorNotConfiguredError("google_calendar");
     const client = this.oauthClient(params.redirectUri);
@@ -74,7 +75,7 @@ export class GoogleCalendarAdapter {
       scopes: CALENDAR_SCOPES,
       enabledCategories: ["appointments"],
       health: "initializing",
-      historyDepthDays: 90,
+      historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(
       connectionId,

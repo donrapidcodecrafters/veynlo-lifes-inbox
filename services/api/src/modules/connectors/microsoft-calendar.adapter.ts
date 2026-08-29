@@ -87,6 +87,7 @@ export class MicrosoftCalendarAdapter {
     redirectUri: string;
     ownerUserId: string;
     householdId: string | null;
+    historyDepthDays: number;
   }): Promise<{ connectionId: string }> {
     if (!this.isConfigured()) throw new ConnectorNotConfiguredError("microsoft_calendar");
     const tokens = await this.exchangeCode(params.code, params.redirectUri);
@@ -101,7 +102,7 @@ export class MicrosoftCalendarAdapter {
       scopes: CALENDAR_SCOPES,
       enabledCategories: ["appointments"],
       health: "initializing",
-      historyDepthDays: 90,
+      historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(
       connectionId,

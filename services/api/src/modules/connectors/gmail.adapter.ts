@@ -57,6 +57,7 @@ export class GmailAdapter {
     redirectUri: string;
     ownerUserId: string;
     householdId: string | null;
+    historyDepthDays: number;
   }): Promise<{ connectionId: string }> {
     if (!this.isConfigured()) {
       throw new ConnectorNotConfiguredError("gmail");
@@ -74,7 +75,7 @@ export class GmailAdapter {
       scopes: GMAIL_SCOPES,
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
       health: "initializing",
-      historyDepthDays: 90,
+      historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(
       connectionId,

@@ -7,7 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, FieldError } from "@/components/ui/input";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useEffect, useState, type FormEvent } from "react";
+
+const HISTORY_DEPTH_OPTIONS = [
+  { value: "0", label: "New only" },
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
+  { value: "182", label: "6 months" },
+  { value: "365", label: "1 year" },
+] as const;
 
 interface InboundAliasInfo {
   configured: boolean;
@@ -84,6 +93,7 @@ export default function ConnectionsPage() {
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [historyDepthDays, setHistoryDepthDays] = useState<(typeof HISTORY_DEPTH_OPTIONS)[number]["value"]>("90");
 
   // Reads the ?connected=/?error= params the OAuth callback redirects here with (a real browser
   // navigation, not something this page's own JS ever sees mid-flow), then strips them from the URL so a
@@ -100,7 +110,9 @@ export default function ConnectionsPage() {
   async function connect(provider: (typeof AVAILABLE_CONNECTORS)[number]) {
     setConnectError(null);
     try {
-      const { authorizationUrl } = await api.get<{ authorizationUrl: string }>(`/v1/connectors/${provider.provider}/authorize`);
+      const { authorizationUrl } = await api.get<{ authorizationUrl: string }>(
+        `/v1/connectors/${provider.provider}/authorize?historyDepthDays=${historyDepthDays}`,
+      );
       window.location.href = authorizationUrl;
     } catch (err) {
       setConnectError(
@@ -137,6 +149,16 @@ export default function ConnectionsPage() {
           {connectError}
         </p>
       )}
+
+      <Card>
+        <CardBody className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[0.9375rem] font-medium text-primary">History to import</p>
+            <p className="text-sm text-tertiary">How far back to look when you connect email or calendar below. Applies going forward too.</p>
+          </div>
+          <SegmentedControl aria-label="History to import" value={historyDepthDays} onChange={setHistoryDepthDays} options={[...HISTORY_DEPTH_OPTIONS]} />
+        </CardBody>
+      </Card>
 
       <div className="space-y-3">
         {AVAILABLE_CONNECTORS.map((provider) => (
