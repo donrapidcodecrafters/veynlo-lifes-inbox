@@ -10,7 +10,7 @@ import { CurrentAdmin } from "./current-admin.decorator";
 import type { AuthenticatedAdmin } from "./admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
-import { CreateAdminDtoSchema, type CreateAdminDto } from "./dto";
+import { CreateAdminDtoSchema, GrantEntitlementDtoSchema, type CreateAdminDto, type GrantEntitlementDto } from "./dto";
 
 const ADMIN_SESSION_COOKIE = "veynlo_admin_session";
 
@@ -63,6 +63,19 @@ export class AdminController {
   @UseGuards(AdminGuard)
   lookup(@CurrentAdmin() admin: AuthenticatedAdmin, @Query("email") email: string) {
     return this.admin.findUserByEmail(email, admin.id);
+  }
+
+  @Post("users/:userId/entitlements")
+  @UseGuards(AdminGuard)
+  @UsePipes(new ZodValidationPipe(GrantEntitlementDtoSchema))
+  grantEntitlement(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("userId") userId: string, @Body() dto: GrantEntitlementDto) {
+    return this.admin.grantEntitlement(userId, dto, admin.id);
+  }
+
+  @Post("entitlements/:id/revoke")
+  @UseGuards(AdminGuard)
+  revokeEntitlement(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("id") id: string) {
+    return this.admin.revokeEntitlement(id, admin.id);
   }
 
   @Get("connectors/health")

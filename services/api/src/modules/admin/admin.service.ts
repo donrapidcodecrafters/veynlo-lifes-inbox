@@ -6,7 +6,12 @@ import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
-import type { CreateAdminDto } from "./dto";
+import type { CreateAdminDto, GrantEntitlementDto } from "./dto";
+
+/** The only sources an admin action is allowed to touch — a real payment processor's entitlement (Stripe/
+ * App Store/Play Store) must only ever change via that processor's own webhook, never a manual admin edit
+ * silently diverging from what the processor actually believes happened. */
+const ADMIN_MANAGEABLE_ENTITLEMENT_SOURCES = ["support_granted", "promotional", "grandfathered", "referral", "partner_sponsored"];
 
 /** Strips punctuation/casing/common corporate suffixes so "Amazon.com", "AMAZON MKTPLACE PMTS", and "Amazon, Inc." group together. */
 function normalizeMerchantName(name: string): string {
@@ -41,6 +46,50 @@ export class AdminService {
       connections: connections.map((c) => ({ id: c.id, provider: c.provider, health: c.health, lastSuccessfulSyncAt: c.lastSuccessfulSyncAt })),
       entitlements,
     };
+  }
+
+  /**
+   * §46.2/support-tooling — the `entitlements.source` enum has included `"support_granted"`,
+   * `"promotional"`, `"grandfathered"`, etc. since the entitlements system shipped, but nothing anywhere
+   * ever wrote one: a support agent had no way to comp a user a plan (refund goodwill, a bug they hit, a
+   * partner deal) without a raw DB edit. This is that missing write path.
+   */
+  async grantEntitlement(userId: string, dto: GrantEntitlementDto, actorAdminId: string) {
+    const [user] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    if (!user) throw new NotFoundException({ code: "USER_NOT_FOUND", message: "User not found." });
+
+    const id = generateId("entitlement");
+    const effectiveFrom = new Date();
+    const effectiveTo = dto.durationDays ? new Date(effectiveFrom.getTime() + dto.durationDays * 86_400_000) : null;
+    await this.db.insert(schema.entitlements).values({
+      id,
+      userId,
+      planKey: dto.planKey,
+      source: "support_granted",
+      effectiveFrom,
+      effectiveTo,
+      reason: dto.reason,
+    });
+    await this.recordAccess(actorAdminId, "admin.entitlement_grant", "entitlement", id);
+    return { id, planKey: dto.planKey, effectiveFrom, effectiveTo };
+  }
+
+  /** Only reverses an admin-manageable entitlement (see ADMIN_MANAGEABLE_ENTITLEMENT_SOURCES) — a real
+   * Stripe/App Store/Play Store entitlement must only ever change via that processor's own webhook. */
+  async revokeEntitlement(entitlementId: string, actorAdminId: string) {
+    const [entitlement] = await this.db.select().from(schema.entitlements).where(eq(schema.entitlements.id, entitlementId)).limit(1);
+    if (!entitlement) throw new NotFoundException({ code: "ENTITLEMENT_NOT_FOUND", message: "Entitlement not found." });
+    if (!ADMIN_MANAGEABLE_ENTITLEMENT_SOURCES.includes(entitlement.source)) {
+      throw new BadRequestException({
+        code: "NOT_ADMIN_REVOCABLE",
+        message: "This entitlement came from a real payment processor and can't be changed here — it follows that processor's own billing state.",
+      });
+    }
+    if (entitlement.effectiveTo && entitlement.effectiveTo <= new Date()) {
+      throw new BadRequestException({ code: "ALREADY_EXPIRED", message: "This entitlement has already ended." });
+    }
+    await this.db.update(schema.entitlements).set({ effectiveTo: new Date() }).where(eq(schema.entitlements.id, entitlementId));
+    await this.recordAccess(actorAdminId, "admin.entitlement_revoke", "entitlement", entitlementId);
   }
 
   async connectorHealthSummary() {
