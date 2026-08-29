@@ -20,6 +20,7 @@ import { BillingModule } from "./modules/billing/billing.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { TimelineModule } from "./modules/timeline/timeline.module";
 import { DataExportModule } from "./modules/data-export/data-export.module";
+import { FeatureFlagsModule } from "./modules/feature-flags/feature-flags.module";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { DataExportModule } from "./modules/data-export/data-export.module";
     AdminModule,
     TimelineModule,
     DataExportModule,
+    FeatureFlagsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

@@ -85,6 +85,13 @@
       "when": 1788002016062,
       "tag": "0011_premium_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788006218615,
+      "tag": "0012_romantic_rhino",
+      "breakpoints": true
     }
   ]
 }

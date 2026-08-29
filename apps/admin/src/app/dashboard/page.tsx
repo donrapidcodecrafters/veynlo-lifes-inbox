@@ -45,6 +45,13 @@ interface ModelHealthSummary {
   recentFailures: Array<{ extractorName: string; modelKey: string | null; errorDetail: string | null; startedAt: string }>;
 }
 
+interface FeatureFlag {
+  key: string;
+  enabled: boolean;
+  description: string;
+  updatedAt: string;
+}
+
 interface AuditEvent {
   id: string;
   actorType: string;
@@ -82,6 +89,22 @@ export default function DashboardPage() {
   });
   const { data: modelHealth } = useSWR<ModelHealthSummary>("/v1/admin/model-health", swrFetcher, { refreshInterval: 30_000 });
   const { data: auditEvents } = useSWR<AuditEvent[]>("/v1/admin/audit-events", swrFetcher, { refreshInterval: 15_000 });
+  const { data: flags, mutate: mutateFlags } = useSWR<FeatureFlag[]>("/v1/admin/feature-flags", swrFetcher);
+  const [flagBusyKey, setFlagBusyKey] = useState<string | null>(null);
+  const [flagError, setFlagError] = useState<string | null>(null);
+
+  async function toggleFlag(flag: FeatureFlag) {
+    setFlagBusyKey(flag.key);
+    setFlagError(null);
+    try {
+      await api.post(`/v1/admin/feature-flags/${flag.key}`, { enabled: !flag.enabled, description: flag.description });
+      await mutateFlags();
+    } catch (err) {
+      setFlagError(err instanceof ApiError ? err.message : "Couldn't update that flag.");
+    } finally {
+      setFlagBusyKey(null);
+    }
+  }
 
   async function runLookup() {
     if (!email.trim()) return;
@@ -468,6 +491,47 @@ export default function DashboardPage() {
             </tbody>
           </table>
         )}
+      </Section>
+
+      <Section title="Feature flags">
+        <p className="mb-3 text-sm text-tertiary">
+          Remote kill switches — flip one off instantly for every user, no app release needed. A key with no row here is off by default.
+        </p>
+        {!flags && <p className="text-sm text-tertiary">Loading…</p>}
+        {flags && flags.length === 0 && <p className="text-sm text-tertiary">No flags configured yet.</p>}
+        {flags && flags.length > 0 && (
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-xs uppercase text-tertiary">
+                <th className="pb-2 font-medium">Key</th>
+                <th className="pb-2 font-medium">Description</th>
+                <th className="pb-2 font-medium">Updated</th>
+                <th className="pb-2 font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {flags.map((f) => (
+                <tr key={f.key} className="border-t border-border-subtle">
+                  <td className="py-2 font-mono text-xs text-primary">{f.key}</td>
+                  <td className="py-2 text-tertiary">{f.description}</td>
+                  <td className="py-2 text-tertiary">{new Date(f.updatedAt).toLocaleString()}</td>
+                  <td className="py-2 text-right">
+                    <button
+                      onClick={() => toggleFlag(f)}
+                      disabled={flagBusyKey === f.key}
+                      className={`rounded-lg px-3 py-1 text-xs font-medium disabled:opacity-50 ${
+                        f.enabled ? "bg-critical-subtle text-critical-subtle-text" : "bg-positive-subtle text-positive-subtle-text"
+                      }`}
+                    >
+                      {flagBusyKey === f.key ? "Working…" : f.enabled ? "Disable" : "Enable"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {flagError && <p className="mt-2 text-sm text-critical-subtle-text">{flagError}</p>}
       </Section>
     </div>
   );

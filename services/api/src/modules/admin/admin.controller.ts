@@ -6,11 +6,15 @@ import { AdminGuard } from "./admin.guard";
 import { SuperAdminGuard } from "./super-admin.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminService } from "./admin.service";
+import { FeatureFlagsService } from "../feature-flags/feature-flags.service";
 import { CurrentAdmin } from "./current-admin.decorator";
 import type { AuthenticatedAdmin } from "./admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
 import { CreateAdminDtoSchema, GrantEntitlementDtoSchema, type CreateAdminDto, type GrantEntitlementDto } from "./dto";
+
+const SetFeatureFlagDtoSchema = z.object({ enabled: z.boolean(), description: z.string().min(1).max(500).optional() });
+type SetFeatureFlagDto = z.infer<typeof SetFeatureFlagDtoSchema>;
 
 const ADMIN_SESSION_COOKIE = "veynlo_admin_session";
 
@@ -25,6 +29,7 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly adminAuth: AdminAuthService,
+    private readonly flags: FeatureFlagsService,
   ) {}
 
   // Stricter than the global 300/60s default — admin credentials are the highest-value target in the
@@ -146,5 +151,22 @@ export class AdminController {
   @UseGuards(AdminGuard, SuperAdminGuard)
   revokeAdmin(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("id") id: string) {
     return this.admin.revokeAdmin(id, admin.id);
+  }
+
+  // Support-level, not superadmin — a kill switch needs to be flippable by whoever's on call, the same
+  // reversible-action tier as an entitlement grant/revoke, not gated behind the rarer superadmin role.
+  @Get("feature-flags")
+  @UseGuards(AdminGuard)
+  listFeatureFlags() {
+    return this.flags.list();
+  }
+
+  @Post("feature-flags/:key")
+  @UseGuards(AdminGuard)
+  @UsePipes(new ZodValidationPipe(SetFeatureFlagDtoSchema))
+  async setFeatureFlag(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("key") key: string, @Body() dto: SetFeatureFlagDto) {
+    const result = await this.flags.setEnabled(key, dto.enabled, dto.description);
+    await this.admin.recordAccess(admin.id, dto.enabled ? "admin.feature_flag_enable" : "admin.feature_flag_disable", "feature_flag", key);
+    return result;
   }
 }

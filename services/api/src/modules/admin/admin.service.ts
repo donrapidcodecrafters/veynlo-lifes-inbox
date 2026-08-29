@@ -384,7 +384,7 @@ export class AdminService {
     await this.recordAccess(actorAdminId, "admin.admin_revoke", "admin_user", targetAdminId);
   }
 
-  private async recordAccess(actingAdminId: string, action: string, resourceType: string, resourceId: string): Promise<void> {
+  async recordAccess(actingAdminId: string, action: string, resourceType: string, resourceId: string): Promise<void> {
     await this.db.insert(schema.auditEvents).values({
       id: generateId("auditEvent"),
       actorType: "support_agent",
