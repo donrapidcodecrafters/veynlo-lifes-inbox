@@ -29,6 +29,7 @@
     "expo-notifications": "~57.0.15",
     "expo-router": "~57.0.17",
     "expo-secure-store": "~57.0.2",
+    "expo-share-extension": "^5.0.6",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -39,6 +40,7 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@expo/config-plugins": "^57.0.9",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   }

@@ -50,6 +50,13 @@
         {
           "calendarPermission": "Veynlo reads your device calendar so its events show up alongside everything else Veynlo tracks."
         }
+      ],
+      "./plugins/withShareExtensionDeploymentTarget",
+      [
+        "expo-share-extension",
+        {
+          "activationRules": [{ "type": "text" }, { "type": "url", "max": 1 }]
+        }
       ]
     ]
   }
