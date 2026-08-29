@@ -2,19 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api-client";
+import { api, API_BASE_URL } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+
+type TimelineKind = "calendar_event" | "purchase" | "bill" | "document" | "return_case" | "warranty" | "shipment";
 
 interface TimelineItem {
   id: string;
-  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case" | "warranty";
+  kind: TimelineKind;
   title: string;
   occurredAt: string;
   resourceType: string;
   resourceId: string;
+  relatedItems: TimelineItem[];
 }
 
 interface TimelineResponse {
@@ -22,70 +26,103 @@ interface TimelineResponse {
   nextCursor: string | null;
 }
 
-const KIND_LABEL: Record<TimelineItem["kind"], string> = {
+const KIND_LABEL: Record<TimelineKind, string> = {
   calendar_event: "Event",
   purchase: "Purchase",
   bill: "Bill",
   document: "Document",
   return_case: "Return",
   warranty: "Warranty",
+  shipment: "Shipment",
 };
 
-const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | "neutral" | "critical"> = {
+const KIND_TONE: Record<TimelineKind, "info" | "positive" | "warning" | "neutral" | "critical"> = {
   calendar_event: "info",
   purchase: "positive",
   bill: "warning",
   document: "neutral",
   return_case: "critical",
   warranty: "neutral",
+  shipment: "positive",
 };
 
-const KIND_HREF: Record<TimelineItem["kind"], (resourceId: string) => string> = {
+const KIND_HREF: Record<TimelineKind, (resourceId: string) => string> = {
   calendar_event: (id) => `/life/events/${id}`,
   purchase: (id) => `/life/purchases/${id}`,
   bill: (id) => `/life/bills/${id}`,
   return_case: (id) => `/life/returns/${id}`,
   warranty: (id) => `/life/warranties/${id}`,
   document: () => `/documents`, // no per-document detail page exists yet — the list is the closest real destination
+  shipment: () => `/life/purchases`, // shipments only ever appear nested under their purchase (see relatedItems) — no standalone detail page
 };
 
-function groupByDay(items: TimelineItem[]): Array<[string, TimelineItem[]]> {
+const FILTER_KINDS: Array<{ value: TimelineKind | ""; label: string }> = [
+  { value: "", label: "All" },
+  { value: "purchase", label: "Purchases" },
+  { value: "bill", label: "Bills" },
+  { value: "calendar_event", label: "Events" },
+  { value: "return_case", label: "Returns" },
+  { value: "warranty", label: "Warranties" },
+  { value: "document", label: "Documents" },
+];
+
+type ZoomLevel = "day" | "week" | "month";
+
+function groupKey(date: Date, zoom: ZoomLevel): string {
+  if (zoom === "month") return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  if (zoom === "week") {
+    const startOfWeek = new Date(date);
+    startOfWeek.setDate(date.getDate() - date.getDay());
+    return `Week of ${startOfWeek.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`;
+  }
+  return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+}
+
+function groupByZoom(items: TimelineItem[], zoom: ZoomLevel): Array<[string, TimelineItem[]]> {
   const groups = new Map<string, TimelineItem[]>();
   for (const item of items) {
-    const day = new Date(item.occurredAt).toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-    const existing = groups.get(day);
+    const key = groupKey(new Date(item.occurredAt), zoom);
+    const existing = groups.get(key);
     if (existing) existing.push(item);
-    else groups.set(day, [item]);
+    else groups.set(key, [item]);
   }
   return Array.from(groups.entries());
 }
+
+const EXPORT_PRESETS = [
+  { label: "Last 30 days", days: 30 },
+  { label: "Last 90 days", days: 90 },
+  { label: "This year", days: 365 },
+];
 
 export default function TimelinePage() {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [zoom, setZoom] = useState<ZoomLevel>("day");
+  const [kindFilter, setKindFilter] = useState<TimelineKind | "">("");
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => {
+    setIsLoading(true);
+    const qs = kindFilter ? `?kind=${kindFilter}` : "";
     api
-      .get<TimelineResponse>("/v1/timeline")
+      .get<TimelineResponse>(`/v1/timeline${qs}`)
       .then((res) => {
         setItems(res.items);
         setCursor(res.nextCursor);
       })
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [kindFilter]);
 
   async function loadMore() {
     if (!cursor) return;
     setLoadingMore(true);
     try {
-      const res = await api.get<TimelineResponse>(`/v1/timeline?before=${encodeURIComponent(cursor)}`);
+      const params = new URLSearchParams({ before: cursor });
+      if (kindFilter) params.set("kind", kindFilter);
+      const res = await api.get<TimelineResponse>(`/v1/timeline?${params.toString()}`);
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
     } finally {
@@ -93,12 +130,63 @@ export default function TimelinePage() {
     }
   }
 
+  function exportRange(days: number) {
+    const to = new Date();
+    const from = new Date(Date.now() - days * 86_400_000);
+    const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+    window.location.href = `${API_BASE_URL}/v1/timeline/export?${params.toString()}`;
+  }
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">Timeline</h1>
-        <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows, in order.</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">Timeline</h1>
+          <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows, in order.</p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setShowExport((v) => !v)}>
+          {showExport ? "Cancel" : "Export"}
+        </Button>
       </header>
+
+      {showExport && (
+        <Card>
+          <CardBody className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-tertiary">Download a CSV of:</p>
+            {EXPORT_PRESETS.map((p) => (
+              <Button key={p.label} size="sm" variant="secondary" onClick={() => exportRange(p.days)}>
+                {p.label}
+              </Button>
+            ))}
+          </CardBody>
+        </Card>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SegmentedControl
+          aria-label="Zoom level"
+          value={zoom}
+          onChange={setZoom}
+          options={[
+            { value: "day", label: "Day" },
+            { value: "week", label: "Week" },
+            { value: "month", label: "Month" },
+          ]}
+        />
+        <div className="flex flex-wrap gap-1 rounded-lg bg-subtle p-1">
+          {FILTER_KINDS.map((f) => (
+            <button
+              key={f.value || "all"}
+              onClick={() => setKindFilter(f.value)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                kindFilter === f.value ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {isLoading && (
         <div className="space-y-3">
@@ -117,24 +205,36 @@ export default function TimelinePage() {
 
       {items.length > 0 && (
         <div className="space-y-6">
-          {groupByDay(items).map(([day, dayItems]) => (
-            <div key={day}>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-tertiary">{day}</h2>
+          {groupByZoom(items, zoom).map(([label, groupItems]) => (
+            <div key={label}>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-tertiary">{label}</h2>
               <div className="space-y-2">
-                {dayItems.map((item) => (
-                  <Link key={`${item.kind}-${item.id}`} href={KIND_HREF[item.kind](item.resourceId)}>
-                    <Card className="transition-colors hover:bg-subtle">
-                      <CardBody className="flex items-center justify-between gap-3 py-3">
-                        <div className="flex items-center gap-3">
-                          <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
-                          <p className="text-sm font-medium text-primary">{item.title}</p>
-                        </div>
-                        <p className="text-xs text-tertiary">
-                          {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                        </p>
-                      </CardBody>
-                    </Card>
-                  </Link>
+                {groupItems.map((item) => (
+                  <div key={`${item.kind}-${item.id}`}>
+                    <Link href={KIND_HREF[item.kind](item.resourceId)}>
+                      <Card className="transition-colors hover:bg-subtle">
+                        <CardBody className="flex items-center justify-between gap-3 py-3">
+                          <div className="flex items-center gap-3">
+                            <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
+                            <p className="text-sm font-medium text-primary">{item.title}</p>
+                          </div>
+                          <p className="text-xs text-tertiary">
+                            {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                          </p>
+                        </CardBody>
+                      </Card>
+                    </Link>
+                    {item.relatedItems.length > 0 && (
+                      <div className="ml-6 mt-1 space-y-1 border-l border-border-subtle pl-3">
+                        {item.relatedItems.map((related) => (
+                          <div key={`${related.kind}-${related.id}`} className="flex items-center gap-2 py-1">
+                            <Badge tone={KIND_TONE[related.kind]}>{KIND_LABEL[related.kind]}</Badge>
+                            <p className="text-xs text-tertiary">{related.title}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
