@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
+import { TextField } from "@/components/text-field";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
 
 interface EventRow {
@@ -58,6 +59,14 @@ interface TaskRow {
   title: string;
   dueCondition: TemporalValueLike | null;
   state: string;
+  recurrenceRule: string | null;
+  externalSyncProvider: string | null;
+}
+
+interface ScheduleConflict {
+  id: string;
+  involvedEventIds: string[];
+  resolvedAt: string | null;
 }
 
 function SectionHeading({ title }: { title: string }) {
@@ -79,11 +88,14 @@ export default function LifeScreen() {
   const [bills, setBills] = useState<BillRow[] | null>(null);
   const [warranties, setWarranties] = useState<Warranty[] | null>(null);
   const [tasks, setTasks] = useState<TaskRow[] | null>(null);
+  const [conflicts, setConflicts] = useState<ScheduleConflict[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [creatingTask, setCreatingTask] = useState(false);
 
   const load = useCallback(async () => {
-    const [ev, p, r, s, b, w, t] = await Promise.all([
+    const [ev, p, r, s, b, w, t, c] = await Promise.all([
       api.get<EventRow[]>("/v1/events"),
       api.get<Purchase[]>("/v1/purchases"),
       api.get<ReturnRow[]>("/v1/returns"),
@@ -91,6 +103,7 @@ export default function LifeScreen() {
       api.get<BillRow[]>("/v1/bills"),
       api.get<Warranty[]>("/v1/warranties"),
       api.get<TaskRow[]>("/v1/tasks"),
+      api.get<ScheduleConflict[]>("/v1/schedule/conflicts").catch(() => []),
     ]);
     setEvents(ev);
     setPurchases(p);
@@ -99,6 +112,7 @@ export default function LifeScreen() {
     setBills(b);
     setWarranties(w);
     setTasks(t.filter((task) => task.state !== "completed" && task.state !== "dismissed"));
+    setConflicts(c);
   }, []);
 
   async function completeTask(id: string) {
@@ -110,6 +124,25 @@ export default function LifeScreen() {
       setCompletingTaskId(null);
     }
   }
+
+  async function createTask() {
+    if (!newTaskTitle.trim()) return;
+    setCreatingTask(true);
+    try {
+      await api.post("/v1/tasks", { title: newTaskTitle });
+      setNewTaskTitle("");
+      await load();
+    } finally {
+      setCreatingTask(false);
+    }
+  }
+
+  async function deleteTask(id: string) {
+    await api.delete(`/v1/tasks/${id}`);
+    setTasks((prev) => prev?.filter((t) => t.id !== id) ?? null);
+  }
+
+  const openConflicts = conflicts.filter((c) => !c.resolvedAt);
 
   useFocusEffect(
     useCallback(() => {
@@ -142,6 +175,14 @@ export default function LifeScreen() {
           </Button>
         </View>
       </View>
+
+      {openConflicts.length > 0 && (
+        <Card style={{ backgroundColor: theme.colors.warningSubtleBg }}>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>
+            {openConflicts.length} scheduling conflict{openConflicts.length > 1 ? "s" : ""} — two of your events overlap in time.
+          </Text>
+        </Card>
+      )}
 
       <View style={{ gap: 8 }}>
         <SectionHeading title="Appointments" />
@@ -181,6 +222,14 @@ export default function LifeScreen() {
 
       <View style={{ gap: 8 }}>
         <SectionHeading title="Reminders" />
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <TextField label="New task" placeholder="Add a task…" value={newTaskTitle} onChangeText={setNewTaskTitle} onSubmitEditing={createTask} returnKeyType="done" />
+          </View>
+          <Button onPress={createTask} loading={creatingTask} disabled={!newTaskTitle.trim()}>
+            Add
+          </Button>
+        </View>
         {!tasks && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
         {tasks?.length === 0 && (
           <EmptyState title="No open reminders" description="Sync your Reminders app from Connections, or tasks discovered elsewhere will show up here." />
@@ -205,11 +254,20 @@ export default function LifeScreen() {
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{t.title}</Text>
-                    {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{when}</Text>}
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                      {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{when}</Text>}
+                      {t.recurrenceRule && <Badge tone="neutral">repeats</Badge>}
+                      {t.externalSyncProvider && <Badge tone="neutral">Reminders</Badge>}
+                    </View>
                   </View>
                   <Button variant="secondary" onPress={() => completeTask(t.id)} loading={completingTaskId === t.id}>
                     Done
                   </Button>
+                  {!t.externalSyncProvider && (
+                    <Button variant="ghost" onPress={() => deleteTask(t.id)}>
+                      Delete
+                    </Button>
+                  )}
                 </View>
               );
             })}

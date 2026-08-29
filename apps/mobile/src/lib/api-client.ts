@@ -65,6 +65,7 @@ export const api = {
   post: <T>(path: string, data?: unknown) => request<T>(path, { method: "POST", body: data ? JSON.stringify(data) : undefined }),
   put: <T>(path: string, data?: unknown) => request<T>(path, { method: "PUT", body: data ? JSON.stringify(data) : undefined }),
   patch: <T>(path: string, data?: unknown) => request<T>(path, { method: "PATCH", body: data ? JSON.stringify(data) : undefined }),
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   /**
    * Multipart upload. On native, React Native's fetch/FormData specially recognizes a `{ uri, name, type }`
    * object appended in place of a web `File`/`Blob` and builds the multipart part from it directly. Under

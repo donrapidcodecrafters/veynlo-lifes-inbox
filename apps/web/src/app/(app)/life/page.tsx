@@ -1,12 +1,31 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { swrFetcher } from "@/lib/api-client";
+import { api, swrFetcher } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
+
+interface Task {
+  id: string;
+  title: string;
+  dueCondition: TemporalValueLike | null;
+  priority: string;
+  state: string;
+  recurrenceRule: string | null;
+  externalSyncProvider: string | null;
+}
+
+interface ScheduleConflict {
+  id: string;
+  involvedEventIds: string[];
+  resolvedAt: string | null;
+}
 
 interface Purchase {
   id: string;
@@ -74,6 +93,34 @@ export default function LifePage() {
   const { data: subscriptions, isLoading: loadingSubs } = useSWR<SubscriptionRow[]>("/v1/subscriptions", swrFetcher);
   const { data: bills, isLoading: loadingBills } = useSWR<BillRow[]>("/v1/bills", swrFetcher);
   const { data: warranties, isLoading: loadingWarranties } = useSWR<Warranty[]>("/v1/warranties", swrFetcher);
+  const { data: tasks, isLoading: loadingTasks, mutate: mutateTasks } = useSWR<Task[]>("/v1/tasks", swrFetcher);
+  const { data: conflicts } = useSWR<ScheduleConflict[]>("/v1/schedule/conflicts", swrFetcher);
+  const openConflicts = conflicts?.filter((c) => !c.resolvedAt) ?? [];
+
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [creatingTask, setCreatingTask] = useState(false);
+
+  async function createTask() {
+    if (!newTaskTitle.trim()) return;
+    setCreatingTask(true);
+    try {
+      await api.post("/v1/tasks", { title: newTaskTitle });
+      setNewTaskTitle("");
+      mutateTasks();
+    } finally {
+      setCreatingTask(false);
+    }
+  }
+
+  async function completeTask(id: string) {
+    await api.post(`/v1/tasks/${id}/complete`);
+    mutateTasks();
+  }
+
+  async function deleteTask(id: string) {
+    await api.delete(`/v1/tasks/${id}`);
+    mutateTasks();
+  }
 
   return (
     <div className="space-y-8">
@@ -97,6 +144,66 @@ export default function LifePage() {
           </Link>
         </div>
       </header>
+
+      {openConflicts.length > 0 && (
+        <Card className="border-warning/40 bg-warning-subtle">
+          <CardBody>
+            <p className="text-sm text-warning-subtle-text">
+              {openConflicts.length} scheduling conflict{openConflicts.length > 1 ? "s" : ""} — two of your events overlap in time.
+            </p>
+          </CardBody>
+        </Card>
+      )}
+
+      <Section title="Tasks">
+        <div className="mb-3 flex gap-2">
+          <Input
+            value={newTaskTitle}
+            onChange={(e) => setNewTaskTitle(e.target.value)}
+            placeholder="Add a task…"
+            className="flex-1"
+            onKeyDown={(e) => e.key === "Enter" && createTask()}
+          />
+          <Button size="sm" loading={creatingTask} onClick={createTask} disabled={!newTaskTitle.trim()}>
+            Add
+          </Button>
+        </div>
+        {loadingTasks && <div className="h-16 animate-pulse rounded-xl bg-subtle" />}
+        {!loadingTasks && (!tasks || tasks.filter((t) => t.state !== "completed").length === 0) && (
+          <EmptyState title="No open tasks" description="Tasks you add or sync from Apple Reminders show up here." />
+        )}
+        {tasks && tasks.filter((t) => t.state !== "completed").length > 0 && (
+          <div className="divide-y divide-border-subtle rounded-xl border border-border-subtle bg-surface">
+            {tasks
+              .filter((t) => t.state !== "completed")
+              .map((t) => {
+                const due = formatTemporal(t.dueCondition);
+                return (
+                  <div key={t.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-primary">{t.title}</p>
+                      <div className="flex items-center gap-2 text-xs text-tertiary">
+                        {due && <span>Due {due}</span>}
+                        {t.recurrenceRule && <Badge tone="neutral">repeats</Badge>}
+                        {t.externalSyncProvider && <Badge tone="neutral">Reminders</Badge>}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => completeTask(t.id)}>
+                        Done
+                      </Button>
+                      {!t.externalSyncProvider && (
+                        <Button size="sm" variant="ghost" onClick={() => deleteTask(t.id)}>
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </Section>
 
       <Section title="Appointments">
         {loadingEvents && <div className="h-16 animate-pulse rounded-xl bg-subtle" />}
