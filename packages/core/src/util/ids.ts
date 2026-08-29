@@ -54,6 +54,8 @@ export const ID_PREFIXES = {
   job: "job",
   adminUser: "adm",
   adminSession: "adms",
+  extractorVersion: "exv",
+  extractionRun: "exr",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

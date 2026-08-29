@@ -84,6 +84,12 @@ export class AdminController {
     return this.admin.connectorHealthSummary();
   }
 
+  @Get("model-health")
+  @UseGuards(AdminGuard)
+  modelHealth() {
+    return this.admin.modelHealthSummary();
+  }
+
   @Get("audit-events")
   @UseGuards(AdminGuard)
   auditEvents() {

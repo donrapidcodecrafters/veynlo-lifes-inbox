@@ -21,6 +21,21 @@ interface ConnectorHealthSummary {
   byHealth: Record<string, number>;
 }
 
+interface ModelHealthSummary {
+  windowDays: number;
+  totalRuns: number;
+  byExtractor: Array<{
+    extractorName: string;
+    total: number;
+    success: number;
+    failed: number;
+    running: number;
+    successRate: number | null;
+    avgLatencyMs: number | null;
+  }>;
+  recentFailures: Array<{ extractorName: string; modelKey: string | null; errorDetail: string | null; startedAt: string }>;
+}
+
 interface AuditEvent {
   id: string;
   actorType: string;
@@ -56,6 +71,7 @@ export default function DashboardPage() {
   const { data: health } = useSWR<ConnectorHealthSummary>("/v1/admin/connectors/health", swrFetcher, {
     refreshInterval: 30_000,
   });
+  const { data: modelHealth } = useSWR<ModelHealthSummary>("/v1/admin/model-health", swrFetcher, { refreshInterval: 30_000 });
   const { data: auditEvents } = useSWR<AuditEvent[]>("/v1/admin/audit-events", swrFetcher, { refreshInterval: 15_000 });
 
   async function runLookup() {
@@ -282,6 +298,56 @@ export default function DashboardPage() {
                 <p className="text-lg font-semibold text-primary">{count}</p>
               </div>
             ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title={`Model health (last ${modelHealth?.windowDays ?? 7} days)`}>
+        {!modelHealth && <p className="text-sm text-tertiary">Loading…</p>}
+        {modelHealth && modelHealth.totalRuns === 0 && (
+          <p className="text-sm text-tertiary">No extraction runs recorded yet — nothing has gone through the AI pipeline in this window.</p>
+        )}
+        {modelHealth && modelHealth.totalRuns > 0 && (
+          <div className="space-y-4">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-tertiary">
+                  <th className="pb-2 font-medium">Extractor</th>
+                  <th className="pb-2 font-medium">Runs</th>
+                  <th className="pb-2 font-medium">Success rate</th>
+                  <th className="pb-2 font-medium">Avg latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modelHealth.byExtractor.map((e) => (
+                  <tr key={e.extractorName} className="border-t border-border-subtle">
+                    <td className="py-2 text-primary">{e.extractorName}</td>
+                    <td className="py-2 text-tertiary">
+                      {e.total} ({e.success} ok, {e.failed} failed{e.running > 0 ? `, ${e.running} running` : ""})
+                    </td>
+                    <td className="py-2">
+                      <span className={e.successRate !== null && e.successRate < 0.9 ? "text-warning" : "text-positive"}>
+                        {e.successRate !== null ? `${Math.round(e.successRate * 100)}%` : "—"}
+                      </span>
+                    </td>
+                    <td className="py-2 text-tertiary">{e.avgLatencyMs !== null ? `${e.avgLatencyMs.toLocaleString()}ms` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {modelHealth.recentFailures.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-tertiary">Recent failures</p>
+                <ul className="space-y-1.5 text-sm">
+                  {modelHealth.recentFailures.map((f, i) => (
+                    <li key={i} className="text-tertiary">
+                      <span className="text-primary">{f.extractorName}</span> — {f.errorDetail ?? "unknown error"}{" "}
+                      <span className="text-xs">({new Date(f.startedAt).toLocaleString()})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </Section>

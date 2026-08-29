@@ -184,6 +184,7 @@ export class IngestionService {
     } else if (this.ai.isConfigured()) {
       const classification = await this.ai.extractStructured({
         extractorName: "domain_classifier_v1",
+        sourceEventId: ctx.sourceEventId,
         model: "cheap",
         systemPrompt:
           "You classify emails into life-management domains for Veynlo, a personal life operating system. " +
@@ -232,6 +233,7 @@ export class IngestionService {
     if (!this.ai.isConfigured()) return false;
     const result = await this.ai.extractStructured({
       extractorName: "receipt_extraction_v1",
+      sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
         "Extract structured purchase/receipt data from this email for Veynlo. Never invent a date or amount that " +
@@ -355,6 +357,7 @@ export class IngestionService {
     if (!this.ai.isConfigured()) return false;
     const result = await this.ai.extractStructured({
       extractorName: "shipment_extraction_v1",
+      sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
         "Extract structured shipping/tracking data from this email for Veynlo. Never invent a carrier, tracking " +
@@ -493,6 +496,7 @@ export class IngestionService {
     if (!this.ai.isConfigured()) return false;
     const result = await this.ai.extractStructured({
       extractorName: "bill_extraction_v1",
+      sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
         "Extract structured bill/subscription data from this email for Veynlo. Never invent a due date or amount " +
@@ -541,6 +545,7 @@ export class IngestionService {
     if (!this.ai.isConfigured()) return false;
     const result = await this.ai.extractStructured({
       extractorName: "subscription_extraction_v1",
+      sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
         "Extract structured recurring-subscription data from this email for Veynlo (trial started, renewal " +
@@ -607,6 +612,7 @@ export class IngestionService {
     if (!this.ai.isConfigured()) return false;
     const result = await this.ai.extractStructured({
       extractorName: "calendar_event_extraction_v1",
+      sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
         "Extract a structured calendar event (appointment/reservation/travel milestone) from this email for " +
@@ -657,6 +663,7 @@ export class IngestionService {
     if (!this.ai.isConfigured()) return false;
     const result = await this.ai.extractStructured({
       extractorName: "warranty_extraction_v1",
+      sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
         "Extract structured product warranty data from this email for Veynlo. Never invent an expiration date " +

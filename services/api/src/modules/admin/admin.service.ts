@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { desc, eq, isNull, ne } from "drizzle-orm";
+import { desc, eq, gte, isNull, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -90,6 +90,70 @@ export class AdminService {
     }
     await this.db.update(schema.entitlements).set({ effectiveTo: new Date() }).where(eq(schema.entitlements.id, entitlementId));
     await this.recordAccess(actorAdminId, "admin.entitlement_revoke", "entitlement", entitlementId);
+  }
+
+  /**
+   * §Operations "job/model health monitoring" — `extraction_runs`/`extractor_versions` have existed in the
+   * schema since the pipeline shipped, but nothing ever wrote to them (see `AnthropicExtractionService`,
+   * which now instruments every ingestion-pipeline AI call). This is the read side: per-extractor success
+   * rate/latency over a recent window, plus the most recent failures so a support agent or engineer can
+   * see whether "the AI pipeline" is healthy without grepping process logs.
+   */
+  async modelHealthSummary(windowDays = 7) {
+    const since = new Date(Date.now() - windowDays * 86_400_000);
+    const rows = await this.db
+      .select({
+        extractorName: schema.extractorVersions.name,
+        modelKey: schema.extractorVersions.modelKey,
+        status: schema.extractionRuns.status,
+        latencyMs: schema.extractionRuns.latencyMs,
+        errorDetail: schema.extractionRuns.errorDetail,
+        startedAt: schema.extractionRuns.startedAt,
+      })
+      .from(schema.extractionRuns)
+      .innerJoin(schema.extractorVersions, eq(schema.extractorVersions.id, schema.extractionRuns.extractorVersionId))
+      .where(gte(schema.extractionRuns.startedAt, since))
+      .orderBy(desc(schema.extractionRuns.startedAt));
+
+    interface Bucket {
+      total: number;
+      success: number;
+      failed: number;
+      running: number;
+      totalLatencyMs: number;
+      latencyCount: number;
+    }
+    const byExtractor = new Map<string, Bucket>();
+    for (const row of rows) {
+      const bucket = byExtractor.get(row.extractorName) ?? { total: 0, success: 0, failed: 0, running: 0, totalLatencyMs: 0, latencyCount: 0 };
+      bucket.total += 1;
+      if (row.status === "success") bucket.success += 1;
+      else if (row.status === "failed") bucket.failed += 1;
+      else bucket.running += 1;
+      if (row.latencyMs != null) {
+        bucket.totalLatencyMs += row.latencyMs;
+        bucket.latencyCount += 1;
+      }
+      byExtractor.set(row.extractorName, bucket);
+    }
+
+    return {
+      windowDays,
+      totalRuns: rows.length,
+      byExtractor: [...byExtractor.entries()].map(([extractorName, b]) => ({
+        extractorName,
+        total: b.total,
+        success: b.success,
+        failed: b.failed,
+        running: b.running,
+        successRate: b.total > 0 ? b.success / b.total : null,
+        avgLatencyMs: b.latencyCount > 0 ? Math.round(b.totalLatencyMs / b.latencyCount) : null,
+      })),
+      recentFailures: rows
+        .filter((r) => r.status === "failed")
+        .slice(0, 20)
+        .map((r) => ({ extractorName: r.extractorName, modelKey: r.modelKey, errorDetail: r.errorDetail, startedAt: r.startedAt })),
+    };
   }
 
   async connectorHealthSummary() {
