@@ -7,6 +7,7 @@ import { swrFetcher } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface BillDetail {
@@ -57,6 +58,8 @@ export default function BillDetailPage() {
           </dl>
         </CardBody>
       </Card>
+
+      <HistorySection resourceType="bill" resourceId={bill.id} />
 
       <EvidenceCard evidence={evidence} />
     </div>

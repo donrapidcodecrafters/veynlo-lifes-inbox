@@ -23,6 +23,7 @@ import { DataExportModule } from "./modules/data-export/data-export.module";
 import { FeatureFlagsModule } from "./modules/feature-flags/feature-flags.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { SharedModule } from "./modules/shared/shared.module";
+import { HistoryModule } from "./modules/history/history.module";
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { SharedModule } from "./modules/shared/shared.module";
     FeatureFlagsModule,
     OnboardingModule,
     SharedModule,
+    HistoryModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

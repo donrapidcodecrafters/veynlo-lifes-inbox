@@ -8,6 +8,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
 
 interface ReturnDetail {
@@ -74,6 +75,8 @@ export default function ReturnDetailPage() {
           </dl>
         </CardBody>
       </Card>
+
+      <HistorySection resourceType="return_case" resourceId={returnCase.id} />
 
       <EvidenceCard evidence={evidence} />
     </div>

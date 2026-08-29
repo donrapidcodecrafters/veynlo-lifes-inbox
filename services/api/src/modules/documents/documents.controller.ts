@@ -49,6 +49,8 @@ export class DocumentsController {
         : ("other" as DocumentType);
     const titleField = file.fields.title;
     const title = titleField && "value" in titleField ? String(titleField.value) : file.filename;
+    const linkedResourceIdField = file.fields.linkedResourceId;
+    const linkedResourceId = linkedResourceIdField && "value" in linkedResourceIdField ? String(linkedResourceIdField.value) : undefined;
 
     const buffer = await file.toBuffer();
     return this.documents.upload({
@@ -58,6 +60,7 @@ export class DocumentsController {
       documentType,
       mimeType: file.mimetype,
       buffer,
+      linkedResourceId,
     });
   }
 }

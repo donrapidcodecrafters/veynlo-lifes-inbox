@@ -8,6 +8,7 @@ import { Card } from "@/components/card";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface BillDetail {
@@ -40,6 +41,7 @@ export default function BillDetailScreen() {
           Autopay: {bill.autopayBelieved == null ? "Unknown" : bill.autopayBelieved ? "Yes" : "No"}
         </Text>
       </Card>
+      <HistorySection resourceType="bill" resourceId={id} />
       <EvidenceCard evidence={evidence} />
     </Screen>
   );

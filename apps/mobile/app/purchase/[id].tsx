@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface PurchaseDetail {
@@ -95,6 +96,7 @@ export default function PurchaseDetailScreen() {
         </Card>
       )}
 
+      <HistorySection resourceType="purchase" resourceId={id} showRelatedKinds={["warranty"]} />
       <EvidenceCard evidence={evidence} />
     </Screen>
   );

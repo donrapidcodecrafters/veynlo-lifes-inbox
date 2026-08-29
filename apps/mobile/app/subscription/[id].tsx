@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits } from "@/lib/format";
 
 interface SubscriptionDetail {
@@ -50,6 +51,7 @@ export default function SubscriptionDetailScreen() {
           </Text>
         )}
       </Card>
+      <HistorySection resourceType="subscription" resourceId={id} />
       <EvidenceCard evidence={evidence} />
     </Screen>
   );

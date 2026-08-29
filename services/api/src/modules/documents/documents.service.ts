@@ -47,6 +47,8 @@ export class DocumentsService {
     documentType: DocumentType;
     mimeType: string;
     buffer: Buffer;
+    /** TIME-002 "attach document" — an opaque `resourceId`, self-describing via its own generateId prefix (same "opaque, prefixed resource IDs" design already used everywhere else), not a separate resourceType column. */
+    linkedResourceId?: string;
   }): Promise<{ documentId: string }> {
     if (params.buffer.length === 0) {
       throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
@@ -106,6 +108,7 @@ export class DocumentsService {
       // No explicit processingState here — defaults to "uploaded", which is now accurate: scanning (when
       // configured) already happened above, before this row exists at all.
       currentVersionId: versionId,
+      linkedEntityIds: params.linkedResourceId ? [params.linkedResourceId] : [],
     });
 
     await this.storage.putObject(blobKey, params.buffer, params.mimeType);
@@ -197,6 +200,12 @@ export class DocumentsService {
       .select()
       .from(schema.documents)
       .where(await this.ownerOrDelegatedHousehold(userId, schema.documents.ownerUserId, schema.documents.householdId, schema.documents.visibility));
+  }
+
+  /** TIME-002 "Object history" — documents attached to one specific resource (e.g. a purchase's receipt scan). */
+  async listLinkedTo(userId: string, resourceId: string) {
+    const owned = await this.list(userId);
+    return owned.filter((d) => d.linkedEntityIds.includes(resourceId));
   }
 
   async signedUrl(documentId: string, userId: string): Promise<string> {

@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
 
 interface WarrantyDetail {
@@ -44,6 +45,7 @@ export default function WarrantyDetailScreen() {
           Registered: {warranty.registrationConfirmed == null ? "Unknown" : warranty.registrationConfirmed ? "Yes" : "No"}
         </Text>
       </Card>
+      <HistorySection resourceType="warranty" resourceId={id} />
       <EvidenceCard evidence={evidence} />
     </Screen>
   );

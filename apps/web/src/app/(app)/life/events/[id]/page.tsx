@@ -8,6 +8,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface EventDetail {
@@ -68,6 +69,8 @@ export default function EventDetailPage() {
           </dl>
         </CardBody>
       </Card>
+
+      <HistorySection resourceType="calendar_event" resourceId={event.id} />
 
       <EvidenceCard evidence={evidence} />
     </div>

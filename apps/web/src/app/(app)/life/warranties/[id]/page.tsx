@@ -8,6 +8,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
 
 interface WarrantyDetail {
@@ -60,6 +61,8 @@ export default function WarrantyDetailPage() {
           </dl>
         </CardBody>
       </Card>
+
+      <HistorySection resourceType="warranty" resourceId={warranty.id} />
 
       <EvidenceCard evidence={evidence} />
     </div>

@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface EventDetail {
@@ -47,6 +48,7 @@ export default function EventDetailScreen() {
         <Badge tone={event.status === "confirmed" ? "positive" : "neutral"}>{event.status.replace(/_/g, " ")}</Badge>
         {event.location && <Text style={{ fontSize: 14, color: theme.colors.textPrimary }}>{event.location}</Text>}
       </Card>
+      <HistorySection resourceType="calendar_event" resourceId={id} />
       <EvidenceCard evidence={evidence} />
     </Screen>
   );

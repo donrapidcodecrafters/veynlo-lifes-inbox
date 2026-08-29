@@ -8,6 +8,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface PurchaseDetail {
@@ -114,6 +115,8 @@ export default function PurchaseDetailPage() {
           </CardBody>
         </Card>
       )}
+
+      <HistorySection resourceType="purchase" resourceId={purchase.id} showRelatedKinds={["warranty"]} />
 
       <EvidenceCard evidence={evidence} />
     </div>

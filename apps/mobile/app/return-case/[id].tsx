@@ -9,6 +9,7 @@ import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
+import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
 
 interface ReturnDetail {
@@ -47,6 +48,7 @@ export default function ReturnDetailScreen() {
           View order →
         </Text>
       </Card>
+      <HistorySection resourceType="return_case" resourceId={id} />
       <EvidenceCard evidence={evidence} />
     </Screen>
   );
