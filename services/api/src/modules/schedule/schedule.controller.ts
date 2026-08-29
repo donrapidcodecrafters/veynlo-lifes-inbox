@@ -21,6 +21,11 @@ export class ScheduleController {
     return this.schedule.eventDetail(id, user.userId);
   }
 
+  @Post("events/:id/push-to-calendar")
+  pushEventToCalendar(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.schedule.pushEventToCalendar(id, user.userId);
+  }
+
   @Get("schedule/conflicts")
   conflicts(@CurrentUser() user: AuthenticatedUser) {
     return this.schedule.detectConflicts(user.userId);

@@ -11,7 +11,11 @@ import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 
-const CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"];
+// CAL-001 "write-back capability" — narrowed to events-only read/write (not full `calendar`, which also
+// grants calendar-list creation/deletion this app never needs) rather than the previous read-only scope.
+// Existing connections made under the old readonly scope keep working for reads; writing back requires
+// the user to reconnect once to grant the new scope (Google always re-prompts on scope changes).
+const CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
 
 function toTemporal(dt: calendar_v3.Schema$EventDateTime | undefined): { value: TemporalValue; isAllDay: boolean } {
   if (dt?.date) {
@@ -21,6 +25,15 @@ function toTemporal(dt: calendar_v3.Schema$EventDateTime | undefined): { value: 
     value: { precision: "instant", instantUtc: dt?.dateTime ?? null, date: null, timezone: dt?.timeZone ?? null, sourceText: null },
     isAllDay: false,
   };
+}
+
+/** Reverse of toTemporal, for pushEvent — a locally-created all-day event has no instant/timezone to give
+ * Google, just the plain date; a timed event needs a real ISO instant (falls back to "now" only in the
+ * degenerate case of a malformed local event with no instant at all, which schedule.service.ts's own
+ * validation should never actually produce). */
+function fromTemporal(value: TemporalValue, isAllDay: boolean): calendar_v3.Schema$EventDateTime {
+  if (isAllDay) return { date: value.date ?? new Date().toISOString().slice(0, 10) };
+  return { dateTime: value.instantUtc ?? new Date().toISOString(), timeZone: value.timezone ?? "UTC" };
 }
 
 /**
@@ -96,6 +109,33 @@ export class GoogleCalendarAdapter {
     const oauth = this.oauthClient(`${loadEnv().API_PUBLIC_URL}/v1/connectors/google-calendar/callback`);
     oauth.setCredentials(credentials);
     return { connection, calendar: google.calendar({ version: "v3", auth: oauth }) };
+  }
+
+  /**
+   * CAL-001 "write-back capability" — pushes a Veynlo-side calendar event to this connection's Google
+   * Calendar, creating it on first push and updating in place on every push after (Google's own event id,
+   * stored back onto `calendar_events.providerEventId`, is the same column the read-side sync already uses
+   * for its own dedup — one field serving both directions). Bounded scope: one-way push on explicit user
+   * action (ScheduleController's new sync-to-calendar endpoint), not continuous two-way sync or automatic
+   * push on every local edit — the spec itself gates this behind "an explicit write-back toggle."
+   */
+  async pushEvent(
+    connectionId: string,
+    event: { providerEventId: string | null; title: string; start: TemporalValue; end: TemporalValue | null; isAllDay: boolean; location: string | null },
+  ): Promise<{ providerEventId: string }> {
+    const { calendar } = await this.client(connectionId);
+    const body: calendar_v3.Schema$Event = {
+      summary: event.title,
+      location: event.location ?? undefined,
+      start: fromTemporal(event.start, event.isAllDay),
+      end: fromTemporal(event.end ?? event.start, event.isAllDay),
+    };
+    if (event.providerEventId) {
+      const updated = await calendar.events.update({ calendarId: "primary", eventId: event.providerEventId, requestBody: body });
+      return { providerEventId: updated.data.id! };
+    }
+    const created = await calendar.events.insert({ calendarId: "primary", requestBody: body });
+    return { providerEventId: created.data.id! };
   }
 
   private async ingestEvent(connection: typeof schema.connections.$inferSelect, connectionId: string, event: calendar_v3.Schema$Event): Promise<boolean> {

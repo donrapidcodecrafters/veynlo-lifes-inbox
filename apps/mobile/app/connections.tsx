@@ -58,6 +58,7 @@ const HISTORY_DEPTH_OPTIONS = [
   { value: "90", label: "90d" },
   { value: "182", label: "6mo" },
   { value: "365", label: "1yr" },
+  { value: "3650", label: "All" },
 ] as const;
 
 export default function ConnectionsScreen() {

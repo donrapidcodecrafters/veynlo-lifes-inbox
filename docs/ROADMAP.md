@@ -698,3 +698,30 @@ still open:
   well-documented gotcha as every other encrypted column in this codebase) and was abandoned in favor of
   the already-established route-existence check rather than fighting the test harness further. Test
   account and seed rows deleted afterward.
+- **Fourth gap-closing pass (2026-08-29): calendar write-back + unlimited history depth.**
+  1. **CAL-001 "write-back capability" — both calendar connectors were read-only.** Narrowed the OAuth
+     scope from readonly to events-only read/write (`calendar.events` for Google, `Calendars.ReadWrite` for
+     Microsoft — deliberately not the broader `calendar`/full-calendar-management scopes, which grant more
+     than this needs). Added `pushEvent()` to both adapters (create-or-update by `providerEventId`, the
+     same column the read-side sync already uses for its own dedup) and a new `ScheduleService.
+     pushEventToCalendar()` + `POST /v1/events/:id/push-to-calendar`, exposed as an explicit "Sync to
+     Google/Outlook Calendar" button on both platforms' event detail pages — never automatic on every
+     local edit, matching the spec's own "gates it behind an explicit write-back toggle." Bounded scope:
+     one-way push on demand, not continuous two-way sync; if a user has both providers connected, Google
+     wins arbitrarily (no per-event provider choice exists yet — a real, documented limitation). Existing
+     connections made under the old readonly scope keep working for reads; using push requires reconnecting
+     once to grant the new scope, which Google/Microsoft both handle by re-prompting consent automatically.
+  2. **ONB-002 "build my history" had no unlimited option** — capped at 1 year. Added a 3650-day (10-year)
+     "All history" tier to the shared validation allowlist and the Connections settings page's depth
+     picker on both platforms (a large-but-finite bound rather than a sentinel value, avoiding special-
+     casing every adapter's window math) — deliberately NOT added to the onboarding wizard's own narrower
+     depth picker, which stays intentionally smaller as the already-established "Free limited" scoping.
+  **Verified live**: a real calendar event created through the actual device-calendar ingestion endpoint
+  (not raw SQL, so its encrypted fields are genuinely valid), confirmed `push-to-calendar` correctly
+  rejects with a clear error when no calendar connection exists, then — with a connection row seeded — 
+  confirmed the connection-selection/dispatch logic correctly reaches all the way into
+  `GoogleCalendarAdapter.pushEvent()` and fails exactly at the credential-vault-lookup boundary (the same
+  "verified up to the real external dependency" proof already used for Stripe/RevenueCat elsewhere in this
+  file) — a full real Google/Microsoft OAuth round trip remains untestable in this environment for the
+  same reason it always has been (no real OAuth app credentials configured here). Test account and seeded
+  rows deleted afterward.

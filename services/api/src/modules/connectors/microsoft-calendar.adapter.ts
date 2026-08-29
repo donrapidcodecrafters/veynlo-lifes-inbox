@@ -13,7 +13,9 @@ import { ConnectorNotConfiguredError } from "./connector-errors";
 const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-const CALENDAR_SCOPES = ["offline_access", "Calendars.Read"];
+// CAL-001 "write-back capability" — was read-only. Existing connections keep working for reads; writing
+// back requires reconnecting once to grant the new scope, same as GoogleCalendarAdapter's identical change.
+const CALENDAR_SCOPES = ["offline_access", "Calendars.ReadWrite"];
 const EVENT_SELECT = "id,subject,start,end,isAllDay,location";
 const FUTURE_WINDOW_DAYS = 730; // 2 years forward — a calendar sync's whole point is upcoming events, unlike email backfill which only looks backward
 
@@ -46,6 +48,15 @@ function toTemporal(dt: GraphEventDateTime | undefined, isAllDay: boolean): Temp
   // `Prefer: outlook.timezone="UTC"`, Microsoft's documented way to make the API itself return dateTime
   // values already in UTC — so appending "Z" here is correct precisely because of that header, not despite it.
   return { precision: "instant", instantUtc: dt?.dateTime ? `${dt.dateTime}Z` : null, date: null, timezone: "UTC", sourceText: null };
+}
+
+/** Reverse of toTemporal, for pushEvent. Graph wants a naive local dateTime + a separate IANA timeZone for
+ * a timed event (we always write it as UTC, matching the `Prefer: outlook.timezone="UTC"` read side), or
+ * just a plain date for an all-day event. */
+function fromTemporal(value: TemporalValue, isAllDay: boolean): GraphEventDateTime {
+  if (isAllDay) return { dateTime: value.date ?? new Date().toISOString().slice(0, 10), timeZone: "UTC" };
+  const instant = value.instantUtc ?? new Date().toISOString();
+  return { dateTime: instant.replace("Z", ""), timeZone: "UTC" };
 }
 
 /**
@@ -134,6 +145,28 @@ export class MicrosoftCalendarAdapter {
       isAllDay,
       location: event.location?.displayName ?? null,
     });
+  }
+
+  /** CAL-001 "write-back capability" — same bounded scope as GoogleCalendarAdapter.pushEvent: one-way
+   * push on explicit user action, create-or-update by `providerEventId`, not continuous two-way sync. */
+  async pushEvent(
+    connectionId: string,
+    event: { providerEventId: string | null; title: string; start: TemporalValue; end: TemporalValue | null; isAllDay: boolean; location: string | null },
+  ): Promise<{ providerEventId: string }> {
+    const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
+    if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
+
+    const body = {
+      subject: event.title,
+      isAllDay: event.isAllDay,
+      start: fromTemporal(event.start, event.isAllDay),
+      end: fromTemporal(event.end ?? event.start, event.isAllDay),
+      location: event.location ? { displayName: event.location } : undefined,
+    };
+    const result = event.providerEventId
+      ? await this.graphWrite<{ id: string }>(connection, `${GRAPH_BASE}/me/events/${event.providerEventId}`, "PATCH", body)
+      : await this.graphWrite<{ id: string }>(connection, `${GRAPH_BASE}/me/events`, "POST", body);
+    return { providerEventId: result.id };
   }
 
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
@@ -262,6 +295,28 @@ export class MicrosoftCalendarAdapter {
     }
     if (!response.ok) {
       const err = new Error(`Microsoft Graph request failed: ${response.status} ${await response.text()}`) as Error & { status: number };
+      err.status = response.status;
+      throw err;
+    }
+    return response.json() as Promise<T>;
+  }
+
+  /** Same transparent-refresh-on-401 shape as graphGet, for POST/PATCH writes (event create/update). */
+  private async graphWrite<T>(connection: { credentialRef: string | null }, url: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
+    if (!connection.credentialRef) throw new Error("Connection has no credentialRef");
+    const credentials = await this.vault.read(connection.credentialRef);
+    if (!credentials) throw new Error("Connection has a credentialRef with no matching vault entry");
+    const { access_token, refresh_token } = credentials as unknown as MicrosoftCredentials;
+    const headers = { authorization: `Bearer ${access_token}`, "content-type": "application/json" };
+
+    let response = await fetch(url, { method, headers, body: JSON.stringify(body) });
+    if (response.status === 401) {
+      const refreshed = await this.refreshAccessToken(refresh_token);
+      await this.vault.rotate(connection.credentialRef, { access_token: refreshed.accessToken, refresh_token: refreshed.refreshToken }, refreshed.expiresAt);
+      response = await fetch(url, { method, headers: { authorization: `Bearer ${refreshed.accessToken}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    }
+    if (!response.ok) {
+      const err = new Error(`Microsoft Graph write failed: ${response.status} ${await response.text()}`) as Error & { status: number };
       err.status = response.status;
       throw err;
     }

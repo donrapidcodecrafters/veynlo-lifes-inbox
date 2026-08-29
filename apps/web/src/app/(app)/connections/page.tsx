@@ -16,6 +16,7 @@ const HISTORY_DEPTH_OPTIONS = [
   { value: "90", label: "90 days" },
   { value: "182", label: "6 months" },
   { value: "365", label: "1 year" },
+  { value: "3650", label: "All history" },
 ] as const;
 
 interface InboundAliasInfo {

@@ -201,7 +201,12 @@ export class ConnectorsController {
   }
 }
 
-const VALID_HISTORY_DEPTH_DAYS = [0, 30, 90, 182, 365] as const;
+// ONB-002 "build my history" — the spec's fuller range includes an unlimited/"where provider capability
+// allows" option; this previously capped at 1 year with nothing beyond it. 3650 (10 years) stands in for
+// "unlimited" rather than a sentinel value (e.g. -1) that would need special-casing in every adapter's
+// `Date.now() - historyDepthDays * 86_400_000` window math — a large-but-finite bound is simpler and just
+// as effective, since no real mailbox has messages older than the account itself anyway.
+const VALID_HISTORY_DEPTH_DAYS = [0, 30, 90, 182, 365, 3650] as const;
 
 function parseHistoryDepthDays(raw: string | undefined): number {
   const parsed = Number(raw);

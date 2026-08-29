@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
-import { swrFetcher } from "@/lib/api-client";
+import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { HistorySection } from "@/components/history-section";
@@ -21,13 +23,16 @@ interface EventDetail {
     location: string | null;
     status: string;
     source: string;
+    providerEventId: string | null;
   };
   evidence: Evidence | null;
 }
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useSWR<EventDetail | null>(`/v1/events/${id}`, swrFetcher);
+  const { data, isLoading, mutate } = useSWR<EventDetail | null>(`/v1/events/${id}`, swrFetcher);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-xl bg-subtle" />;
   if (!data) return <EmptyState title="Not found" description="This event doesn't exist or you don't have access to it." />;
@@ -35,6 +40,20 @@ export default function EventDetailPage() {
   const { event, evidence } = data;
   const start = formatTemporal(event.start);
   const end = formatTemporal(event.end);
+
+  async function syncToCalendar() {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const result = await api.post<{ provider: string; providerEventId: string }>(`/v1/events/${id}/push-to-calendar`);
+      setSyncMessage(`Synced to ${result.provider === "google_calendar" ? "Google Calendar" : "Outlook Calendar"}.`);
+      mutate();
+    } catch (err) {
+      setSyncMessage(err instanceof ApiError ? err.message : "Couldn't sync this event. Please try again.");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -67,6 +86,12 @@ export default function EventDetailPage() {
               </>
             )}
           </dl>
+          <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle pt-3">
+            <Button size="sm" variant="secondary" onClick={syncToCalendar} loading={syncing}>
+              {event.providerEventId ? "Sync changes to calendar" : "Sync to Google/Outlook Calendar"}
+            </Button>
+            {syncMessage && <p className="text-sm text-tertiary">{syncMessage}</p>}
+          </div>
         </CardBody>
       </Card>
 

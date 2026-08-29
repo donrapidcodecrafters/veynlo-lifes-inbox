@@ -6,6 +6,8 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { HouseholdService } from "../household/household.service";
+import { GoogleCalendarAdapter } from "../connectors/google-calendar.adapter";
+import { MicrosoftCalendarAdapter } from "../connectors/microsoft-calendar.adapter";
 import { parseRecurrenceRule, nextOccurrence } from "./recurrence.util";
 import type { CreateTaskDto, UpdateTaskDto } from "./dto";
 
@@ -18,6 +20,8 @@ export class ScheduleService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly households: HouseholdService,
+    private readonly googleCalendar: GoogleCalendarAdapter,
+    private readonly microsoftCalendar: MicrosoftCalendarAdapter,
   ) {}
 
   /**
@@ -85,6 +89,52 @@ export class ScheduleService {
       if (!event.householdId || !householdIds.includes(event.householdId) || event.visibility === "private") return null;
     }
     return { event, evidence: await this.evidenceViaInboxItem("calendar_event", eventId) };
+  }
+
+  /**
+   * CAL-001 "write-back capability" — explicit, user-triggered push (never automatic on every local edit,
+   * per the spec's own "gates it behind an explicit write-back toggle"). Picks whichever calendar
+   * connection the user has active; if they have both, Google wins arbitrarily since there's no per-event
+   * "which calendar" preference to consult yet — a real limitation, not a silent bug, worth revisiting if
+   * anyone actually connects both providers and wants a choice. `providerEventId` already set (from a
+   * previous push, or because this event was itself synced FROM that same provider) means this updates in
+   * place instead of creating a duplicate event on the provider's side.
+   */
+  async pushEventToCalendar(eventId: string, userId: string): Promise<{ provider: string; providerEventId: string }> {
+    const [event] = await this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+
+    const connections = await this.db
+      .select()
+      .from(schema.connections)
+      .where(
+        and(
+          eq(schema.connections.ownerUserId, userId),
+          inArray(schema.connections.provider, ["google_calendar", "microsoft_calendar"]),
+          ne(schema.connections.health, "disconnected"),
+        ),
+      );
+    const googleConnection = connections.find((c) => c.provider === "google_calendar");
+    const microsoftConnection = connections.find((c) => c.provider === "microsoft_calendar");
+    if (!googleConnection && !microsoftConnection) {
+      throw new BadRequestException({ code: "NO_CALENDAR_CONNECTION", message: "Connect Google or Microsoft Calendar first to push events there." });
+    }
+
+    const pushArgs = {
+      providerEventId: event.providerEventId,
+      title: event.title,
+      start: event.start,
+      end: event.end,
+      isAllDay: event.isAllDay,
+      location: event.location,
+    };
+    const [provider, result] = googleConnection
+      ? ["google_calendar", await this.googleCalendar.pushEvent(googleConnection.id, pushArgs)]
+      : ["microsoft_calendar", await this.microsoftCalendar.pushEvent(microsoftConnection!.id, pushArgs)];
+
+    await this.db.update(schema.calendarEvents).set({ providerEventId: result.providerEventId, updatedAt: new Date() }).where(eq(schema.calendarEvents.id, eventId));
+    return { provider, providerEventId: result.providerEventId };
   }
 
   async tasks(userId: string) {
