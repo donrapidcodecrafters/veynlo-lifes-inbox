@@ -1,14 +1,21 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, eq, isNull } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { loadEnv } from "../../config/env";
+import { MailerService } from "../notifications/mailer.service";
 import type { CreateDependentDto, CreateHouseholdDto, GrantDelegationDto, InviteMemberDto } from "./dto";
 
 @Injectable()
 export class HouseholdService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  private readonly logger = new Logger(HouseholdService.name);
+
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly mailer: MailerService,
+  ) {}
 
   /**
    * §28.17 "audit household ACL/ownership changes" — mirrors AdminService.recordAccess's shape
@@ -102,7 +109,12 @@ export class HouseholdService {
 
   async listMembers(householdId: string, requestingUserId: string) {
     await this.assertOwnerOrAdult(householdId, requestingUserId);
-    return this.db.select().from(schema.householdMemberships).where(eq(schema.householdMemberships.householdId, householdId));
+    const rows = await this.db
+      .select({ membership: schema.householdMemberships, displayName: schema.users.displayName })
+      .from(schema.householdMemberships)
+      .leftJoin(schema.users, eq(schema.users.id, schema.householdMemberships.userId))
+      .where(eq(schema.householdMemberships.householdId, householdId));
+    return rows.map((r) => ({ ...r.membership, displayName: r.displayName ?? null }));
   }
 
   async invite(householdId: string, requestingUserId: string, dto: InviteMemberDto) {
@@ -128,12 +140,35 @@ export class HouseholdService {
       status: "invited",
       invitedEmail: dto.email,
     });
-    // Sending the actual invitation email is wired in the notifications module (§notifications channel) —
-    // this call site only creates the durable invitation record.
     await this.recordAudit(requestingUserId, "household.invite", "household", householdId, {
       afterJson: { invitedEmail: dto.email, relationshipLabel: dto.relationshipLabel ?? null },
     });
+    await this.sendInviteEmail(householdId, requestingUserId, dto.email);
     return { id };
+  }
+
+  /**
+   * Best-effort — a failed invite email shouldn't roll back or fail the invite itself (the membership row
+   * is already the durable record; IdentityService.activatePendingHouseholdInvites picks it up regardless
+   * of whether this email ever arrived, the moment the invitee signs up/in with this address). Previously
+   * a code comment here claimed this was "wired in the notifications module," which was never actually
+   * true — nothing anywhere sent it.
+   */
+  private async sendInviteEmail(householdId: string, inviterUserId: string, inviteeEmail: string): Promise<void> {
+    try {
+      const [household] = await this.db.select({ name: schema.households.name }).from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+      const [inviter] = await this.db.select({ displayName: schema.users.displayName }).from(schema.users).where(eq(schema.users.id, inviterUserId)).limit(1);
+      const householdName = household?.name ?? "a household";
+      const inviterName = inviter?.displayName ?? "Someone";
+      const signInUrl = `${loadEnv().WEB_APP_URL}/sign-in`;
+      await this.mailer.send({
+        to: inviteeEmail,
+        subject: `${inviterName} invited you to join ${householdName} on Veynlo`,
+        text: `${inviterName} invited you to join "${householdName}" on Veynlo.\n\nSign in or create an account using this email address (${inviteeEmail}) and you'll be added automatically: ${signInUrl}`,
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to send household invite email to ${inviteeEmail}: ${String(err)}`);
+    }
   }
 
   async addDependent(householdId: string, requestingUserId: string, dto: CreateDependentDto) {
@@ -215,7 +250,12 @@ export class HouseholdService {
 
   async listDelegations(householdId: string, requestingUserId: string) {
     await this.assertOwnerOrAdult(householdId, requestingUserId);
-    return this.db.select().from(schema.caregiverDelegations).where(eq(schema.caregiverDelegations.householdId, householdId));
+    const rows = await this.db
+      .select({ delegation: schema.caregiverDelegations, delegateDisplayName: schema.users.displayName })
+      .from(schema.caregiverDelegations)
+      .leftJoin(schema.users, eq(schema.users.id, schema.caregiverDelegations.delegateUserId))
+      .where(eq(schema.caregiverDelegations.householdId, householdId));
+    return rows.map((r) => ({ ...r.delegation, delegateDisplayName: r.delegateDisplayName ?? null }));
   }
 
   async revokeDelegation(householdId: string, delegationId: string, requestingUserId: string) {

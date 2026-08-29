@@ -169,6 +169,17 @@ export default function SettingsPage() {
           <Card>
             <CardBody className="flex items-center justify-between">
               <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Household</p>
+                <p className="text-sm text-tertiary">Invite family members, add dependents, and grant caregiver access.</p>
+              </div>
+              <Link href="/household">
+                <Button variant="secondary">Manage</Button>
+              </Link>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody className="flex items-center justify-between">
+              <div>
                 <p className="text-[0.9375rem] font-medium text-primary">Connections</p>
                 <p className="text-sm text-tertiary">Manage what Veynlo reads from — email, calendars, and feeds.</p>
               </div>

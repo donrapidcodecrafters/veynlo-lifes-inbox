@@ -82,6 +82,7 @@ export class IdentityService {
       providerSubject: dto.email,
     });
     await this.db.insert(schema.notificationPreferences).values({ userId });
+    await this.activatePendingHouseholdInvites(userId, dto.email);
 
     return this.issueSession(userId, deviceInfo);
   }
@@ -100,6 +101,7 @@ export class IdentityService {
       // session for data that's actively being torn down in the background — reject rather than race it.
       throw new UnauthorizedException({ code: "ACCOUNT_DELETED", message: "This account has been deleted." });
     }
+    await this.activatePendingHouseholdInvites(user.id, user.email);
     return this.issueSession(user.id, deviceInfo);
   }
 
@@ -134,6 +136,22 @@ export class IdentityService {
       .sign(new TextEncoder().encode(env.SESSION_JWT_SECRET));
 
     return { token, expiresAt, userId };
+  }
+
+  /**
+   * FAM invite acceptance — a person invited to a household (HouseholdService.invite, which only ever
+   * created a pending `status: "invited"` row with no way to ever become active) activates automatically
+   * the moment they authenticate with the invited email address, rather than needing a separate "accept"
+   * click or token. Runs on every successful sign-up/sign-in/OAuth callback, not just once at signup —
+   * idempotent (an already-active row never matches `status: "invited"`), and an invite can legitimately
+   * arrive after the account already existed.
+   */
+  private async activatePendingHouseholdInvites(userId: string, email: string | null): Promise<void> {
+    if (!email) return;
+    await this.db
+      .update(schema.householdMemberships)
+      .set({ userId, status: "active", joinedAt: new Date() })
+      .where(and(eq(schema.householdMemberships.invitedEmail, email), eq(schema.householdMemberships.status, "invited")));
   }
 
   isGoogleSignInConfigured(): boolean {
@@ -247,6 +265,7 @@ export class IdentityService {
       if (user.status === "deletion_pending" || user.status === "deleted") {
         throw new UnauthorizedException({ code: "ACCOUNT_DELETED", message: "This account has been deleted." });
       }
+      await this.activatePendingHouseholdInvites(user.id, user.email);
       return this.issueSession(user.id, deviceInfo);
     }
 
@@ -271,6 +290,7 @@ export class IdentityService {
       provider: params.provider,
       providerSubject: params.providerSubject,
     });
+    await this.activatePendingHouseholdInvites(userId, params.email);
 
     return this.issueSession(userId, deviceInfo);
   }

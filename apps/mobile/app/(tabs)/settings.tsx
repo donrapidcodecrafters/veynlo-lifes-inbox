@@ -125,6 +125,9 @@ export default function SettingsScreen() {
         <Button variant="secondary" onPress={() => router.push("/privacy")}>
           Privacy
         </Button>
+        <Button variant="secondary" onPress={() => router.push("/household")}>
+          Household
+        </Button>
         {messageCaptureAvailable && (
           <Button variant="secondary" onPress={() => router.push("/message-capture")}>
             Message capture
