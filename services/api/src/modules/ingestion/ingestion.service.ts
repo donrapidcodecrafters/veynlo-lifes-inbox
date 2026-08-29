@@ -124,22 +124,27 @@ export class IngestionService {
     await this.classifyAndExtract({ sourceEventId, ownerUserId: params.ownerUserId, householdId: params.householdId, parsed });
   }
 
-  /** Entry point for share-capture/voice-note/manual-forward and for local testing without a live Gmail connection. */
+  /** Entry point for share-capture/voice-note/manual-forward/URL-capture and for local testing without a live Gmail connection. */
   async ingestManualText(params: {
     ownerUserId: string;
     householdId: string | null;
     subject: string;
     bodyText: string;
     fromAddress?: string;
+    /** Distinguishes the source in source_events.kind / the evidence view — e.g. "url_capture" reuses this
+     * same method (URL capture already IS a subject+bodyText pair once fetched and text-extracted) rather
+     * than duplicating it, passing the source URL as fromAddress. */
+    kind?: string;
   }): Promise<{ sourceEventId: string }> {
+    const kind = params.kind ?? "manual_entry";
     const contentHash = createHash("sha256").update(params.subject + params.bodyText).digest("hex");
-    const idempotencyKey = `manual:${contentHash}`;
+    const idempotencyKey = `${kind}:${contentHash}`;
     const sourceEventId = generateId("sourceEvent");
     await this.db.insert(schema.sourceEvents).values({
       id: sourceEventId,
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
-      kind: "manual_entry",
+      kind,
       contentHash,
       occurredAt: new Date(),
       idempotencyKey,

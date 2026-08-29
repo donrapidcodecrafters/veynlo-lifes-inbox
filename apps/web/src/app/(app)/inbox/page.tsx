@@ -212,9 +212,11 @@ export default function InboxPage() {
  * email would be), so the confirmation is deliberately non-committal about what happens next.
  */
 function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [mode, setMode] = useState<"text" | "url">("text");
   const [subject, setSubject] = useState("");
   const [fromAddress, setFromAddress] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -224,15 +226,20 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/v1/ingestion/manual", {
-        subject,
-        bodyText,
-        fromAddress: fromAddress || undefined,
-      });
+      if (mode === "url") {
+        await api.post("/v1/ingestion/url", { url });
+        setUrl("");
+      } else {
+        await api.post("/v1/ingestion/manual", {
+          subject,
+          bodyText,
+          fromAddress: fromAddress || undefined,
+        });
+        setSubject("");
+        setFromAddress("");
+        setBodyText("");
+      }
       setDone(true);
-      setSubject("");
-      setFromAddress("");
-      setBodyText("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -264,34 +271,74 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
     <Card>
       <CardBody>
         <form onSubmit={onSubmit} className="space-y-3" noValidate>
-          <p className="text-sm text-tertiary">
-            Paste the text of a receipt, bill, confirmation, or other email — or just describe what happened.
-          </p>
-          <div>
-            <Label htmlFor="capture-subject">Subject</Label>
-            <Input id="capture-subject" value={subject} onChange={(e) => setSubject(e.target.value)} required maxLength={500} />
+          <div className="flex gap-1 rounded-lg bg-subtle p-1" role="tablist">
+            {(["text", "url"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={mode === m}
+                onClick={() => setMode(m)}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  mode === m ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+                }`}
+              >
+                {m === "text" ? "Paste text" : "From a URL"}
+              </button>
+            ))}
           </div>
-          <div>
-            <Label htmlFor="capture-from">From (optional)</Label>
-            <Input
-              id="capture-from"
-              type="email"
-              value={fromAddress}
-              onChange={(e) => setFromAddress(e.target.value)}
-              placeholder="billing@example.com"
-            />
-          </div>
-          <div>
-            <Label htmlFor="capture-body">Content</Label>
-            <Textarea
-              id="capture-body"
-              rows={8}
-              value={bodyText}
-              onChange={(e) => setBodyText(e.target.value)}
-              required
-              maxLength={50_000}
-            />
-          </div>
+
+          {mode === "text" ? (
+            <>
+              <p className="text-sm text-tertiary">
+                Paste the text of a receipt, bill, confirmation, or other email — or just describe what happened.
+              </p>
+              <div>
+                <Label htmlFor="capture-subject">Subject</Label>
+                <Input id="capture-subject" value={subject} onChange={(e) => setSubject(e.target.value)} required maxLength={500} />
+              </div>
+              <div>
+                <Label htmlFor="capture-from">From (optional)</Label>
+                <Input
+                  id="capture-from"
+                  type="email"
+                  value={fromAddress}
+                  onChange={(e) => setFromAddress(e.target.value)}
+                  placeholder="billing@example.com"
+                />
+              </div>
+              <div>
+                <Label htmlFor="capture-body">Content</Label>
+                <Textarea
+                  id="capture-body"
+                  rows={8}
+                  value={bodyText}
+                  onChange={(e) => setBodyText(e.target.value)}
+                  required
+                  maxLength={50_000}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-tertiary">
+                Paste a link to a confirmation page, event listing, or anything else worth remembering — Veynlo will
+                read the page and pull out what it can.
+              </p>
+              <div>
+                <Label htmlFor="capture-url">URL</Label>
+                <Input
+                  id="capture-url"
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://example.com/order/12345"
+                  required
+                />
+              </div>
+            </>
+          )}
+
           <FieldError>{error ?? undefined}</FieldError>
           <div className="flex gap-2">
             <Button type="submit" size="sm" loading={submitting}>

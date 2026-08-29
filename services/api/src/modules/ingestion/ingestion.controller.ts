@@ -1,11 +1,20 @@
 import { Body, Controller, Post, UseGuards, UsePipes } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { TemporalValue } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { IngestionService } from "./ingestion.service";
-import { IngestManualDtoSchema, IngestDeviceCalendarDtoSchema, type IngestManualDto, type IngestDeviceCalendarDto } from "./dto";
+import { SafeUrlFetcher } from "./safe-url-fetcher";
+import {
+  IngestManualDtoSchema,
+  IngestDeviceCalendarDtoSchema,
+  IngestUrlDtoSchema,
+  type IngestManualDto,
+  type IngestDeviceCalendarDto,
+  type IngestUrlDto,
+} from "./dto";
 
 function deviceEventTemporal(iso: string, isAllDay: boolean): TemporalValue {
   if (isAllDay) return { precision: "date", instantUtc: null, date: iso.slice(0, 10), timezone: null, sourceText: null };
@@ -20,7 +29,10 @@ function deviceEventTemporal(iso: string, isAllDay: boolean): TemporalValue {
 @Controller("v1/ingestion")
 @UseGuards(AuthGuard)
 export class IngestionController {
-  constructor(private readonly ingestion: IngestionService) {}
+  constructor(
+    private readonly ingestion: IngestionService,
+    private readonly urlFetcher: SafeUrlFetcher,
+  ) {}
 
   @Post("manual")
   @UsePipes(new ZodValidationPipe(IngestManualDtoSchema))
@@ -31,6 +43,28 @@ export class IngestionController {
       subject: dto.subject,
       bodyText: dto.bodyText,
       fromAddress: dto.fromAddress,
+    });
+  }
+
+  /**
+   * §Connections/Capture "URL capture" — fetches the page server-side (see SafeUrlFetcher for the
+   * SSRF-safe fetch/redirect handling), extracts its title and readable text, then reuses the exact same
+   * manual-capture write path (URL capture already IS a subject+bodyText pair once fetched). Tighter
+   * throttle than the global default — this endpoint makes an outbound network request per call, a more
+   * abusable resource than a typical CRUD route.
+   */
+  @Post("url")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UsePipes(new ZodValidationPipe(IngestUrlDtoSchema))
+  async ingestUrl(@CurrentUser() user: AuthenticatedUser, @Body() dto: IngestUrlDto) {
+    const { title, text, finalUrl } = await this.urlFetcher.fetchReadableText(dto.url);
+    return this.ingestion.ingestManualText({
+      ownerUserId: user.userId,
+      householdId: null,
+      subject: title,
+      bodyText: text,
+      fromAddress: finalUrl,
+      kind: "url_capture",
     });
   }
 

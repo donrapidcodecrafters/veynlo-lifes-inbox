@@ -7,6 +7,11 @@ export const IngestManualDtoSchema = z.object({
 });
 export type IngestManualDto = z.infer<typeof IngestManualDtoSchema>;
 
+export const IngestUrlDtoSchema = z.object({
+  url: z.string().url().max(2000),
+});
+export type IngestUrlDto = z.infer<typeof IngestUrlDtoSchema>;
+
 /** A single EventKit/local-calendar event pushed from the mobile app — see IngestionService.ingestFeedCalendarEvent, the same "already a calendar event, no AI needed" write path the ICS/Google/Microsoft calendar connectors share. */
 export const DeviceCalendarEventDtoSchema = z.object({
   uid: z.string().min(1).max(500),

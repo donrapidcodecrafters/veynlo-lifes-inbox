@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { RefreshControl, Text, View } from "react-native";
+import { Pressable, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -204,9 +204,11 @@ export default function InboxScreen() {
 /** Mirrors the web Inbox page's identical form — pastes a receipt/bill/confirmation email's text through the same pipeline a real connected inbox uses. */
 function CaptureForm({ onDone }: { onDone: () => void }) {
   const { theme } = useAppTheme();
+  const [mode, setMode] = useState<"text" | "url">("text");
   const [subject, setSubject] = useState("");
   const [fromAddress, setFromAddress] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -215,7 +217,11 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/v1/ingestion/manual", { subject, bodyText, fromAddress: fromAddress || undefined });
+      if (mode === "url") {
+        await api.post("/v1/ingestion/url", { url });
+      } else {
+        await api.post("/v1/ingestion/manual", { subject, bodyText, fromAddress: fromAddress || undefined });
+      }
       setDone(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
@@ -237,21 +243,63 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
 
   return (
     <View style={{ gap: 10 }}>
-      <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
-        Paste the text of a receipt, bill, confirmation, or other email — or just describe what happened.
-      </Text>
-      <TextField label="Subject" value={subject} onChangeText={setSubject} />
-      <TextField label="From (optional)" value={fromAddress} onChangeText={setFromAddress} autoCapitalize="none" keyboardType="email-address" />
-      <TextField
-        label="Content"
-        value={bodyText}
-        onChangeText={setBodyText}
-        multiline
-        numberOfLines={6}
-        style={{ height: 140, paddingTop: 12, textAlignVertical: "top" }}
-      />
+      <View style={{ flexDirection: "row", gap: 6, padding: 4, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md }}>
+        {(["text", "url"] as const).map((m) => {
+          const active = mode === m;
+          return (
+            <Pressable
+              key={m}
+              onPress={() => setMode(m)}
+              style={{
+                flex: 1,
+                paddingVertical: 8,
+                borderRadius: theme.radius.sm,
+                backgroundColor: active ? theme.colors.bgSurface : "transparent",
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>
+                {m === "text" ? "Paste text" : "From a URL"}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {mode === "text" ? (
+        <>
+          <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+            Paste the text of a receipt, bill, confirmation, or other email — or just describe what happened.
+          </Text>
+          <TextField label="Subject" value={subject} onChangeText={setSubject} />
+          <TextField label="From (optional)" value={fromAddress} onChangeText={setFromAddress} autoCapitalize="none" keyboardType="email-address" />
+          <TextField
+            label="Content"
+            value={bodyText}
+            onChangeText={setBodyText}
+            multiline
+            numberOfLines={6}
+            style={{ height: 140, paddingTop: 12, textAlignVertical: "top" }}
+          />
+        </>
+      ) : (
+        <>
+          <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+            Paste a link to a confirmation page, event listing, or anything else worth remembering.
+          </Text>
+          <TextField
+            label="URL"
+            value={url}
+            onChangeText={setUrl}
+            autoCapitalize="none"
+            keyboardType="url"
+            placeholder="https://example.com/order/12345"
+          />
+        </>
+      )}
+
       {error && <Text style={{ color: theme.colors.critical, fontSize: 13 }}>{error}</Text>}
-      <Button onPress={onSubmit} loading={submitting} disabled={!subject || !bodyText}>
+      <Button onPress={onSubmit} loading={submitting} disabled={mode === "text" ? !subject || !bodyText : !url}>
         Submit
       </Button>
     </View>
