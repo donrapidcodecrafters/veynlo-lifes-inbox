@@ -3,11 +3,12 @@ import { IdentityModule } from "../identity/identity.module";
 import { IntelligenceModule } from "../intelligence/intelligence.module";
 import { SearchController } from "./search.controller";
 import { SearchService } from "./search.service";
+import { SearchIndexService } from "./search-index.service";
 
 @Module({
   imports: [IdentityModule, IntelligenceModule],
   controllers: [SearchController],
-  providers: [SearchService],
-  exports: [SearchService],
+  providers: [SearchService, SearchIndexService],
+  exports: [SearchService, SearchIndexService],
 })
 export class SearchModule {}

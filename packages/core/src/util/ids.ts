@@ -63,6 +63,7 @@ export const ID_PREFIXES = {
   objectNote: "note",
   passwordResetToken: "prt",
   passkey: "pky",
+  searchDocument: "srd",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { vector } from "./vector-type";
 
 /**
@@ -31,6 +31,8 @@ export const searchDocuments = pgTable(
   },
   (t) => [
     index("search_documents_owner_idx").on(t.ownerUserId),
-    index("search_documents_resource_idx").on(t.resourceType, t.resourceId),
+    // Unique (not just indexed) so indexing writes can be a plain upsert keyed by the resource it mirrors —
+    // one search_documents row per real resource, kept in sync on every create/update, removed on delete.
+    uniqueIndex("search_documents_resource_idx").on(t.resourceType, t.resourceId),
   ],
 );

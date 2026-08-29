@@ -12,6 +12,7 @@ import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
 import { HouseholdService } from "../household/household.service";
 import { SharingService } from "../shared/sharing.service";
+import { SearchIndexService } from "../search/search-index.service";
 import { StorageService } from "./storage.service";
 import { MalwareScannerService } from "./malware-scanner.service";
 
@@ -33,6 +34,7 @@ export class DocumentsService {
     private readonly malwareScanner: MalwareScannerService,
     private readonly households: HouseholdService,
     private readonly sharing: SharingService,
+    private readonly searchIndex: SearchIndexService,
   ) {}
 
   /**
@@ -170,7 +172,30 @@ export class DocumentsService {
       .set({ processingState: ocrText ? "extracted" : "classified", updatedAt: new Date() })
       .where(eq(schema.documents.id, documentId));
 
+    await this.reindexDocument(documentId);
+
     return { documentId };
+  }
+
+  /** Re-derives a document's `search_documents` row from its current title + current version's OCR text —
+   * called after anything that can change either (a new upload, a rename, a new version becoming current)
+   * rather than each call site trying to patch the indexed text itself. */
+  private async reindexDocument(documentId: string): Promise<void> {
+    const [row] = await this.db
+      .select({ document: schema.documents, version: schema.documentVersions })
+      .from(schema.documents)
+      .leftJoin(schema.documentVersions, eq(schema.documentVersions.id, schema.documents.currentVersionId))
+      .where(eq(schema.documents.id, documentId))
+      .limit(1);
+    if (!row) return;
+    await this.searchIndex.upsert({
+      resourceType: "document",
+      resourceId: documentId,
+      ownerUserId: row.document.ownerUserId,
+      householdId: row.document.householdId,
+      title: row.document.title,
+      bodyText: row.version?.ocrText ?? "",
+    });
   }
 
   private async extractTextWithClaude(buffer: Buffer, mimeType: string): Promise<string | null> {
@@ -251,6 +276,7 @@ export class DocumentsService {
     if (dto.documentType !== undefined) patch.documentType = dto.documentType;
     if (dto.tags !== undefined) patch.tags = dto.tags;
     await this.db.update(schema.documents).set(patch).where(eq(schema.documents.id, documentId));
+    if (dto.title !== undefined) await this.reindexDocument(documentId);
   }
 
   /** DOC-006 "link/unlink object" — the other half of TIME-002's "attach document" (linking happens at upload time via `linkedResourceId`). */
@@ -331,6 +357,7 @@ export class DocumentsService {
     const versions = await this.db.select({ blobRef: schema.documentVersions.blobRef }).from(schema.documentVersions).where(eq(schema.documentVersions.documentId, documentId));
     for (const version of versions) await this.storage.deleteObject(version.blobRef).catch(() => undefined);
     await this.db.delete(schema.documents).where(eq(schema.documents.id, documentId));
+    await this.searchIndex.remove("document", documentId);
   }
 
   /**
@@ -395,6 +422,8 @@ export class DocumentsService {
       .update(schema.documents)
       .set({ currentVersionId: versionId, processingState: ocrText ? "extracted" : "classified", updatedAt: new Date() })
       .where(eq(schema.documents.id, documentId));
+
+    await this.reindexDocument(documentId);
 
     return { versionId };
   }

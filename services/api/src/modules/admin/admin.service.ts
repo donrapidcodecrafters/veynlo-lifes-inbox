@@ -6,6 +6,7 @@ import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { SearchIndexService } from "../search/search-index.service";
 import type { CreateAdminDto, GrantEntitlementDto } from "./dto";
 
 /** The only sources an admin action is allowed to touch — a real payment processor's entitlement (Stripe/
@@ -25,7 +26,10 @@ function normalizeMerchantName(name: string): string {
 
 @Injectable()
 export class AdminService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly searchIndex: SearchIndexService,
+  ) {}
 
   async findUserByEmail(email: string, actingAdminId: string) {
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
@@ -279,6 +283,7 @@ export class AdminService {
 
     await this.db.update(schema.purchases).set({ merchantId: survivingMerchantId }).where(eq(schema.purchases.merchantId, mergedMerchantId));
     await this.db.update(schema.merchants).set({ mergedIntoMerchantId: survivingMerchantId }).where(eq(schema.merchants.id, mergedMerchantId));
+    await this.searchIndex.renameIndexedTitles("purchase", repointedPurchaseIds, surviving.displayName);
 
     const lineageId = generateId("merchantMergeLineage");
     await this.db.insert(schema.merchantMergeLineage).values({
@@ -314,6 +319,8 @@ export class AdminService {
     for (const purchaseId of lineage.repointedPurchaseIds) {
       await this.db.update(schema.purchases).set({ merchantId: lineage.mergedMerchantId }).where(eq(schema.purchases.id, purchaseId));
     }
+    const mergedSnapshot = lineage.mergedMerchantSnapshot as { displayName: string };
+    await this.searchIndex.renameIndexedTitles("purchase", lineage.repointedPurchaseIds, mergedSnapshot.displayName);
 
     await this.db
       .update(schema.merchantMergeLineage)

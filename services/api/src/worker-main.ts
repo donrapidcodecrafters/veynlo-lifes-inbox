@@ -215,6 +215,11 @@ async function bootstrap() {
       }
       await db.delete(schema.users).where(eq(schema.users.id, userId));
 
+      // search_documents.ownerUserId is a bare text column, not a `references(users.id)` FK — nothing
+      // cascades this on user deletion, so it needs an explicit delete here or a search index row survives
+      // forever for an account that no longer exists.
+      await db.delete(schema.searchDocuments).where(eq(schema.searchDocuments.ownerUserId, userId));
+
       // Not itself a FK to users.id (actorId is a bare string column) — survives the delete above by design.
       await db.insert(schema.auditEvents).values({
         id: generateId("auditEvent"),
@@ -290,7 +295,12 @@ async function bootstrap() {
       if (taskIds.length > 0) await db.delete(schema.tasks).where(inArray(schema.tasks.id, taskIds));
 
       const allLinkedIds = [...purchaseIds, ...billIds, ...warrantyIds, ...calendarEventIds, ...shipmentIds, ...taskIds];
-      if (allLinkedIds.length > 0) await db.delete(schema.attentionItems).where(inArray(schema.attentionItems.linkedResourceId, allLinkedIds));
+      if (allLinkedIds.length > 0) {
+        await db.delete(schema.attentionItems).where(inArray(schema.attentionItems.linkedResourceId, allLinkedIds));
+        // Resource IDs are opaque and prefix-unique across types, so one IN(...) covers whichever of these
+        // (purchases/bills/calendarEvents — the only three types search_documents indexes) are present.
+        await db.delete(schema.searchDocuments).where(inArray(schema.searchDocuments.resourceId, allLinkedIds));
+      }
 
       await db.delete(schema.inboxItems).where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
       await db.delete(schema.sourceEvents).where(inArray(schema.sourceEvents.id, sourceEventIds));

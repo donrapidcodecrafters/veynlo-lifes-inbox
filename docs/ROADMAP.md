@@ -1027,3 +1027,49 @@ still open:
   `/home`, removed the passkey, deleted the account — all real browser interactions, not code inspection.
   Test accounts and scratch files deleted afterward (including one orphaned by an early script bug,
   cleaned up via direct SQL once identified).
+
+- **Thirteenth gap-closing pass (2026-08-29): real full-text search, replacing the substring-scan stand-in.**
+  The `search_documents` table (pgvector column included) existed since the first migration with zero
+  writer and zero reader — `structuredSearch` instead fetched up to 200 rows per resource type per query and
+  matched substrings in application code (the only option at the time, since bills.billerLabel/documents.
+  title/calendarEvents.title are AES-GCM ciphertext a SQL predicate can't match against). Scoped to real
+  Postgres full-text search (tsvector/GIN), not semantic/vector search — true semantic search needs a new
+  paid embeddings API (Anthropic has no first-party embeddings endpoint, and no other AI provider/key
+  exists anywhere in this codebase), consistent with this project's own "ship the achievable subset with
+  existing dependencies, defer what needs a new paid vendor" precedent (already stated for this exact gap
+  earlier in this file). `search_documents.embedding` stays defined but unused, ready for whenever that
+  scope decision is revisited.
+  1. Migration: made `search_documents`'s `(resource_type, resource_id)` index UNIQUE (upsert target) and
+     added a STORED generated `search_vector tsvector` column (title weighted 'A', body 'B') + a GIN index
+     on it — Postgres recomputes it automatically on every UPDATE, no application-side reindex logic needed.
+  2. New `SearchIndexService` (`modules/search/search-index.service.ts`): `upsert()` (plain insert-or-update
+     keyed by the unique index) and `remove()`. No resource type indexed here has its own sensitivity
+     column, so a conservative literal `"sensitive"` default is used everywhere — the one precedent that
+     exists elsewhere (`documents.sensitivity`), not a guess.
+  3. Wired as a writer at every place that creates/changes a purchase/bill/calendar-event's searchable text
+     (`IngestionService`'s four extract*/ingestFeed* methods) and a document's title/OCR text
+     (`DocumentsService.upload`/`updateMetadata`/`addVersion`, plus `deleteDocument` removing its row). Also
+     fixed a real staleness bug this surfaced: `AdminService.mergeMerchants`/`unmergeMerchants` bulk-repoints
+     many purchases' `merchantId` without loading each one's owner — added a bulk `renameIndexedTitles`
+     helper so a merchant merge/unmerge keeps affected purchases' indexed title in sync instead of it
+     silently going stale.
+  4. Rewrote `SearchService.structuredSearch` to query `search_documents` directly (`websearch_to_tsquery`
+     + `ts_rank`, scoped to `owner_user_id` before any row is read — same authorization-before-retrieval
+     stance as `ask()`), then fetch the matched rows' real, fully-decrypted data from their source tables
+     for the response shape, preserving rank order.
+  5. **Fixed a second real bug found while verifying this**: neither `search_documents.ownerUserId` (a bare
+     column, not a `references(users.id)` FK) nor its resource-linked rows were ever cleaned up by the
+     account-deletion or connection-data-deletion background workers — confirmed live (two rows from
+     pre-fix test accounts survived their own account's deletion). Added an explicit delete to both workers.
+  **Verified live end-to-end** against the real API and real Postgres: a device-pushed calendar event and a
+  real document upload (a `text/plain` file, so its OCR path needs no AI key) both produced a real
+  `search_documents` row; a search for "zamboni" matched by title, "resurfacer blade" matched by body text
+  as a phrase, and — the clearest proof this is real `tsvector` search and not disguised substring
+  matching — a search for **"lubricated" matched a document containing "lubricating"** via Postgres's own
+  stemming, something no substring scan could ever do; an unrelated query correctly returned nothing. Then
+  confirmed the account-deletion cleanup fix: a fresh test account's indexed calendar event was gone from
+  `search_documents` immediately after its account-deletion job completed, while two rows from accounts
+  deleted before the fix (correctly) remained until cleaned up manually via SQL — direct proof of the bug
+  and the fix in the same run. All test accounts and leftover rows deleted afterward. **Not attempted**:
+  reindexing already-existing rows in a deployment with pre-existing data (no such data exists in this dev
+  environment to backfill) — noted for whenever this ships somewhere with real prior data.

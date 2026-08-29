@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -28,44 +28,61 @@ export class SearchService {
   ) {}
 
   /**
-   * §ASK-002 — every text field searched here (bills.billerLabel, documents.title/its current version's
-   * ocrText, calendarEvents.title) is stored as AES-GCM ciphertext (see encrypted-type.ts), so a SQL
-   * `ILIKE` predicate against those columns can never match a plaintext query — it was comparing a
-   * search term against ciphertext. That meant structured search only ever actually worked for
-   * purchases.orderNumber (the one unencrypted field searched), and — despite the Documents page telling
-   * users OCR'd text "will be searchable later" — document search never matched title OR body text.
-   * Fixed by fetching each owner's rows (Drizzle transparently decrypts on SELECT) and matching in
-   * application code instead of pushing the predicate into SQL.
+   * §ASK-002 — real Postgres full-text search via `search_documents` (see its schema comment): a plaintext
+   * mirror of each resource's searchable text, kept in sync by `SearchIndexService` at every create/update
+   * (ingestion, document upload/rename/new-version, merchant merge). Previously this fetched every owner's
+   * row from each source table and matched substrings in application code — the ONLY way to search at all,
+   * since bills.billerLabel/documents.title/calendarEvents.title are AES-GCM ciphertext and a SQL predicate
+   * can't match plaintext against it. `search_documents` sidesteps that by existing specifically to be
+   * searched (see its own schema comment on why its columns are deliberately unencrypted), so the match
+   * itself can now be a real GIN-indexed `tsvector` query — stemming, ranking, phrase/exclusion syntax via
+   * `websearch_to_tsquery` — instead of a linear substring scan capped at 200 rows per type.
    */
   async structuredSearch(userId: string, query: string) {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return { purchases: [], bills: [], documents: [], events: [] };
 
-    const [purchases, bills, documentRows, events, merchants] = await Promise.all([
-      this.db.select().from(schema.purchases).where(eq(schema.purchases.ownerUserId, userId)).limit(200),
-      this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)).limit(200),
-      this.db
-        .select({ document: schema.documents, version: schema.documentVersions })
-        .from(schema.documents)
-        .leftJoin(schema.documentVersions, eq(schema.documentVersions.id, schema.documents.currentVersionId))
-        .where(eq(schema.documents.ownerUserId, userId))
-        .limit(200),
-      this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.ownerUserId, userId)).limit(200),
-      this.db.select().from(schema.merchants).limit(500),
+    const matches = await this.db.execute<{ resource_type: string; resource_id: string }>(sql`
+      select resource_type, resource_id
+      from search_documents
+      where owner_user_id = ${userId}
+        and deleted_at is null
+        and search_vector @@ websearch_to_tsquery('english', ${q})
+      order by ts_rank(search_vector, websearch_to_tsquery('english', ${q})) desc
+      limit 100
+    `);
+
+    const idsByType = new Map<string, string[]>();
+    for (const row of matches.rows) {
+      const list = idsByType.get(row.resource_type) ?? [];
+      list.push(row.resource_id);
+      idsByType.set(row.resource_type, list);
+    }
+    const purchaseIds = idsByType.get("purchase") ?? [];
+    const billIds = idsByType.get("bill") ?? [];
+    const documentIds = idsByType.get("document") ?? [];
+    const eventIds = idsByType.get("calendar_event") ?? [];
+
+    const [purchases, bills, documents, events] = await Promise.all([
+      purchaseIds.length ? this.db.select().from(schema.purchases).where(inArray(schema.purchases.id, purchaseIds)) : [],
+      billIds.length ? this.db.select().from(schema.bills).where(inArray(schema.bills.id, billIds)) : [],
+      documentIds.length ? this.db.select().from(schema.documents).where(inArray(schema.documents.id, documentIds)) : [],
+      eventIds.length ? this.db.select().from(schema.calendarEvents).where(inArray(schema.calendarEvents.id, eventIds)) : [],
     ]);
-    const merchantById = new Map(merchants.map((m) => [m.id, m.displayName]));
 
-    const matchedPurchases = purchases
-      .filter((p) => (p.orderNumber ?? "").toLowerCase().includes(q) || (p.merchantId ? (merchantById.get(p.merchantId) ?? "").toLowerCase().includes(q) : false))
-      .slice(0, 20);
-    const matchedBills = bills.filter((b) => b.billerLabel.toLowerCase().includes(q)).slice(0, 20);
-    const matchedDocuments = documentRows
-      .filter((r) => r.document.title.toLowerCase().includes(q) || (r.version?.ocrText ?? "").toLowerCase().includes(q))
-      .map((r) => r.document)
-      .slice(0, 20);
-    const matchedEvents = events.filter((e) => e.title.toLowerCase().includes(q)).slice(0, 20);
+    // search_documents rows above already came back rank-ordered — re-sort each fetched set to match, since
+    // the `IN (...)` selects above don't preserve that order themselves.
+    const byRank = <T extends { id: string }>(rows: T[], ids: string[]): T[] => {
+      const rank = new Map(ids.map((id, i) => [id, i]));
+      return [...rows].sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    };
 
-    return { purchases: matchedPurchases, bills: matchedBills, documents: matchedDocuments, events: matchedEvents };
+    return {
+      purchases: byRank(purchases, purchaseIds),
+      bills: byRank(bills, billIds),
+      documents: byRank(documents, documentIds),
+      events: byRank(events, eventIds),
+    };
   }
 
   /**

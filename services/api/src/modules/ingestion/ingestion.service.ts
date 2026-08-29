@@ -22,6 +22,7 @@ import { parseGmailMessage, type ParsedEmail } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, temporalToSortDate } from "./temporal.util";
 import { DocumentsService } from "../documents/documents.service";
+import { SearchIndexService } from "../search/search-index.service";
 
 interface EmailAttachment {
   filename: string;
@@ -65,6 +66,7 @@ export class IngestionService {
     private readonly ai: AnthropicExtractionService,
     private readonly notifications: NotificationDeliveryService,
     private readonly documents: DocumentsService,
+    private readonly searchIndex: SearchIndexService,
   ) {}
 
   async ingestGmailMessage(params: IngestGmailParams): Promise<void> {
@@ -388,6 +390,14 @@ export class IngestionService {
         confidenceBand,
         sourceEventId: ctx.sourceEventId,
       });
+      await this.searchIndex.upsert({
+        resourceType: "purchase",
+        resourceId: purchaseId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
+        title: merchantName,
+        bodyText: result.data.orderNumber ?? "",
+      });
 
       for (const line of result.data.lineItems) {
         // §39.3/§44.1 knowledge-graph write path — one owner-scoped canonical_entities row per physical
@@ -653,6 +663,14 @@ export class IngestionService {
         dueDateSort,
         autopayBelieved: result.data.autopayMentioned,
       });
+      await this.searchIndex.upsert({
+        resourceType: "bill",
+        resourceId: billId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
+        title: result.data.billerName,
+        bodyText: "",
+      });
     }
 
     await this.fileInboxItem({
@@ -789,6 +807,7 @@ export class IngestionService {
     // precision-first precedent as every other findExisting* helper here.
     const existing = await this.findExistingCalendarEvent(ctx.ownerUserId, result.data.title);
     const eventId = existing?.id ?? generateId("calendarEvent");
+    const eventLocation = result.data.location ?? existing?.location ?? null;
     if (existing) {
       await this.db
         .update(schema.calendarEvents)
@@ -796,7 +815,7 @@ export class IngestionService {
           start,
           startSort,
           isAllDay: result.data.isAllDay,
-          location: result.data.location ?? existing.location,
+          location: eventLocation,
           updatedAt: new Date(),
         })
         .where(eq(schema.calendarEvents.id, eventId));
@@ -809,12 +828,20 @@ export class IngestionService {
         start,
         startSort,
         isAllDay: result.data.isAllDay,
-        location: result.data.location,
+        location: eventLocation,
         source: "discovered_from_evidence",
         status: "confirmed",
         visibility: "private",
       });
     }
+    await this.searchIndex.upsert({
+      resourceType: "calendar_event",
+      resourceId: eventId,
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      title: result.data.title,
+      bodyText: eventLocation ?? "",
+    });
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
@@ -999,6 +1026,14 @@ export class IngestionService {
         visibility: "private",
       });
     }
+    await this.searchIndex.upsert({
+      resourceType: "calendar_event",
+      resourceId: eventId,
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      title: params.title,
+      bodyText: params.location ?? "",
+    });
 
     await this.fileInboxItem({
       ownerUserId: params.ownerUserId,
