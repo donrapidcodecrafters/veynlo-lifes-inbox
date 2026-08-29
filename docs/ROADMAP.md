@@ -1073,3 +1073,22 @@ still open:
   and the fix in the same run. All test accounts and leftover rows deleted afterward. **Not attempted**:
   reindexing already-existing rows in a deployment with pre-existing data (no such data exists in this dev
   environment to backfill) — noted for whenever this ships somewhere with real prior data.
+
+- **Fourteenth gap-closing pass (2026-08-29): pagination on Documents/Inbox (backend-robustness audit
+  finding).** `GET /v1/documents` and `GET /v1/inbox` had no `limit`/cursor at all — a genuinely unbounded
+  query that degrades badly for any account with real history, exactly as the earlier full-spec audit
+  flagged. Added the same cursor-pagination shape Timeline already used (`before` cursor, fetch
+  `PAGE_SIZE + 1`, slice + `nextCursor`, `PAGE_SIZE = 30` both places) to both endpoints, and a "Load more"
+  control on all four consuming screens (web + mobile Documents and Inbox). `DocumentsService.list()` (the
+  paginated public method) is now distinct from a new unpaginated internal fetch `listLinkedTo()` uses
+  directly — TIME-002 "documents attached to one resource" genuinely needs every one of the owner's
+  documents scanned for a match, not just the most recent page, so it was deliberately NOT built on the
+  paginated method. The two onboarding "how many things did we find" summary screens (web + mobile) were
+  the only other callers of `GET /v1/inbox` and needed a one-line unwrap of the new `{items, nextCursor}`
+  shape, nothing more.
+  **Verified live** against the real API: seeded 35 real inbox items (via `POST /v1/ingestion/device-calendar`,
+  no AI key needed) and separately 35 real document uploads for two fresh test accounts, confirmed page one
+  of each returned exactly 30 with a real `nextCursor`, and page two (using that cursor) returned the
+  remaining 5 with `nextCursor: null`. Test accounts and all seeded rows deleted afterward — one account from
+  an earlier attempt (a shell-scripting mistake meant its delete-account call was never actually issued, not
+  a product bug) was caught during cleanup and removed the same way.

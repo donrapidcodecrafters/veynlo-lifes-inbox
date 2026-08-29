@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { swrFetcher, api, API_BASE_URL, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
@@ -61,8 +61,16 @@ const STATE_TONE: Record<string, "positive" | "warning" | "neutral"> = {
   ocr_parsing: "warning",
 };
 
+interface DocumentsPageResponse {
+  items: DocumentRow[];
+  nextCursor: string | null;
+}
+
 export default function DocumentsPage() {
-  const { data, isLoading, mutate } = useSWR<DocumentRow[]>("/v1/documents", swrFetcher);
+  const [data, setData] = useState<DocumentRow[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [documentType, setDocumentType] = useState("receipt");
   const [uploading, setUploading] = useState(false);
@@ -74,6 +82,36 @@ export default function DocumentsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  // Backend-robustness fix — GET /v1/documents is now cursor-paginated rather than returning every
+  // document unbounded. `refresh` re-fetches page one (same semantics as the SWR `mutate()` this
+  // replaces); `loadMore` appends the next page.
+  const refresh = useCallback(() => {
+    setIsLoading(true);
+    api
+      .get<DocumentsPageResponse>("/v1/documents")
+      .then((res) => {
+        setData(res.items);
+        setCursor(res.nextCursor);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<DocumentsPageResponse>(`/v1/documents?before=${encodeURIComponent(cursor)}`);
+      setData((prev) => [...prev, ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   function toggleSelected(id: string) {
     setSelectedIds((prev) => {
@@ -131,7 +169,7 @@ export default function DocumentsPage() {
         setPendingDuplicate({ file, duplicateOfTitle: result.duplicateOfTitle ?? "an existing document" });
       } else {
         setPendingDuplicate(null);
-        mutate();
+        refresh();
       }
     } catch (err) {
       setUploadError(err instanceof ApiError ? err.message : "Upload failed. Please try again.");
@@ -312,12 +350,20 @@ export default function DocumentsPage() {
                       </Button>
                     </div>
                   </div>
-                  {expandedId === doc.id && <DocumentEditor doc={doc} onChanged={mutate} onOpenVersion={openDocument} />}
+                  {expandedId === doc.id && <DocumentEditor doc={doc} onChanged={refresh} onOpenVersion={openDocument} />}
                 </CardBody>
               </Card>
             </li>
           ))}
         </ul>
+      )}
+
+      {!isLoading && cursor && (
+        <div className="flex justify-center pt-2">
+          <Button variant="secondary" onClick={loadMore} loading={loadingMore}>
+            Load more
+          </Button>
+        </div>
       )}
     </div>
   );

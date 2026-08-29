@@ -336,8 +336,8 @@ function SummaryStep({ onFinish }: { onFinish: () => void }) {
 
   useEffect(() => {
     api
-      .get<unknown[]>("/v1/inbox")
-      .then((items) => setCount(items.length))
+      .get<{ items: unknown[]; nextCursor: string | null }>("/v1/inbox")
+      .then((res) => setCount(res.items.length))
       .catch(() => setCount(0));
   }, []);
 

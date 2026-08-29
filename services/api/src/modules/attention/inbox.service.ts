@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, eq, isNotNull, lte } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, lte } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { generateId, type TemporalValue } from "@veynlo/core";
@@ -16,6 +16,11 @@ function instantTemporal(iso: string): TemporalValue {
   return { precision: "instant", instantUtc: iso, date: null, timezone: null, sourceText: null };
 }
 
+// Backend-robustness audit finding — GET /v1/inbox had no limit/cursor at all, an unbounded query that
+// degrades badly for any account with a real inbox history. Same cursor-pagination shape as Timeline's/
+// Documents' (`before` cursor, fetch PAGE_SIZE+1, slice+nextCursor) for consistency across list endpoints.
+const INBOX_PAGE_SIZE = 30;
+
 /**
  * §INB-001/002 — the universal Inbox review surface. Confirming/correcting
  * here is what promotes a machine-derived candidate to a user-verified fact
@@ -27,8 +32,15 @@ export class InboxService {
 
   async list(
     userId: string,
-    filter: { reviewState?: string; category?: string; autoFiled?: boolean; confidenceBand?: string; isDuplicate?: boolean } = {},
-  ) {
+    filter: {
+      reviewState?: string;
+      category?: string;
+      autoFiled?: boolean;
+      confidenceBand?: string;
+      isDuplicate?: boolean;
+      before?: string | null;
+    } = {},
+  ): Promise<{ items: (typeof schema.inboxItems.$inferSelect)[]; nextCursor: string | null }> {
     await this.unsnoozeExpired(userId);
     const conditions = [eq(schema.inboxItems.ownerUserId, userId)];
     if (filter.reviewState) conditions.push(eq(schema.inboxItems.reviewState, filter.reviewState));
@@ -36,7 +48,18 @@ export class InboxService {
     if (filter.autoFiled !== undefined) conditions.push(eq(schema.inboxItems.autoFiled, filter.autoFiled));
     if (filter.confidenceBand) conditions.push(eq(schema.inboxItems.confidenceBand, filter.confidenceBand));
     if (filter.isDuplicate !== undefined) conditions.push(eq(schema.inboxItems.isDuplicate, filter.isDuplicate));
-    return this.db.select().from(schema.inboxItems).where(and(...conditions));
+    if (filter.before) conditions.push(lt(schema.inboxItems.createdAt, new Date(filter.before)));
+
+    const rows = await this.db
+      .select()
+      .from(schema.inboxItems)
+      .where(and(...conditions))
+      .orderBy(desc(schema.inboxItems.createdAt))
+      .limit(INBOX_PAGE_SIZE + 1);
+    const hasMore = rows.length > INBOX_PAGE_SIZE;
+    const items = hasMore ? rows.slice(0, INBOX_PAGE_SIZE) : rows;
+    const last = items[items.length - 1];
+    return { items, nextCursor: hasMore && last ? last.createdAt.toISOString() : null };
   }
 
   /**

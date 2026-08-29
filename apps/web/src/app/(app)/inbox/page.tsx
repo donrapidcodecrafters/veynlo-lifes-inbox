@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -61,7 +61,7 @@ const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
 
 const CATEGORIES = ["purchase", "shipment", "bill", "subscription", "appointment", "warranty", "task"];
 
-function queryFor(filter: FilterTab, category: string): string {
+function queryFor(filter: FilterTab, category: string, before?: string | null): string {
   const params = new URLSearchParams();
   if (filter === "needs_review") params.set("reviewState", "new");
   if (filter === "auto_filed") params.set("autoFiled", "true");
@@ -71,8 +71,14 @@ function queryFor(filter: FilterTab, category: string): string {
   if (filter === "low_confidence") params.set("confidenceBand", "approximate");
   if (filter === "duplicates") params.set("isDuplicate", "true");
   if (category) params.set("category", category);
+  if (before) params.set("before", before);
   const qs = params.toString();
   return qs ? `/v1/inbox?${qs}` : "/v1/inbox";
+}
+
+interface InboxPage {
+  items: InboxItem[];
+  nextCursor: string | null;
 }
 
 const CONFIDENCE_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
@@ -136,7 +142,40 @@ export default function InboxPage() {
   const [capturing, setCapturing] = useState(false);
   const [pasting, setPasting] = useState(false);
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
-  const { data, isLoading, mutate } = useSWR<InboxItem[]>(queryFor(filter, category), swrFetcher);
+  const [items, setItems] = useState<InboxItem[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Backend-robustness fix — GET /v1/inbox is now cursor-paginated rather than returning every matching
+  // row unbounded. `refresh` re-fetches page one (used on filter/category change and after any mutation,
+  // same semantics as the SWR `mutate()` this replaces); `loadMore` appends the next page.
+  const refresh = useCallback(() => {
+    setIsLoading(true);
+    api
+      .get<InboxPage>(queryFor(filter, category))
+      .then((res) => {
+        setItems(res.items);
+        setCursor(res.nextCursor);
+      })
+      .finally(() => setIsLoading(false));
+  }, [filter, category]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<InboxPage>(queryFor(filter, category, cursor));
+      setItems((prev) => [...prev, ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   /** §CAP-008 "Clipboard Quick Capture" — a one-tap capture of whatever's already on the clipboard, without
    * opening the manual-add form and pasting it in by hand. Reuses the same manual/url ingestion endpoints
@@ -158,7 +197,7 @@ export default function InboxPage() {
         await api.post("/v1/ingestion/manual", { subject: firstLine, bodyText: text });
       }
       setPasteMessage("Captured from clipboard.");
-      mutate();
+      refresh();
     } catch {
       setPasteMessage("Couldn't read your clipboard. Your browser may be blocking clipboard access.");
     } finally {
@@ -168,18 +207,18 @@ export default function InboxPage() {
 
   async function act(id: string, action: "confirm" | "archive" | "dismiss") {
     await api.post(`/v1/inbox/${id}/${action}`);
-    mutate();
+    refresh();
   }
 
   async function snooze(id: string) {
     const until = new Date(Date.now() + 7 * 86_400_000).toISOString();
     await api.post(`/v1/inbox/${id}/snooze`, { until });
-    mutate();
+    refresh();
   }
 
   async function blockSender(id: string) {
     await api.post(`/v1/inbox/${id}/block-sender`);
-    mutate();
+    refresh();
   }
 
   /** MAIL-006 "always treat messages from this sender as X" — the backend (`POST /v1/inbox/:id/sender-rule`)
@@ -187,7 +226,7 @@ export default function InboxPage() {
   async function createSenderRule(id: string) {
     await api.post(`/v1/inbox/${id}/sender-rule`, { category: ruleCategory });
     setRulePickerId(null);
-    mutate();
+    refresh();
   }
 
   return (
@@ -243,7 +282,7 @@ export default function InboxPage() {
         <CaptureForm
           onDone={() => {
             setCapturing(false);
-            mutate();
+            refresh();
           }}
           onCancel={() => setCapturing(false)}
         />
@@ -257,16 +296,16 @@ export default function InboxPage() {
         </div>
       )}
 
-      {!isLoading && data?.length === 0 && (
+      {!isLoading && items.length === 0 && (
         <EmptyState
           title="You're caught up."
           description="New receipts, bills, appointments, and other discoveries will show up here for a quick review before they're filed."
         />
       )}
 
-      {!isLoading && data && data.length > 0 && (
+      {!isLoading && items.length > 0 && (
         <ul className="space-y-3">
-          {data.map((item) => {
+          {items.map((item) => {
             const fields = item.linkedResourceType ? CORRECTION_FIELDS[item.linkedResourceType] : undefined;
             return (
               <li key={item.id}>
@@ -334,7 +373,7 @@ export default function InboxPage() {
                         fields={fields}
                         onDone={() => {
                           setCorrectingId(null);
-                          mutate();
+                          refresh();
                         }}
                         onCancel={() => setCorrectingId(null)}
                       />
@@ -346,6 +385,14 @@ export default function InboxPage() {
             );
           })}
         </ul>
+      )}
+
+      {!isLoading && cursor && (
+        <div className="flex justify-center pt-2">
+          <Button variant="secondary" onClick={loadMore} loading={loadingMore}>
+            Load more
+          </Button>
+        </div>
       )}
     </div>
   );

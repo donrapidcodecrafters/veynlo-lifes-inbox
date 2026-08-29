@@ -28,8 +28,8 @@ export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser) {
-    return this.documents.list(user.userId);
+  list(@CurrentUser() user: AuthenticatedUser, @Query("before") before?: string) {
+    return this.documents.list(user.userId, before ?? null);
   }
 
   @Get(":id/download-url")

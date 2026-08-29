@@ -42,7 +42,7 @@ const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
 
 const CATEGORIES = ["purchase", "shipment", "bill", "subscription", "appointment", "warranty", "task"];
 
-function queryFor(filter: FilterTab, category: string): string {
+function queryFor(filter: FilterTab, category: string, before?: string | null): string {
   const params = new URLSearchParams();
   if (filter === "needs_review") params.set("reviewState", "new");
   if (filter === "auto_filed") params.set("autoFiled", "true");
@@ -50,8 +50,14 @@ function queryFor(filter: FilterTab, category: string): string {
   if (filter === "low_confidence") params.set("confidenceBand", "approximate");
   if (filter === "duplicates") params.set("isDuplicate", "true");
   if (category) params.set("category", category);
+  if (before) params.set("before", before);
   const qs = params.toString();
   return qs ? `/v1/inbox?${qs}` : "/v1/inbox";
+}
+
+interface InboxPage {
+  items: InboxItem[];
+  nextCursor: string | null;
 }
 
 const CONFIDENCE_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
@@ -108,6 +114,8 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
 export default function InboxScreen() {
   const { theme } = useAppTheme();
   const [items, setItems] = useState<InboxItem[] | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
@@ -119,9 +127,12 @@ export default function InboxScreen() {
   const [pasting, setPasting] = useState(false);
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
 
+  // Backend-robustness fix — GET /v1/inbox is now cursor-paginated rather than returning every matching
+  // row unbounded. `load` always resets to page one (same as before); `loadMore` appends the next page.
   const load = useCallback(async () => {
-    const res = await api.get<InboxItem[]>(queryFor(filter, category));
-    setItems(res);
+    const res = await api.get<InboxPage>(queryFor(filter, category));
+    setItems(res.items);
+    setCursor(res.nextCursor);
   }, [filter, category]);
 
   useFocusEffect(
@@ -136,6 +147,18 @@ export default function InboxScreen() {
       await load();
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<InboxPage>(queryFor(filter, category, cursor));
+      setItems((prev) => [...(prev ?? []), ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -355,6 +378,14 @@ export default function InboxScreen() {
               </Card>
             );
           })}
+        </View>
+      )}
+
+      {cursor && (
+        <View style={{ alignItems: "center", paddingTop: 4 }}>
+          <Button variant="secondary" onPress={loadMore} loading={loadingMore}>
+            Load more
+          </Button>
         </View>
       )}
     </Screen>

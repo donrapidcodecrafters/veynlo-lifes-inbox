@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ZipArchive } from "archiver";
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import heicConvert from "heic-convert";
@@ -22,6 +22,10 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB — generous for scanned rece
 // only by coincidence; this maps every ALLOWED_MIME_TYPES entry to the extension a user's OS actually
 // recognizes.
 const MIME_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "text/plain": "txt" };
+// Backend-robustness audit finding — GET /v1/documents had no limit/cursor at all, an unbounded query that
+// degrades badly for any account with a real document history. Same cursor-pagination shape as Timeline's
+// (`before` cursor, fetch PAGE_SIZE+1, slice+nextCursor) for consistency across the app's list endpoints.
+const DOCUMENTS_PAGE_SIZE = 30;
 
 @Injectable()
 export class DocumentsService {
@@ -246,16 +250,37 @@ export class DocumentsService {
     return result?.data.transcribedText ?? null;
   }
 
-  async list(userId: string) {
-    return this.db
+  async list(userId: string, before?: string | null): Promise<{ items: (typeof schema.documents.$inferSelect)[]; nextCursor: string | null }> {
+    const ownerCondition = await this.ownerOrDelegatedHousehold(
+      userId,
+      schema.documents.ownerUserId,
+      schema.documents.householdId,
+      schema.documents.visibility,
+    );
+    const beforeDate = before ? new Date(before) : null;
+    const rows = await this.db
       .select()
       .from(schema.documents)
-      .where(await this.ownerOrDelegatedHousehold(userId, schema.documents.ownerUserId, schema.documents.householdId, schema.documents.visibility));
+      .where(beforeDate ? and(ownerCondition, lt(schema.documents.createdAt, beforeDate)) : ownerCondition)
+      .orderBy(desc(schema.documents.createdAt))
+      .limit(DOCUMENTS_PAGE_SIZE + 1);
+    const hasMore = rows.length > DOCUMENTS_PAGE_SIZE;
+    const items = hasMore ? rows.slice(0, DOCUMENTS_PAGE_SIZE) : rows;
+    const last = items[items.length - 1];
+    return { items, nextCursor: hasMore && last ? last.createdAt.toISOString() : null };
   }
 
-  /** TIME-002 "Object history" — documents attached to one specific resource (e.g. a purchase's receipt scan). */
+  /** TIME-002 "Object history" — documents attached to one specific resource (e.g. a purchase's receipt
+   * scan). Deliberately NOT built on the paginated `list()` above — this needs every one of the owner's
+   * documents scanned for a linkedEntityIds match, not just the most recent page. */
   async listLinkedTo(userId: string, resourceId: string) {
-    const owned = await this.list(userId);
+    const ownerCondition = await this.ownerOrDelegatedHousehold(
+      userId,
+      schema.documents.ownerUserId,
+      schema.documents.householdId,
+      schema.documents.visibility,
+    );
+    const owned = await this.db.select().from(schema.documents).where(ownerCondition);
     return owned.filter((d) => d.linkedEntityIds.includes(resourceId));
   }
 

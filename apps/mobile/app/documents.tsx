@@ -43,6 +43,11 @@ interface PickedFile {
   type: string;
 }
 
+interface DocumentsPageResponse {
+  items: DocumentRow[];
+  nextCursor: string | null;
+}
+
 const DOCUMENT_TYPES = [
   { value: "receipt", label: "Receipt" },
   { value: "warranty", label: "Warranty" },
@@ -71,6 +76,8 @@ const STATE_TONE: Record<string, "positive" | "warning" | "neutral"> = {
 export default function DocumentsScreen() {
   const { theme } = useAppTheme();
   const [documents, setDocuments] = useState<DocumentRow[] | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [documentType, setDocumentType] = useState("receipt");
@@ -111,8 +118,12 @@ export default function DocumentsScreen() {
     }
   }
 
+  // Backend-robustness fix — GET /v1/documents is now cursor-paginated rather than returning every
+  // document unbounded. `load` always resets to page one; `loadMore` appends the next page.
   const load = useCallback(async () => {
-    setDocuments(await api.get<DocumentRow[]>("/v1/documents"));
+    const res = await api.get<DocumentsPageResponse>("/v1/documents");
+    setDocuments(res.items);
+    setCursor(res.nextCursor);
   }, []);
 
   useFocusEffect(
@@ -127,6 +138,18 @@ export default function DocumentsScreen() {
       await load();
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<DocumentsPageResponse>(`/v1/documents?before=${encodeURIComponent(cursor)}`);
+      setDocuments((prev) => [...(prev ?? []), ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -336,6 +359,14 @@ export default function DocumentsScreen() {
               )}
             </Card>
           ))}
+        </View>
+      )}
+
+      {cursor && (
+        <View style={{ alignItems: "center", paddingTop: 4 }}>
+          <Button variant="secondary" onPress={loadMore} loading={loadingMore}>
+            Load more
+          </Button>
         </View>
       )}
     </Screen>
