@@ -53,6 +53,13 @@ interface Warranty {
   registrationConfirmed: boolean | null;
 }
 
+interface TaskRow {
+  id: string;
+  title: string;
+  dueCondition: TemporalValueLike | null;
+  state: string;
+}
+
 function SectionHeading({ title }: { title: string }) {
   const { theme } = useAppTheme();
   return (
@@ -71,16 +78,19 @@ export default function LifeScreen() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [bills, setBills] = useState<BillRow[] | null>(null);
   const [warranties, setWarranties] = useState<Warranty[] | null>(null);
+  const [tasks, setTasks] = useState<TaskRow[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [ev, p, r, s, b, w] = await Promise.all([
+    const [ev, p, r, s, b, w, t] = await Promise.all([
       api.get<EventRow[]>("/v1/events"),
       api.get<Purchase[]>("/v1/purchases"),
       api.get<ReturnRow[]>("/v1/returns"),
       api.get<SubscriptionRow[]>("/v1/subscriptions"),
       api.get<BillRow[]>("/v1/bills"),
       api.get<Warranty[]>("/v1/warranties"),
+      api.get<TaskRow[]>("/v1/tasks"),
     ]);
     setEvents(ev);
     setPurchases(p);
@@ -88,7 +98,18 @@ export default function LifeScreen() {
     setSubscriptions(s);
     setBills(b);
     setWarranties(w);
+    setTasks(t.filter((task) => task.state !== "completed" && task.state !== "dismissed"));
   }, []);
+
+  async function completeTask(id: string) {
+    setCompletingTaskId(id);
+    try {
+      await api.post(`/v1/tasks/${id}/complete`);
+      setTasks((prev) => prev?.filter((t) => t.id !== id) ?? null);
+    } finally {
+      setCompletingTaskId(null);
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -152,6 +173,44 @@ export default function LifeScreen() {
                   </View>
                   {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{when}</Text>}
                 </Pressable>
+              );
+            })}
+          </Card>
+        )}
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <SectionHeading title="Reminders" />
+        {!tasks && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
+        {tasks?.length === 0 && (
+          <EmptyState title="No open reminders" description="Sync your Reminders app from Connections, or tasks discovered elsewhere will show up here." />
+        )}
+        {tasks && tasks.length > 0 && (
+          <Card style={{ padding: 0 }}>
+            {tasks.map((t, i) => {
+              const when = t.dueCondition ? formatTemporal(t.dueCondition) : null;
+              return (
+                <View
+                  key={t.id}
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: theme.colors.borderSubtle,
+                    gap: 12,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{t.title}</Text>
+                    {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{when}</Text>}
+                  </View>
+                  <Button variant="secondary" onPress={() => completeTask(t.id)} loading={completingTaskId === t.id}>
+                    Done
+                  </Button>
+                </View>
               );
             })}
           </Card>

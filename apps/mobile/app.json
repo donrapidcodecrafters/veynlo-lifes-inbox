@@ -15,7 +15,8 @@
         "NSFaceIDUsageDescription": "Veynlo uses Face ID to keep your inbox locked when you're not using the app.",
         "NSCameraUsageDescription": "Veynlo uses the camera to scan receipts and other documents.",
         "NSPhotoLibraryUsageDescription": "Veynlo uses your photo library so you can attach an existing photo as a document.",
-        "NSCalendarsUsageDescription": "Veynlo reads your device calendar so its events show up alongside everything else Veynlo tracks."
+        "NSCalendarsUsageDescription": "Veynlo reads your device calendar so its events show up alongside everything else Veynlo tracks.",
+        "NSRemindersUsageDescription": "Veynlo reads your Reminders app so your tasks show up alongside everything else Veynlo tracks."
       }
     },
     "android": {

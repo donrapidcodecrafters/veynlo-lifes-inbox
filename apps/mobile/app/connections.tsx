@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Linking, RefreshControl, Text, View } from "react-native";
+import { Linking, Platform, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as Calendar from "expo-calendar";
 import * as Clipboard from "expo-clipboard";
@@ -62,6 +62,8 @@ export default function ConnectionsScreen() {
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [deviceCalendarSyncing, setDeviceCalendarSyncing] = useState(false);
   const [deviceCalendarMessage, setDeviceCalendarMessage] = useState<string | null>(null);
+  const [remindersSyncing, setRemindersSyncing] = useState(false);
+  const [remindersMessage, setRemindersMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
@@ -117,15 +119,19 @@ export default function ConnectionsScreen() {
     setDeviceCalendarSyncing(true);
     setDeviceCalendarMessage(null);
     try {
-      const perm = await Calendar.requestCalendarPermissionsAsync();
+      // Named "...Async" in expo-calendar's LEGACY api, but this app imports the plain "expo-calendar"
+      // entrypoint, which resolves to the new object-oriented API — that API re-exports the same
+      // "...Async"-suffixed names ONLY as deprecated stubs that unconditionally throw at runtime (see
+      // expo-calendar's own build/legacyWarnings.js). The unsuffixed names below are the real ones.
+      const perm = await Calendar.requestCalendarPermissions();
       if (perm.status !== "granted") {
         setDeviceCalendarMessage("Calendar access is off — enable it in your device settings to sync.");
         return;
       }
-      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const calendars = await Calendar.getCalendars(Calendar.EntityTypes.EVENT);
       const startDate = new Date(Date.now() - 30 * 86_400_000);
       const endDate = new Date(Date.now() + 365 * 86_400_000);
-      const events = await Calendar.getEventsAsync(
+      const events = await Calendar.listEvents(
         calendars.map((c) => c.id),
         startDate,
         endDate,
@@ -154,6 +160,55 @@ export default function ConnectionsScreen() {
       setDeviceCalendarMessage(err instanceof ApiError ? err.message : "Couldn't sync your calendar. Please try again.");
     } finally {
       setDeviceCalendarSyncing(false);
+    }
+  }
+
+  /**
+   * §Connections "Apple Reminders" — read-only import, mirroring syncDeviceCalendar's push-from-client
+   * shape exactly. iOS only: EventKit reminders have no Android equivalent, so this card never renders
+   * there (see the Platform.OS check around its <Card> below).
+   */
+  async function syncReminders() {
+    setRemindersSyncing(true);
+    setRemindersMessage(null);
+    try {
+      const perm = await Calendar.requestRemindersPermissions();
+      if (perm.status !== "granted") {
+        setRemindersMessage("Reminders access is off — enable it in your device settings to sync.");
+        return;
+      }
+      const calendars = await Calendar.getCalendars(Calendar.EntityTypes.REMINDER);
+      const startDate = new Date(Date.now() - 30 * 86_400_000);
+      const endDate = new Date(Date.now() + 365 * 86_400_000);
+      const allReminders = (
+        await Promise.all(calendars.map((c) => c.listReminders(startDate, endDate, null)))
+      ).flat();
+      const payloadReminders = allReminders
+        .filter((r) => Boolean(r.id))
+        .slice(0, 500)
+        .map((r) => ({
+          uid: r.id!,
+          title: r.title || "Untitled reminder",
+          dueIso: r.dueDate ? new Date(r.dueDate).toISOString() : null,
+          notes: r.notes || null,
+          completed: Boolean(r.completed),
+        }));
+      if (payloadReminders.length === 0) {
+        setRemindersMessage("No reminders found in the next year.");
+        return;
+      }
+      const result = await api.post<{ filedCount: number; totalCount: number }>("/v1/ingestion/device-reminders", {
+        reminders: payloadReminders,
+      });
+      setRemindersMessage(
+        result.filedCount > 0
+          ? `Synced — ${result.filedCount} new or updated reminder${result.filedCount === 1 ? "" : "s"}.`
+          : "Synced — everything was already up to date.",
+      );
+    } catch (err) {
+      setRemindersMessage(err instanceof ApiError ? err.message : "Couldn't sync your reminders. Please try again.");
+    } finally {
+      setRemindersSyncing(false);
     }
   }
 
@@ -219,6 +274,23 @@ export default function ConnectionsScreen() {
           </View>
           {deviceCalendarMessage && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{deviceCalendarMessage}</Text>}
         </Card>
+
+        {Platform.OS === "ios" && (
+          <Card style={{ gap: 10 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Apple Reminders</Text>
+                <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                  Sync your Reminders app tasks. Manual sync — pull down to run it again.
+                </Text>
+              </View>
+              <Button variant="secondary" onPress={syncReminders} loading={remindersSyncing}>
+                Sync now
+              </Button>
+            </View>
+            {remindersMessage && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{remindersMessage}</Text>}
+          </Card>
+        )}
 
         <Card style={{ gap: 10 }}>
           <View>

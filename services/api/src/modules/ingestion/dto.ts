@@ -27,6 +27,21 @@ export const IngestDeviceCalendarDtoSchema = z.object({
 });
 export type IngestDeviceCalendarDto = z.infer<typeof IngestDeviceCalendarDtoSchema>;
 
+/** A single EventKit reminder (Apple Reminders, iOS only — Android has no equivalent OS framework) pushed
+ * from the mobile app. See IngestionService.ingestDeviceReminder. */
+export const DeviceReminderDtoSchema = z.object({
+  uid: z.string().min(1).max(500),
+  title: z.string().min(1).max(500),
+  dueIso: z.string().nullable(),
+  notes: z.string().max(2000).nullable(),
+  completed: z.boolean(),
+});
+
+export const IngestDeviceRemindersDtoSchema = z.object({
+  reminders: z.array(DeviceReminderDtoSchema).max(500),
+});
+export type IngestDeviceRemindersDto = z.infer<typeof IngestDeviceRemindersDtoSchema>;
+
 /** Postmark's inbound-parse webhook shape (https://postmarkapp.com/developer/webhooks/inbound-webhook) —
  * only the fields this pipeline actually uses; a real deployment behind a different provider (Mailgun/
  * SendGrid) would map that provider's payload onto this same shape at the controller boundary. */

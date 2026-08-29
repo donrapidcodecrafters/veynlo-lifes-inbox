@@ -10,9 +10,11 @@ import { SafeUrlFetcher } from "./safe-url-fetcher";
 import {
   IngestManualDtoSchema,
   IngestDeviceCalendarDtoSchema,
+  IngestDeviceRemindersDtoSchema,
   IngestUrlDtoSchema,
   type IngestManualDto,
   type IngestDeviceCalendarDto,
+  type IngestDeviceRemindersDto,
   type IngestUrlDto,
 } from "./dto";
 
@@ -95,5 +97,29 @@ export class IngestionController {
       if (filed) filedCount += 1;
     }
     return { filedCount, totalCount: dto.events.length };
+  }
+
+  /**
+   * §Connections "Apple Reminders" — same push-from-client shape as device-calendar above; EventKit
+   * reminders have no OS-level equivalent on Android, so this is iOS-only in practice (the mobile client
+   * simply never calls this route on Android).
+   */
+  @Post("device-reminders")
+  @UsePipes(new ZodValidationPipe(IngestDeviceRemindersDtoSchema))
+  async ingestDeviceReminders(@CurrentUser() user: AuthenticatedUser, @Body() dto: IngestDeviceRemindersDto) {
+    let filedCount = 0;
+    for (const reminder of dto.reminders) {
+      const filed = await this.ingestion.ingestDeviceReminder({
+        ownerUserId: user.userId,
+        householdId: null,
+        uid: reminder.uid,
+        title: reminder.title,
+        dueIso: reminder.dueIso,
+        notes: reminder.notes,
+        completed: reminder.completed,
+      });
+      if (filed) filedCount += 1;
+    }
+    return { filedCount, totalCount: dto.reminders.length };
   }
 }

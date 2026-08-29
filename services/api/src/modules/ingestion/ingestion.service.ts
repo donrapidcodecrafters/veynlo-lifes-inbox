@@ -836,6 +836,97 @@ export class IngestionService {
   }
 
   /**
+   * Apple Reminders sync (EventKit `EKReminder`, iOS only — Android has no equivalent OS framework, so
+   * this path is never reached there). Same push-from-client shape as `ingestFeedCalendarEvent` (no OAuth
+   * token or feed URL a server could poll for a device's own reminders), but writes into `tasks` instead
+   * of `calendar_events` — the first real writer into that table; `externalSyncProvider`/`externalSyncId`
+   * existed in the schema for exactly this dedup key but nothing ever populated them before now.
+   */
+  async ingestDeviceReminder(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    uid: string;
+    title: string;
+    dueIso: string | null;
+    notes: string | null;
+    completed: boolean;
+  }): Promise<boolean> {
+    const contentHash = createHash("sha256")
+      .update(JSON.stringify({ title: params.title, dueIso: params.dueIso, notes: params.notes, completed: params.completed }))
+      .digest("hex");
+    const idempotencyKey = `apple_reminders:${params.ownerUserId}:${params.uid}:${contentHash}`;
+
+    const [existingSourceEvent] = await this.db
+      .select({ id: schema.sourceEvents.id })
+      .from(schema.sourceEvents)
+      .where(eq(schema.sourceEvents.idempotencyKey, idempotencyKey))
+      .limit(1);
+    if (existingSourceEvent) return false; // unchanged since the last sync
+
+    const sourceEventId = generateId("sourceEvent");
+    await this.db.insert(schema.sourceEvents).values({
+      id: sourceEventId,
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      kind: "device_reminder",
+      contentHash,
+      occurredAt: new Date(),
+      idempotencyKey,
+      processingState: "needs_review",
+      subjectLine: params.title || null,
+      snippet: params.notes || null,
+    });
+
+    const dueCondition: TemporalValue | null = params.dueIso
+      ? { precision: "instant", instantUtc: new Date(params.dueIso).toISOString(), date: null, timezone: null, sourceText: null }
+      : null;
+
+    const [existingTask] = await this.db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.ownerUserId, params.ownerUserId), eq(schema.tasks.externalSyncProvider, "apple_reminders"), eq(schema.tasks.externalSyncId, params.uid)))
+      .limit(1);
+
+    const taskId = existingTask?.id ?? generateId("task");
+    const state = params.completed ? "completed" : "open";
+    if (existingTask) {
+      await this.db
+        .update(schema.tasks)
+        .set({ title: params.title, dueCondition, dueSort: dueCondition ? temporalToSortDate(dueCondition) : null, consequence: params.notes, state, updatedAt: new Date() })
+        .where(eq(schema.tasks.id, taskId));
+    } else {
+      await this.db.insert(schema.tasks).values({
+        id: taskId,
+        ownerUserId: params.ownerUserId,
+        householdId: params.householdId,
+        title: params.title,
+        dueCondition,
+        dueSort: dueCondition ? temporalToSortDate(dueCondition) : null,
+        consequence: params.notes,
+        state,
+        externalSyncProvider: "apple_reminders",
+        externalSyncId: params.uid,
+      });
+    }
+
+    if (!params.completed) {
+      await this.fileInboxItem({
+        ownerUserId: params.ownerUserId,
+        householdId: params.householdId,
+        category: "task",
+        summary: existingTask ? `${params.title} updated on your synced reminders` : `${params.title} added from your synced reminders`,
+        linkedResourceType: "task",
+        linkedResourceId: taskId,
+        sourceEventId,
+        suggestedActions: ["dismiss"],
+        confidenceBand: "verified",
+      });
+    }
+
+    return true;
+  }
+
+  /**
    * Creates the Inbox review card and, only for high/verified confidence,
    * a "useful"-priority notification — low/needs-review candidates stay in
    * the Inbox silently rather than pinging the user about something Veynlo
