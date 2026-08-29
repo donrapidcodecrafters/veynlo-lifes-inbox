@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ZipArchive } from "archiver";
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
@@ -15,6 +16,10 @@ import { MalwareScannerService } from "./malware-scanner.service";
 
 const ALLOWED_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic", "text/plain"]);
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB — generous for scanned receipts/manuals, bounded against abuse
+// DOC-007 "export packet" — a naive mimeType.split("/")[1] gives "plain" for text/plain and "jpeg" works
+// only by coincidence; this maps every ALLOWED_MIME_TYPES entry to the extension a user's OS actually
+// recognizes.
+const MIME_EXTENSIONS: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "text/plain": "txt" };
 
 @Injectable()
 export class DocumentsService {
@@ -253,6 +258,58 @@ export class DocumentsService {
       .update(schema.documents)
       .set({ linkedEntityIds: doc.linkedEntityIds.filter((id) => id !== resourceId), updatedAt: new Date() })
       .where(eq(schema.documents.id, documentId));
+  }
+
+  /**
+   * DOC-008 "retention policy" — "full_original" keeps the file; the other two both mean deleting the
+   * actual blob, keeping only what's already independently stored (the row itself, and each version's own
+   * OCR'd text on document_versions). Irreversible: once a blob is deleted there's nothing to restore it
+   * from, which is exactly what the spec's "explain loss of evidence if originals are removed" warns about
+   * — the confirmation copy lives in the UI, this method just does what it's told once confirmed.
+   */
+  async setRetention(documentId: string, userId: string, retentionPolicy: "full_original" | "extracted_only" | "delete_after_processing") {
+    await this.assertOwnedDocument(documentId, userId);
+    if (retentionPolicy !== "full_original") {
+      const versions = await this.db.select({ blobRef: schema.documentVersions.blobRef }).from(schema.documentVersions).where(eq(schema.documentVersions.documentId, documentId));
+      for (const version of versions) await this.storage.deleteObject(version.blobRef).catch(() => undefined);
+    }
+    await this.db.update(schema.documents).set({ retentionPolicy, updatedAt: new Date() }).where(eq(schema.documents.id, documentId));
+  }
+
+  /**
+   * DOC-007 "export packet" — a user-selected ZIP bundle of original files, for insurance/taxes/travel/
+   * home-sale/etc. Bounded scope: the original-file bundle only (a "ZIP/PDF index packet" summary document
+   * isn't attempted — that would mean generating a real PDF report, a separate, larger feature). Skips
+   * (rather than fails) a document whose blob was already deleted under a non-"full_original" retention
+   * policy — nothing to include, but that's not a reason to fail the whole export.
+   */
+  async exportPacket(documentIds: string[], userId: string): Promise<{ filename: string; buffer: Buffer }> {
+    const chunks: Buffer[] = [];
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    archive.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const done = new Promise<void>((resolve, reject) => {
+      archive.on("end", resolve);
+      archive.on("error", reject);
+    });
+
+    const usedNames = new Set<string>();
+    for (const documentId of documentIds) {
+      const doc = await this.assertOwnedDocument(documentId, userId);
+      if (!doc.currentVersionId) continue;
+      const [version] = await this.db.select().from(schema.documentVersions).where(eq(schema.documentVersions.id, doc.currentVersionId)).limit(1);
+      if (!version) continue;
+      const bytes = await this.storage.getObject(version.blobRef).catch(() => null);
+      if (!bytes) continue; // retention policy already deleted this blob — nothing to bundle
+      const extension = MIME_EXTENSIONS[version.mimeType] ?? version.mimeType.split("/")[1] ?? "bin";
+      let name = `${doc.title.replace(/[/\\]/g, "_")}.${extension}`;
+      if (usedNames.has(name)) name = `${doc.title.replace(/[/\\]/g, "_")}-${doc.id}.${extension}`;
+      usedNames.add(name);
+      archive.append(bytes, { name });
+    }
+
+    archive.finalize();
+    await done;
+    return { filename: `veynlo-documents-${new Date().toISOString().slice(0, 10)}.zip`, buffer: Buffer.concat(chunks) };
   }
 
   /** DOC-001/DOC-006 "delete" — no delete endpoint existed at all before this. Removes every version's blob from storage before the DB row (cascades to document_versions), so nothing orphaned is left in the bucket. */

@@ -35,6 +35,16 @@ export class StorageService {
     return getSignedUrl(this.client(), command, { expiresIn: expiresInSeconds });
   }
 
+  /** DOC-007 "export packet" — the only caller that needs the actual bytes server-side (to add to a ZIP)
+   * rather than handing the client a signed URL to fetch directly itself. */
+  async getObject(key: string): Promise<Buffer> {
+    const env = loadEnv();
+    const result = await this.client().send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    const chunks: Buffer[] = [];
+    for await (const chunk of result.Body as AsyncIterable<Buffer>) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  }
+
   async deleteObject(key: string): Promise<void> {
     const env = loadEnv();
     await this.client().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));

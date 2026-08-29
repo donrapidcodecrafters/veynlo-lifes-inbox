@@ -1,5 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
-import type { FastifyRequest } from "fastify";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { DocumentType } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
@@ -54,6 +54,24 @@ export class DocumentsController {
   async deleteDocument(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     await this.documents.deleteDocument(id, user.userId);
     return { ok: true };
+  }
+
+  @Post(":id/retention")
+  async setRetention(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("retentionPolicy") retentionPolicy: string) {
+    if (!["full_original", "extracted_only", "delete_after_processing"].includes(retentionPolicy)) {
+      throw new BadRequestException({ code: "INVALID_RETENTION_POLICY", message: `"${retentionPolicy}" isn't a recognized retention policy.` });
+    }
+    await this.documents.setRetention(id, user.userId, retentionPolicy as "full_original" | "extracted_only" | "delete_after_processing");
+    return { ok: true };
+  }
+
+  @Post("export")
+  async exportPacket(@CurrentUser() user: AuthenticatedUser, @Body("documentIds") documentIds: string[], @Res() res: FastifyReply) {
+    if (!Array.isArray(documentIds) || documentIds.length === 0) {
+      throw new BadRequestException({ code: "NO_DOCUMENTS_SELECTED", message: "Select at least one document to export." });
+    }
+    const { filename, buffer } = await this.documents.exportPacket(documentIds, user.userId);
+    res.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${filename}"`).send(buffer);
   }
 
   @Post(":id/unlink")

@@ -19,6 +19,12 @@ export const documents = pgTable(
     visibility: visibilityEnum("visibility").notNull().default("private"),
     processingState: text("processing_state").notNull().default("uploaded"),
     currentVersionId: text("current_version_id"),
+    // DOC-008 "retention policy" — "full_original" keeps the actual file bytes in S3 (the default);
+    // "extracted_only" or "delete_after_processing" both mean the blob is deleted (their OCR'd text, which
+    // already exists independently on document_versions, is what's kept) — DocumentsService.setRetention
+    // is the only writer of this deletion. A document can only move toward deleting its original, never
+    // back — there's nothing to restore a deleted blob from.
+    retentionPolicy: text("retention_policy").notNull().default("full_original"),
     linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
     tags: encryptedJsonb<string[]>("tags").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

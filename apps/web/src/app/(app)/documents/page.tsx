@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import useSWR from "swr";
-import { swrFetcher, api, ApiError } from "@/lib/api-client";
+import { swrFetcher, api, API_BASE_URL, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,14 @@ interface DocumentRow {
   processingState: string;
   tags: string[];
   createdAt: string;
+  retentionPolicy: string;
 }
+
+const RETENTION_POLICIES = [
+  { value: "full_original", label: "Keep original file" },
+  { value: "extracted_only", label: "Keep extracted text only" },
+  { value: "delete_after_processing", label: "Delete original after processing" },
+] as const;
 
 interface DocumentVersion {
   id: string;
@@ -64,6 +71,46 @@ export default function DocumentsPage() {
   const [pendingDuplicate, setPendingDuplicate] = useState<{ file: File; duplicateOfTitle: string } | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragDepth = useRef(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** DOC-007 "export packet" — a POST with a body can't use a plain link/redirect like the timeline's CSV
+   * export does, so the ZIP arrives as a blob and gets handed to the browser via a throwaway object URL. */
+  async function exportSelected() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/v1/documents/export`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "x-veynlo-platform": "web" },
+        body: JSON.stringify({ documentIds: Array.from(selectedIds) }),
+      });
+      if (!res.ok) throw new Error("Export failed.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `veynlo-documents-${new Date().toISOString().slice(0, 10)}.zip`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setSelectedIds(new Set());
+    } catch {
+      setExportError("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function performUpload(file: File, force: boolean) {
     setUploading(true);
@@ -155,6 +202,11 @@ export default function DocumentsPage() {
           <p className="mt-1 text-sm text-tertiary">Receipts, warranties, manuals, and anything else worth keeping.</p>
         </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <Button size="sm" variant="secondary" onClick={exportSelected} loading={exporting}>
+              Export selected ({selectedIds.size})
+            </Button>
+          )}
           <select
             value={documentType}
             onChange={(e) => setDocumentType(e.target.value)}
@@ -217,6 +269,12 @@ export default function DocumentsPage() {
         />
       )}
 
+      {exportError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {exportError}
+        </p>
+      )}
+
       {data && data.length > 0 && (
         <ul className="space-y-2">
           {data.map((doc) => (
@@ -224,6 +282,13 @@ export default function DocumentsPage() {
               <Card>
                 <CardBody className="space-y-3 py-3">
                   <div className="flex items-center justify-between gap-4">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${doc.title} for export`}
+                      checked={selectedIds.has(doc.id)}
+                      onChange={() => toggleSelected(doc.id)}
+                      className="h-4 w-4 shrink-0 rounded border-border-default"
+                    />
                     <button
                       type="button"
                       onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
@@ -274,6 +339,24 @@ function DocumentEditor({
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [replacingFile, setReplacingFile] = useState(false);
+  const [retentionPolicy, setRetentionPolicy] = useState(doc.retentionPolicy);
+  const [savingRetention, setSavingRetention] = useState(false);
+  const [confirmingRetention, setConfirmingRetention] = useState<string | null>(null);
+
+  async function applyRetention(policy: string) {
+    setSavingRetention(true);
+    setError(null);
+    try {
+      await api.post(`/v1/documents/${doc.id}/retention`, { retentionPolicy: policy });
+      setRetentionPolicy(policy);
+      setConfirmingRetention(null);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update the retention policy. Please try again.");
+    } finally {
+      setSavingRetention(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -370,6 +453,50 @@ function DocumentEditor({
               Cancel
             </Button>
           </>
+        )}
+      </div>
+
+      <div className="space-y-2 border-t border-border-subtle pt-3">
+        <Label htmlFor={`retention-${doc.id}`}>File retention</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            id={`retention-${doc.id}`}
+            value={retentionPolicy}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next === "full_original" || next === retentionPolicy) {
+                applyRetention(next);
+              } else {
+                setConfirmingRetention(next);
+              }
+            }}
+            disabled={savingRetention || retentionPolicy !== "full_original"}
+            className="h-10 rounded-lg border border-border-default bg-surface px-3 text-sm text-primary disabled:opacity-60"
+          >
+            {RETENTION_POLICIES.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          {retentionPolicy !== "full_original" && (
+            <span className="text-xs text-tertiary">The original file has been deleted; only the extracted text is kept.</span>
+          )}
+        </div>
+        {confirmingRetention && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-warning-subtle px-3 py-2">
+            <p className="text-sm text-warning-subtle-text">
+              This deletes the original file permanently — it can&rsquo;t be restored. Only the extracted text will remain.
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="critical" onClick={() => applyRetention(confirmingRetention)} loading={savingRetention}>
+                Delete original
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmingRetention(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 

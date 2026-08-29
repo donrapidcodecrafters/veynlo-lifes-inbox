@@ -1,0 +1,1 @@
+ALTER TABLE "documents" ADD COLUMN "retention_policy" text DEFAULT 'full_original' NOT NULL;

@@ -162,6 +162,13 @@
       "when": 1788029460168,
       "tag": "0022_lovely_charles_xavier",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788031379754,
+      "tag": "0023_sloppy_phil_sheldon",
+      "breakpoints": true
     }
   ]
 }

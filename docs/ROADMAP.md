@@ -725,3 +725,39 @@ still open:
   file) — a full real Google/Microsoft OAuth round trip remains untestable in this environment for the
   same reason it always has been (no real OAuth app credentials configured here). Test account and seeded
   rows deleted afterward.
+- **Fifth gap-closing pass (2026-08-29): Documents export packet + retention policy.**
+  1. **DOC-007 "export packet" didn't exist at all** — no way to bundle multiple documents for something
+     like insurance, taxes, travel, or a home sale. Added `POST /v1/documents/export` (a user-selected ZIP
+     of original files, built server-side with `archiver`, streamed back with `Content-Disposition:
+     attachment`), a checkbox-select + "Export selected" action on the web Documents page, and the same on
+     mobile — which has no browser download mechanism, so the ZIP is written to the cache directory and
+     handed to the OS share sheet via a newly-added `expo-sharing`/`expo-file-system` (the exact dependency
+     cost the mobile Timeline CSV export deferred paying — see `apps/mobile/app/timeline.tsx`'s "separate
+     effort" note — now paid here; Timeline's own mobile export is still not wired up to it, a small
+     remaining follow-up). Bounded scope, decided up front: a bundle of the actual original files only, not
+     a generated PDF summary/index document — that's a separate, larger feature (real PDF generation) and
+     was never attempted.
+  2. **DOC-008 "retention policy" didn't exist** — every document kept its original file in S3 forever,
+     with no way to shed storage for someone who only ever needed the extracted text. Added a
+     `retentionPolicy` column (`full_original` default / `extracted_only` / `delete_after_processing`) and
+     `POST /v1/documents/:id/retention`, exposed as a select/pill control on both platforms inside the
+     existing per-document editor. Moving off `full_original` is a one-way, confirmed-before-doing-it
+     action — deletes every version's actual S3 blob (irreversible; only the row and each version's
+     already-independently-stored OCR text remain) — the UI disables going back once the original is gone,
+     since there is nothing to restore it from.
+  3. Caught and fixed one real bug in the same pass, before it ever shipped: the ZIP's per-file extension
+     was a naive `mimeType.split("/")[1]`, which gives `.plain` for a `text/plain` upload instead of `.txt`
+     (and would have mis-named `.svg+xml`-style types too) — replaced with an explicit mime-to-extension
+     map covering every type Documents actually accepts, plus a same-title collision guard so two
+     identically-titled documents in one export don't silently overwrite each other in the archive.
+  **Verified live**: a real curl round-trip (two uploaded documents, a real ZIP downloaded and unzipped
+  with byte-correct contents and the fixed `.txt` extension, empty-selection correctly rejected, an unknown
+  retention value correctly rejected, cross-tenant access correctly rejected on both new endpoints with
+  `NOT_OWNER`, retention change confirmed to actually delete the S3 blob — the download URL 404s afterward
+  — and a follow-up export of the same two documents correctly skips the now-blobless one instead of
+  failing the whole request), plus a full real Playwright session against the web UI (sign up, skip
+  onboarding, upload a file, select it, click "Export selected," download and unzip the real resulting ZIP,
+  open the editor, change retention to "Delete original after processing," confirm the warning, and see the
+  disabled-picker "original has been deleted" state render correctly afterward). Mobile changes are
+  typecheck-verified only (no simulator available in this environment this pass) — noted honestly rather
+  than claimed as tested. Migration applied, test account and all scratch files deleted afterward.

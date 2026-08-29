@@ -104,4 +104,25 @@ export const api = {
     }
     return body as T;
   },
+  /** Raw-binary POST response (e.g. a ZIP), for endpoints whose body can't be a plain GET/redirect. */
+  async downloadBinary(path: string, data?: unknown): Promise<ArrayBuffer> {
+    const token = await tokenStore.get();
+    const res = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "x-veynlo-platform": Platform.OS,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const message = typeof body === "object" && body?.message ? body.message : "Download failed.";
+      const code = typeof body === "object" && body?.code ? body.code : "DOWNLOAD_FAILED";
+      throw new ApiError(message, code, res.status);
+    }
+    return res.arrayBuffer();
+  },
 };

@@ -29,6 +29,7 @@
     "@veynlo/authz": "workspace:*",
     "@veynlo/core": "workspace:*",
     "@veynlo/db": "workspace:*",
+    "archiver": "^8.0.0",
     "argon2": "^0.41.1",
     "bullmq": "^5.34.6",
     "drizzle-orm": "^0.38.3",
@@ -53,6 +54,7 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
+    "@types/archiver": "^8.0.0",
     "@types/heic-convert": "^2.1.1",
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.11.10",

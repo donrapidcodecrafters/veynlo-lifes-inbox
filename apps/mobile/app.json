@@ -55,9 +55,18 @@
       [
         "expo-share-extension",
         {
-          "activationRules": [{ "type": "text" }, { "type": "url", "max": 1 }]
+          "activationRules": [
+            {
+              "type": "text"
+            },
+            {
+              "type": "url",
+              "max": 1
+            }
+          ]
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

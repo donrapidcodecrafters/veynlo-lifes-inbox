@@ -3,6 +3,8 @@ import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from "reac
 import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -19,7 +21,14 @@ interface DocumentRow {
   documentType: string;
   processingState: string;
   tags: string[];
+  retentionPolicy: string;
 }
+
+const RETENTION_POLICIES = [
+  { value: "full_original", label: "Keep original file" },
+  { value: "extracted_only", label: "Keep extracted text only" },
+  { value: "delete_after_processing", label: "Delete original after processing" },
+] as const;
 
 interface DocumentVersion {
   id: string;
@@ -69,6 +78,38 @@ export default function DocumentsScreen() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<{ file: PickedFile; duplicateOfTitle: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** DOC-007 "export packet" — no browser download here, so the ZIP is written to the cache directory and
+   * handed to the OS share sheet (Save to Files, AirDrop, etc.) via expo-sharing. */
+  async function exportSelected() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const buffer = await api.downloadBinary("/v1/documents/export", { documentIds: Array.from(selectedIds) });
+      const destination = new File(Paths.cache, `veynlo-documents-${Date.now()}.zip`);
+      destination.write(new Uint8Array(buffer));
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(destination.uri, { mimeType: "application/zip" });
+      }
+      setSelectedIds(new Set());
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : "Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setDocuments(await api.get<DocumentRow[]>("/v1/documents"));
@@ -166,6 +207,16 @@ export default function DocumentsScreen() {
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
       <ScreenHeader title="Documents" subtitle="Receipts, warranties, manuals, and anything else worth keeping." />
 
+      {selectedIds.size > 0 && (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.textSecondary }}>{selectedIds.size} selected</Text>
+          <Button variant="secondary" onPress={exportSelected} loading={exporting}>
+            Export selected
+          </Button>
+        </View>
+      )}
+      {exportError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{exportError}</Text>}
+
       <View style={{ gap: 10 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {DOCUMENT_TYPES.map((t) => {
@@ -243,6 +294,22 @@ export default function DocumentsScreen() {
                 onPress={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
                 style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
               >
+                <Pressable
+                  onPress={() => toggleSelected(doc.id)}
+                  hitSlop={8}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: theme.radius.sm,
+                    borderWidth: 1.5,
+                    borderColor: selectedIds.has(doc.id) ? theme.colors.brandDefault : theme.colors.borderDefault,
+                    backgroundColor: selectedIds.has(doc.id) ? theme.colors.brandDefault : "transparent",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {selectedIds.has(doc.id) && <Text style={{ fontSize: 12, color: theme.colors.textOnBrand, fontWeight: "700" }}>✓</Text>}
+                </Pressable>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }} numberOfLines={1}>
                     {doc.title}
@@ -295,6 +362,24 @@ function DocumentEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [replacingFile, setReplacingFile] = useState(false);
   const [versions, setVersions] = useState<DocumentVersion[] | null>(null);
+  const [retentionPolicy, setRetentionPolicy] = useState(doc.retentionPolicy);
+  const [savingRetention, setSavingRetention] = useState(false);
+  const [confirmingRetention, setConfirmingRetention] = useState<string | null>(null);
+
+  async function applyRetention(policy: string) {
+    setSavingRetention(true);
+    setError(null);
+    try {
+      await api.post(`/v1/documents/${doc.id}/retention`, { retentionPolicy: policy });
+      setRetentionPolicy(policy);
+      setConfirmingRetention(null);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update the retention policy. Please try again.");
+    } finally {
+      setSavingRetention(false);
+    }
+  }
 
   useEffect(() => {
     api.get<DocumentVersion[]>(`/v1/documents/${doc.id}/versions`).then(setVersions);
@@ -404,6 +489,58 @@ function DocumentEditor({
               Cancel
             </Button>
           </>
+        )}
+      </View>
+
+      <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>File retention</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {RETENTION_POLICIES.map((p) => {
+            const active = retentionPolicy === p.value;
+            const disabled = savingRetention || (retentionPolicy !== "full_original" && retentionPolicy !== p.value);
+            return (
+              <Text
+                key={p.value}
+                onPress={() => {
+                  if (disabled || active) return;
+                  if (p.value === "full_original") applyRetention(p.value);
+                  else setConfirmingRetention(p.value);
+                }}
+                style={{
+                  fontSize: 12,
+                  fontWeight: "600",
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: theme.radius.full,
+                  backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                  color: active ? theme.colors.textOnBrand : disabled ? theme.colors.textTertiary : theme.colors.textSecondary,
+                  overflow: "hidden",
+                }}
+              >
+                {p.label}
+              </Text>
+            );
+          })}
+        </View>
+        {retentionPolicy !== "full_original" && (
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            The original file has been deleted; only the extracted text is kept.
+          </Text>
+        )}
+        {confirmingRetention && (
+          <Card style={{ gap: 8, backgroundColor: theme.colors.bgSubtle }}>
+            <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>
+              This deletes the original file permanently — it can&rsquo;t be restored. Only the extracted text will remain.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Button variant="critical" onPress={() => applyRetention(confirmingRetention)} loading={savingRetention}>
+                Delete original
+              </Button>
+              <Button variant="ghost" onPress={() => setConfirmingRetention(null)}>
+                Cancel
+              </Button>
+            </View>
+          </Card>
         )}
       </View>
 
