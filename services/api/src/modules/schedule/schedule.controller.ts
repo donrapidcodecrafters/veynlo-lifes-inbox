@@ -26,6 +26,17 @@ export class ScheduleController {
     return this.schedule.pushEventToCalendar(id, user.userId);
   }
 
+  @Post("events/:id/share")
+  shareEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.schedule.createShareLink(id, user.userId);
+  }
+
+  @Post("events/:id/share/revoke")
+  async revokeEventShare(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    await this.schedule.revokeShareLinks(id, user.userId);
+    return { ok: true };
+  }
+
   @Get("schedule/conflicts")
   conflicts(@CurrentUser() user: AuthenticatedUser) {
     return this.schedule.detectConflicts(user.userId);

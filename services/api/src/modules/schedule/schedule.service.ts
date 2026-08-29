@@ -8,6 +8,7 @@ import { DATABASE } from "../../database/database.module";
 import { HouseholdService } from "../household/household.service";
 import { GoogleCalendarAdapter } from "../connectors/google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "../connectors/microsoft-calendar.adapter";
+import { SharingService } from "../shared/sharing.service";
 import { parseRecurrenceRule, nextOccurrence } from "./recurrence.util";
 import type { CreateTaskDto, UpdateTaskDto } from "./dto";
 
@@ -22,6 +23,7 @@ export class ScheduleService {
     private readonly households: HouseholdService,
     private readonly googleCalendar: GoogleCalendarAdapter,
     private readonly microsoftCalendar: MicrosoftCalendarAdapter,
+    private readonly sharing: SharingService,
   ) {}
 
   /**
@@ -89,6 +91,21 @@ export class ScheduleService {
       if (!event.householdId || !householdIds.includes(event.householdId) || event.visibility === "private") return null;
     }
     return { event, evidence: await this.evidenceViaInboxItem("calendar_event", eventId) };
+  }
+
+  /** §Sharing expansion — same shape as AttentionService's identical pair, generalized via SharingService. Owner-only, same as pushEventToCalendar (a household member with read access still isn't the one who should be minting a public link for someone else's event). */
+  async createShareLink(eventId: string, userId: string) {
+    const [event] = await this.db.select({ ownerUserId: schema.calendarEvents.ownerUserId }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+    return this.sharing.createShareLink("calendar_event", eventId, userId);
+  }
+
+  async revokeShareLinks(eventId: string, userId: string) {
+    const [event] = await this.db.select({ ownerUserId: schema.calendarEvents.ownerUserId }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+    await this.sharing.revokeShareLinks("calendar_event", eventId);
   }
 
   /**

@@ -854,3 +854,40 @@ still open:
   the Mail categories toggles correctly reflected the API-set state (Travel/Warranties off, others on) and
   the retention picker persisted a live change. Test account, seeded rows, and all scratch files deleted
   afterward.
+- **Ninth gap-closing pass (2026-08-29, backend only — see note below): Sharing system expansion, backend.**
+  The audit claimed sharing needed a rebuild (no direct grants, no audit screens); re-checking first found
+  the mechanism was already generic — `share_links` has always been polymorphic (`resourceType`/
+  `resourceId`), `resolveShareLinkAccess` (packages/authz) already resource-type-agnostic — `AttentionService`
+  was just its only caller, and `SharedService.resolve` was hardcoded to one resource type. `resource_grants`
+  (a genuinely separate "grant a specific other user access" concept, distinct from link-based sharing) has
+  zero writers anywhere and is a materially bigger feature (invite-a-person, notify-them, manage-rights) —
+  correctly left alone, since visibility values referencing it are already inert and nothing regresses.
+  1. Extracted the token/hash/expiry mechanics into a new generic `SharingService` (`modules/shared/
+     sharing.service.ts`) — `createShareLink`/`revokeShareLinks` parameterized by `resourceType`, plus
+     `listMyShareLinks`/`revokeShareLinkById` for an audit view. `AttentionService`'s original pair now
+     delegates to it instead of duplicating the logic.
+  2. Added the same share/revoke pair to `DocumentsService` and `ScheduleService` (calendar events),
+     each keeping its own ownership check before delegating — `POST /v1/documents/:id/share(/revoke)` and
+     `POST /v1/events/:id/share(/revoke)`.
+  3. Generalized `SharedService.resolve` to switch on `resourceType`: a document resolves to a title/type/
+     freshly-generated signed download URL (reusing `StorageService`, provided directly in `SharedModule`
+     to avoid a circular import back through `DocumentsModule`, which itself now imports `SharedModule`);
+     a calendar event resolves to title/start/end/location. Attention items keep their original shape.
+  4. Added an authenticated `GET /v1/shared-links` + `POST /v1/shared-links/:id/revoke` (`SharingController`,
+     separate from the existing unauthenticated `SharedController` so its no-guard invariant stays intact)
+     — the "shared by me" audit view. Deliberately no "shared with me" — a share link is a bearer token
+     (anyone with the URL), not an account-level grant, so there's no user identity to list it against on
+     the recipient side; that would require `resource_grants` to get a real writer first, a separate feature.
+  **Verified live**: real curl round-trips — a document uploaded, shared, publicly resolved (a genuine
+  signed S3 URL came back, fetchable with no auth), revoked, then re-resolving correctly rejected
+  (`SHARE_LINK_INVALID`); a real calendar event ingested, shared, and publicly resolved with its actual
+  title/time/location; `GET /v1/shared-links` correctly listed both share links (one revoked, one active)
+  with real timestamps; a cross-tenant share attempt on another user's document correctly rejected
+  (`NOT_OWNER`). Test accounts and scratch files deleted afterward.
+  **Not done this pass, deliberately paused here**: UI for any of this — no Share/revoke buttons on the
+  Documents or Events pages (web or mobile), no "Shared by me" screen, and the public `/shared/[token]`
+  web page still only renders the attention-item shape (a document/calendar-event link resolves correctly
+  server-side right now but has no matching UI branch to display it). Paused mid-feature, backend-complete
+  and independently useful/testable via the API, specifically to redirect effort to a user-flagged UI/UX
+  defect sweep across the whole app (see next entry) — picking the UI wiring back up is the natural next
+  step once that sweep is done.

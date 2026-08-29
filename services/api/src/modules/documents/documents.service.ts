@@ -11,6 +11,7 @@ import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
 import { HouseholdService } from "../household/household.service";
+import { SharingService } from "../shared/sharing.service";
 import { StorageService } from "./storage.service";
 import { MalwareScannerService } from "./malware-scanner.service";
 
@@ -31,6 +32,7 @@ export class DocumentsService {
     private readonly ai: AnthropicExtractionService,
     private readonly malwareScanner: MalwareScannerService,
     private readonly households: HouseholdService,
+    private readonly sharing: SharingService,
   ) {}
 
   /**
@@ -274,6 +276,17 @@ export class DocumentsService {
       for (const version of versions) await this.storage.deleteObject(version.blobRef).catch(() => undefined);
     }
     await this.db.update(schema.documents).set({ retentionPolicy, updatedAt: new Date() }).where(eq(schema.documents.id, documentId));
+  }
+
+  /** §Sharing expansion — same shape as AttentionService's identical pair, generalized via SharingService. */
+  async createShareLink(documentId: string, userId: string) {
+    await this.assertOwnedDocument(documentId, userId);
+    return this.sharing.createShareLink("document", documentId, userId);
+  }
+
+  async revokeShareLinks(documentId: string, userId: string) {
+    await this.assertOwnedDocument(documentId, userId);
+    await this.sharing.revokeShareLinks("document", documentId);
   }
 
   /**

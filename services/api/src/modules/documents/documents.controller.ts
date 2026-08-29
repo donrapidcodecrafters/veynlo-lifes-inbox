@@ -65,6 +65,17 @@ export class DocumentsController {
     return { ok: true };
   }
 
+  @Post(":id/share")
+  async share(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.documents.createShareLink(id, user.userId);
+  }
+
+  @Post(":id/share/revoke")
+  async revokeShare(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    await this.documents.revokeShareLinks(id, user.userId);
+    return { ok: true };
+  }
+
   @Post("export")
   async exportPacket(@CurrentUser() user: AuthenticatedUser, @Body("documentIds") documentIds: string[], @Res() res: FastifyReply) {
     if (!Array.isArray(documentIds) || documentIds.length === 0) {

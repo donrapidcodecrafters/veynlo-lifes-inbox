@@ -1,15 +1,13 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { randomBytes, createHash } from "node:crypto";
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { generateId, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
-import { loadEnv } from "../../config/env";
+import { SharingService } from "../shared/sharing.service";
 
 const LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
-const SHARE_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // HOME-004 "freshness SLA" — connector sync runs on a 15-minute repeat tick (queue-producer.service.ts);
 // this is a generous multiple of that, not the expected cadence itself, so a normal delayed tick or a
 // slow provider response doesn't false-positive. Before this, `lastSuccessfulSyncAt` was written on every
@@ -51,7 +49,10 @@ function money(minorUnits: number, currency: string): string {
 
 @Injectable()
 export class AttentionService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly sharing: SharingService,
+  ) {}
 
   /**
    * HOME-001/004 — the weighted "Needs You" queue plus the caught-up/degraded state computation.
@@ -184,34 +185,17 @@ export class AttentionService {
   }
 
   /**
-   * HOME-001's "share" action — generates a real, revocable, expiring link via the `share_links` table
-   * and `resolveShareLinkAccess` (packages/authz), which already existed with zero real caller anywhere
-   * in the app before this. No passcode support exposed here (the schema/authz layer already supports
-   * one) — a defensible MVP cut given the link itself is a long random token, expires in 7 days, and is
-   * always revocable. Returns the plaintext token exactly once — only its hash is ever stored.
+   * HOME-001's "share" action — generates a real, revocable, expiring link via `SharingService`
+   * (extracted from here — this was its only caller until documents/calendar events got the same action).
    */
   async createShareLink(id: string, userId: string) {
     await this.assertOwned(id, userId);
-    const token = randomBytes(24).toString("base64url");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const shareLinkId = generateId("shareLink");
-    await this.db.insert(schema.shareLinks).values({
-      id: shareLinkId,
-      resourceType: "attention_item",
-      resourceId: id,
-      tokenHash,
-      createdByUserId: userId,
-      expiresAt: new Date(Date.now() + SHARE_LINK_TTL_MS),
-    });
-    return { url: `${loadEnv().WEB_APP_URL}/shared/${token}` };
+    return this.sharing.createShareLink("attention_item", id, userId);
   }
 
   async revokeShareLinks(id: string, userId: string) {
     await this.assertOwned(id, userId);
-    await this.db
-      .update(schema.shareLinks)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(schema.shareLinks.resourceType, "attention_item"), eq(schema.shareLinks.resourceId, id), isNull(schema.shareLinks.revokedAt)));
+    await this.sharing.revokeShareLinks("attention_item", id);
   }
 
   private async unsnoozeExpired(userId: string, now: Date): Promise<void> {
