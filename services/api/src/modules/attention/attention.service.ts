@@ -195,7 +195,7 @@ export class AttentionService {
 
   async revokeShareLinks(id: string, userId: string) {
     await this.assertOwned(id, userId);
-    await this.sharing.revokeShareLinks("attention_item", id);
+    await this.sharing.revokeShareLinks("attention_item", id, userId);
   }
 
   private async unsnoozeExpired(userId: string, now: Date): Promise<void> {

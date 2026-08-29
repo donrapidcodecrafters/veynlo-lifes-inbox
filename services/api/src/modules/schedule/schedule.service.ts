@@ -105,7 +105,7 @@ export class ScheduleService {
     const [event] = await this.db.select({ ownerUserId: schema.calendarEvents.ownerUserId }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
     if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
     if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
-    await this.sharing.revokeShareLinks("calendar_event", eventId);
+    await this.sharing.revokeShareLinks("calendar_event", eventId, userId);
   }
 
   /**

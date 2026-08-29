@@ -1121,3 +1121,25 @@ still open:
   screen-reader verification (VoiceOver/TalkBack on a real device or simulator) was not possible in this
   environment, for the same reason every other native-build attempt this session was blocked — the
   Xcode/CocoaPods parent-folder-path-with-spaces issue already disclosed earlier in this file.
+
+- **Sixteenth gap-closing pass (2026-08-29): broader audit logging (SECURITY.md-named gap).** SECURITY.md
+  claimed household changes, sharing changes, and corrections weren't audited yet. Checking first found
+  household changes were already fully covered (`HouseholdService.recordAudit`, present on create/invite/
+  leave/delegation grant+revoke) — that part of the claim was stale, now corrected in SECURITY.md. Sharing
+  and corrections were genuinely unaudited, confirmed by grep (zero `auditEvents` references in either
+  service).
+  1. `SharingService` gained a `recordAudit` helper (same shape as `HouseholdService`'s — duplicated on
+     purpose, matching this codebase's existing pattern of small per-service helpers rather than one shared
+     abstraction) and now audits `share.create`/`share.revoke` for every resource type. `revokeShareLinks`
+     needed a new `userId` parameter to have an actor to attribute the revoke to — propagated through its
+     three callers (Attention/Documents/Schedule services), which already had `userId` in scope from their
+     own ownership checks.
+  2. `InboxService.correct()` now writes one `inbox.correct` audit event per call, regardless of which of
+     the six `linkedResourceType`s it dispatched to — the correction DTO itself (the fields actually being
+     changed) is the meaningful "what changed" payload, stored as `afterJson`.
+  **Verified live**: a real document shared and revoked, and a real device-calendar event's filed Inbox
+  item corrected, all through one test account — `audit_events` showed exactly the three expected rows
+  (`share.create`/`share.revoke`/`inbox.correct`) with the real actor/resource type. Confirmed the audit
+  trail correctly survives account deletion by design (a 4th row, the `account_deletion` event itself,
+  remained after the account was gone — `actor_id` is a plain string column, not a foreign key, exactly as
+  `SECURITY.md` already documented). Test account deleted afterward.

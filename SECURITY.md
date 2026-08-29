@@ -185,9 +185,17 @@ These are real gaps, not hedging:
   which isn't automatic outside this repo's Docker Compose.
 - **No automated backup/restore drills** — local dev only; production backup
   strategy is undecided.
-- **Consumer-side actions aren't all audited yet** — `audit_events` is
-  written for admin support lookups and account deletion, but household
-  changes, sharing changes, and corrections don't write to it yet.
+- **Consumer-side audit coverage**: `audit_events` is written for admin
+  support lookups, account deletion, household changes (create/invite/leave/
+  delegation grant+revoke — `HouseholdService.recordAudit`), sharing changes
+  (create/revoke, every resource type — `SharingService.recordAudit`), and
+  Inbox corrections (`InboxService.correct`, one record per correction with
+  the corrected fields themselves as `afterJson`). Not yet covered: document/
+  calendar-event edits and deletes outside of sharing/correction flows, and
+  most Settings changes (retention policy, notification preferences, privacy
+  toggles) — a real gap if a fuller audit trail is ever needed, not attempted
+  yet since none of those are the kind of action a support agent or the user
+  themselves would need to reconstruct "who did this and when" for today.
 - **`pnpm audit` runs in CI but is informational, not blocking**
   (`.github/workflows/ci.yml`) — as of this writing it reports 23 findings (0
   critical after bumping `vitest` off a critical arbitrary-file-read CVE that

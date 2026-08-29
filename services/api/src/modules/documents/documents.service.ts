@@ -337,7 +337,7 @@ export class DocumentsService {
 
   async revokeShareLinks(documentId: string, userId: string) {
     await this.assertOwnedDocument(documentId, userId);
-    await this.sharing.revokeShareLinks("document", documentId);
+    await this.sharing.revokeShareLinks("document", documentId, userId);
   }
 
   /**

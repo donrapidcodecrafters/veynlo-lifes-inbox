@@ -173,25 +173,46 @@ export class InboxService {
     if (!item.linkedResourceId) {
       throw new BadRequestException({ code: "NOTHING_TO_CORRECT", message: "This item has no linked record to correct." });
     }
+    let result: unknown;
     switch (item.linkedResourceType) {
       case "purchase":
-        return this.correctPurchase(item.linkedResourceId, dto);
+        result = await this.correctPurchase(item.linkedResourceId, dto);
+        break;
       case "bill":
-        return this.correctBill(item.linkedResourceId, dto);
+        result = await this.correctBill(item.linkedResourceId, dto);
+        break;
       case "calendar_event":
-        return this.correctCalendarEvent(item.linkedResourceId, dto);
+        result = await this.correctCalendarEvent(item.linkedResourceId, dto);
+        break;
       case "shipment":
-        return this.correctShipment(item.linkedResourceId, dto);
+        result = await this.correctShipment(item.linkedResourceId, dto);
+        break;
       case "warranty":
-        return this.correctWarranty(item.linkedResourceId, dto);
+        result = await this.correctWarranty(item.linkedResourceId, dto);
+        break;
       case "subscription":
-        return this.correctSubscription(item.linkedResourceId, dto);
+        result = await this.correctSubscription(item.linkedResourceId, dto);
+        break;
       default:
         throw new BadRequestException({
           code: "UNSUPPORTED_RESOURCE_TYPE",
           message: `Corrections aren't supported for "${item.linkedResourceType}" yet.`,
         });
     }
+    // SECURITY.md "consumer-side actions aren't all audited yet" — corrections were one of the named gaps.
+    // One record per correct() call regardless of which linkedResourceType it dispatched to, since the DTO
+    // itself (the fields actually being changed) is the meaningful "what changed" payload here.
+    await this.db.insert(schema.auditEvents).values({
+      id: generateId("auditEvent"),
+      actorType: "user",
+      actorId: userId,
+      action: "inbox.correct",
+      resourceType: item.linkedResourceType,
+      resourceId: item.linkedResourceId,
+      afterJson: dto,
+      result: "success",
+    });
+    return result;
   }
 
   private async correctPurchase(purchaseId: string, dto: CorrectInboxItemDto) {

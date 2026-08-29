@@ -21,6 +21,22 @@ const SHARE_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export class SharingService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+  /** SECURITY.md "consumer-side actions aren't all audited yet" — sharing changes were one of the named
+   * gaps. Mirrors HouseholdService.recordAudit's exact shape (actor/action/resource/result), duplicated
+   * rather than shared — this codebase already has two independent copies of this same small helper
+   * (here and in AdminService), not one shared abstraction, and a third follows that established pattern. */
+  private async recordAudit(actorUserId: string, action: string, resourceType: string, resourceId: string) {
+    await this.db.insert(schema.auditEvents).values({
+      id: generateId("auditEvent"),
+      actorType: "user",
+      actorId: actorUserId,
+      action,
+      resourceType,
+      resourceId,
+      result: "success",
+    });
+  }
+
   /** Returns the plaintext token exactly once, inside the URL — only its hash is ever stored. */
   async createShareLink(resourceType: string, resourceId: string, userId: string): Promise<{ url: string }> {
     const token = randomBytes(24).toString("base64url");
@@ -33,14 +49,16 @@ export class SharingService {
       createdByUserId: userId,
       expiresAt: new Date(Date.now() + SHARE_LINK_TTL_MS),
     });
+    await this.recordAudit(userId, "share.create", resourceType, resourceId);
     return { url: `${loadEnv().WEB_APP_URL}/shared/${token}` };
   }
 
-  async revokeShareLinks(resourceType: string, resourceId: string): Promise<void> {
+  async revokeShareLinks(resourceType: string, resourceId: string, userId: string): Promise<void> {
     await this.db
       .update(schema.shareLinks)
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.shareLinks.resourceType, resourceType), eq(schema.shareLinks.resourceId, resourceId), isNull(schema.shareLinks.revokedAt)));
+    await this.recordAudit(userId, "share.revoke", resourceType, resourceId);
   }
 
   /** "Shared by me" audit view — every link this user has ever created, active or not. There's no
@@ -55,5 +73,6 @@ export class SharingService {
       .update(schema.shareLinks)
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.shareLinks.id, shareLinkId), eq(schema.shareLinks.createdByUserId, userId), isNull(schema.shareLinks.revokedAt)));
+    await this.recordAudit(userId, "share.revoke", "share_link", shareLinkId);
   }
 }
