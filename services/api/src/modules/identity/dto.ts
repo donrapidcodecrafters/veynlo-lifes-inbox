@@ -23,3 +23,8 @@ export const SetAiProcessingDtoSchema = z.object({
   enabled: z.boolean(),
 });
 export type SetAiProcessingDto = z.infer<typeof SetAiProcessingDtoSchema>;
+
+export const RegisterPushTokenDtoSchema = z.object({
+  pushToken: z.string().min(1).max(400),
+});
+export type RegisterPushTokenDto = z.infer<typeof RegisterPushTokenDtoSchema>;

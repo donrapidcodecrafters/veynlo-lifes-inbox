@@ -13,10 +13,12 @@ import {
   SignInDtoSchema,
   SignUpDtoSchema,
   SetAiProcessingDtoSchema,
+  RegisterPushTokenDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
   type SetAiProcessingDto,
+  type RegisterPushTokenDto,
 } from "./dto";
 
 const SESSION_COOKIE = "veynlo_session";
@@ -150,6 +152,14 @@ export class IdentityController {
   async setAiProcessing(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetAiProcessingDto) {
     await this.identity.setAiProcessingEnabled(user.userId, dto.enabled);
     return { enabled: dto.enabled };
+  }
+
+  @Post("push-token")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(RegisterPushTokenDtoSchema))
+  async registerPushToken(@CurrentUser() user: AuthenticatedUser, @Body() dto: RegisterPushTokenDto) {
+    await this.identity.registerPushToken(user.sessionId, dto.pushToken);
+    return { success: true };
   }
 
   @Get("sessions")

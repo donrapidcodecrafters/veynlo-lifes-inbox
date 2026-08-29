@@ -6,12 +6,14 @@ import { AuthProvider } from "@/lib/auth-context";
 import { AppThemeProvider, useAppTheme } from "@/lib/theme-context";
 import { BiometricLockProvider } from "@/lib/biometric-lock-context";
 import { LockGate } from "@/components/lock-gate";
+import { PushRegistration } from "@/components/push-registration";
 
 function ThemedStack() {
   const { theme } = useAppTheme();
   return (
     <>
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
+      <PushRegistration />
       <LockGate>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.bgCanvas } }} />
       </LockGate>

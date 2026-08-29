@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { MailerService } from "./mailer.service";
+import { PushService } from "./push.service";
 import { isWithinQuietHours } from "./quiet-hours";
 
 export type NotificationPriority = "critical" | "important" | "useful" | "fyi" | "silent";
@@ -28,6 +29,7 @@ export class NotificationDeliveryService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly queue: QueueProducerService,
     private readonly mailer: MailerService,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -99,6 +101,33 @@ export class NotificationDeliveryService {
       // Quiet hours delay rather than drop — reschedule a fresh check in 30 minutes instead of losing it.
       await this.queue.enqueueNotificationDelivery({ notificationId }, 30 * 60 * 1000);
       return;
+    }
+
+    if (notification.channel === "push") {
+      const [device] = await this.db
+        .select({ pushToken: schema.devices.pushToken })
+        .from(schema.devices)
+        .where(
+          and(
+            eq(schema.devices.userId, notification.ownerUserId),
+            isNotNull(schema.devices.pushToken),
+            isNull(schema.devices.revokedAt),
+          ),
+        )
+        .orderBy(desc(schema.devices.lastActiveAt))
+        .limit(1);
+      if (device?.pushToken) {
+        const sent = await this.push.send(device.pushToken, notification.title, notification.body);
+        if (sent) {
+          await this.db
+            .update(schema.notifications)
+            .set({ state: "sent", sentAt: new Date() })
+            .where(eq(schema.notifications.id, notificationId));
+          return;
+        }
+        // No registered/working push token — fall through to the email path below, same "not configured"
+        // degradation as every other optional delivery mechanism rather than silently dropping the notification.
+      }
     }
 
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.id, notification.ownerUserId)).limit(1);

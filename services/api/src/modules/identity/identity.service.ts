@@ -279,6 +279,14 @@ export class IdentityService {
       .where(and(eq(schema.sessions.userId, userId), isNull(schema.sessions.revokedAt)));
   }
 
+  /** Called after sign-in once the mobile client has a real Expo push token — stored on the device row
+   * tied to the current session, since that's the only per-device identity a session carries. */
+  async registerPushToken(sessionId: string, pushToken: string): Promise<void> {
+    const [session] = await this.db.select({ deviceId: schema.sessions.deviceId }).from(schema.sessions).where(eq(schema.sessions.id, sessionId)).limit(1);
+    if (!session?.deviceId) return;
+    await this.db.update(schema.devices).set({ pushToken, lastActiveAt: new Date() }).where(eq(schema.devices.id, session.deviceId));
+  }
+
   async listSessions(userId: string) {
     return this.db
       .select({

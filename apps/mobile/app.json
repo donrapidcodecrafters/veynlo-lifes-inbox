@@ -36,6 +36,7 @@
       "expo-router",
       "expo-secure-store",
       "expo-local-authentication",
+      "expo-notifications",
       [
         "expo-image-picker",
         {
