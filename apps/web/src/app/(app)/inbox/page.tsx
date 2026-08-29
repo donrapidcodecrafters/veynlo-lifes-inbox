@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -8,6 +8,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Input, Label, FieldError, Textarea } from "@/components/ui/input";
+
+// Web Speech API isn't in the standard lib.dom types and is Chrome/Edge-only (no Safari support as of
+// this writing) — feature-detected at runtime, never assumed present. Same shape as the Ask page's
+// identical helper (duplicated rather than shared — each page here is self-contained).
+interface SpeechRecognitionLike extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+}
+
+function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as Record<string, unknown>;
+  return (w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null) as (new () => SpeechRecognitionLike) | null;
+}
 
 interface InboxItem {
   id: string;
@@ -304,14 +324,53 @@ export default function InboxPage() {
  * email would be), so the confirmation is deliberately non-committal about what happens next.
  */
 function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const [mode, setMode] = useState<"text" | "url">("text");
+  const [mode, setMode] = useState<"text" | "url" | "voice">("text");
   const [subject, setSubject] = useState("");
   const [fromAddress, setFromAddress] = useState("");
   const [bodyText, setBodyText] = useState("");
   const [url, setUrl] = useState("");
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    setVoiceSupported(getSpeechRecognition() !== null);
+  }, []);
+
+  /** §CAP-006 "voice note" — records via the same feature-detected Web Speech API already used for
+   * Ask's voice input, `continuous: true` so a longer note isn't cut off after the first pause (unlike
+   * Ask's one-shot query recognition). Live transcript is editable before submit rather than auto-filed —
+   * speech recognition can mishear a word, and this is the only capture path with no confirmation step
+   * otherwise. */
+  function toggleRecording() {
+    const SpeechRecognitionCtor = getSpeechRecognition();
+    if (!SpeechRecognitionCtor) return;
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      let finalText = "";
+      for (let i = 0; i < event.results.length; i++) {
+        const transcript = event.results[i]?.[0]?.transcript;
+        if (transcript) finalText += `${transcript} `;
+      }
+      setVoiceTranscript(finalText.trim());
+    };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    recognition.start();
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -321,6 +380,10 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       if (mode === "url") {
         await api.post("/v1/ingestion/url", { url });
         setUrl("");
+      } else if (mode === "voice") {
+        const firstLine = voiceTranscript.trim().split("\n")[0]?.slice(0, 500) || "Voice note";
+        await api.post("/v1/ingestion/manual", { subject: firstLine, bodyText: voiceTranscript });
+        setVoiceTranscript("");
       } else {
         await api.post("/v1/ingestion/manual", {
           subject,
@@ -364,7 +427,7 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
       <CardBody>
         <form onSubmit={onSubmit} className="space-y-3" noValidate>
           <div className="flex gap-1 rounded-lg bg-subtle p-1" role="tablist">
-            {(["text", "url"] as const).map((m) => (
+            {(["text", "url", ...(voiceSupported ? (["voice"] as const) : [])] as const).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -375,7 +438,7 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
                   mode === m ? "bg-surface text-primary shadow-xs" : "text-tertiary"
                 }`}
               >
-                {m === "text" ? "Paste text" : "From a URL"}
+                {m === "text" ? "Paste text" : m === "url" ? "From a URL" : "Voice note"}
               </button>
             ))}
           </div>
@@ -411,7 +474,7 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
                 />
               </div>
             </>
-          ) : (
+          ) : mode === "url" ? (
             <>
               <p className="text-sm text-tertiary">
                 Paste a link to a confirmation page, event listing, or anything else worth remembering — Veynlo will
@@ -426,6 +489,25 @@ function CaptureForm({ onDone, onCancel }: { onDone: () => void; onCancel: () =>
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://example.com/order/12345"
                   required
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-tertiary">Speak a quick note — review the transcript before saving.</p>
+              <Button type="button" size="sm" variant={listening ? "critical" : "secondary"} onClick={toggleRecording}>
+                {listening ? "Stop recording" : "Start recording"}
+              </Button>
+              <div>
+                <Label htmlFor="capture-voice-transcript">Transcript</Label>
+                <Textarea
+                  id="capture-voice-transcript"
+                  rows={6}
+                  value={voiceTranscript}
+                  onChange={(e) => setVoiceTranscript(e.target.value)}
+                  placeholder="Your words will appear here as you speak."
+                  required
+                  maxLength={50_000}
                 />
               </div>
             </>
