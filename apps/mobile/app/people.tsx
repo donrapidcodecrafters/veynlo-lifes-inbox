@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { api } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { ScreenHeader } from "@/components/screen-header";
@@ -18,16 +18,62 @@ interface Person {
   importantDates: Array<{ label: string; dateIso: string }>;
 }
 
+interface MergeLineageEntry {
+  id: string;
+  survivingEntityId: string;
+  mergedEntityId: string;
+  survivingDisplayLabel: string | null;
+  mergedDisplayLabel: string | null;
+  unmergedAt: string | null;
+}
+
 export default function PeopleScreen() {
   const { theme } = useAppTheme();
   const [people, setPeople] = useState<Person[] | null>(null);
+  const [duplicateGroups, setDuplicateGroups] = useState<Person[][] | null>(null);
+  const [mergeLineage, setMergeLineage] = useState<MergeLineageEntry[] | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setPeople(await api.get<Person[]>("/v1/people"));
+    const [peopleResult, duplicatesResult, lineageResult] = await Promise.all([
+      api.get<Person[]>("/v1/people"),
+      api.get<Person[][]>("/v1/people/duplicate-candidates"),
+      api.get<MergeLineageEntry[]>("/v1/people/merge-lineage"),
+    ]);
+    setPeople(peopleResult);
+    setDuplicateGroups(duplicatesResult);
+    setMergeLineage(lineageResult);
   }, []);
+
+  async function mergeInto(survivingId: string, mergedId: string) {
+    setMergeError(null);
+    setMergeBusy(true);
+    try {
+      await api.post("/v1/people/merge", { survivingId, mergedId });
+      await load();
+    } catch (err) {
+      setMergeError(err instanceof ApiError ? err.message : "Couldn't merge those contacts. Please try again.");
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
+  async function undoMerge(lineageId: string) {
+    setMergeError(null);
+    setMergeBusy(true);
+    try {
+      await api.post(`/v1/people/merge-lineage/${lineageId}/unmerge`);
+      await load();
+    } catch (err) {
+      setMergeError(err instanceof ApiError ? err.message : "Couldn't undo that merge. Please try again.");
+    } finally {
+      setMergeBusy(false);
+    }
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -62,6 +108,49 @@ export default function PeopleScreen() {
           <Button loading={creating} disabled={!name.trim()} onPress={createPerson}>
             Save
           </Button>
+        </Card>
+      )}
+
+      {mergeError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{mergeError}</Text>}
+
+      {duplicateGroups && duplicateGroups.length > 0 && (
+        <Card style={{ gap: 10 }}>
+          <View>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Possible duplicates</Text>
+            <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Grouped by a similar name — review before merging.</Text>
+          </View>
+          {duplicateGroups.map((group) => {
+            const [survivor, ...rest] = group;
+            if (!survivor) return null;
+            return (
+              <View key={group.map((p) => p.id).join(",")} style={{ gap: 6, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 10 }}>
+                <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>{group.map((p) => p.displayLabel).join(", ")}</Text>
+                {rest.map((toMerge) => (
+                  <Button key={toMerge.id} variant="ghost" disabled={mergeBusy} onPress={() => mergeInto(survivor.id, toMerge.id)}>
+                    {`Merge into "${survivor.displayLabel}"`}
+                  </Button>
+                ))}
+              </View>
+            );
+          })}
+        </Card>
+      )}
+
+      {mergeLineage && mergeLineage.filter((e) => !e.unmergedAt).length > 0 && (
+        <Card style={{ gap: 8 }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Recent merges</Text>
+          {mergeLineage
+            .filter((e) => !e.unmergedAt)
+            .map((entry) => (
+              <View key={entry.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <Text style={{ fontSize: 13, color: theme.colors.textSecondary, flex: 1 }}>
+                  {`Merged "${entry.mergedDisplayLabel ?? entry.mergedEntityId}" into "${entry.survivingDisplayLabel ?? entry.survivingEntityId}"`}
+                </Text>
+                <Button variant="ghost" disabled={mergeBusy} onPress={() => undoMerge(entry.id)}>
+                  Undo
+                </Button>
+              </View>
+            ))}
         </Card>
       )}
 

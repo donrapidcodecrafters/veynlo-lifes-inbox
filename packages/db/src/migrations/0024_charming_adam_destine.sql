@@ -1,0 +1,1 @@
+ALTER TABLE "entity_merge_lineage" ADD COLUMN "repointed_fact_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

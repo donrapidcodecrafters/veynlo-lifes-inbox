@@ -24,6 +24,7 @@ export const ID_PREFIXES = {
   notification: "ntf",
   merchant: "mer",
   merchantMergeLineage: "mml",
+  entityMergeLineage: "eml",
   purchase: "pur",
   purchaseLine: "purl",
   returnCase: "ret",

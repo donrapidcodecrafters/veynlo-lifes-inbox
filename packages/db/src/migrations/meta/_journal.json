@@ -169,6 +169,13 @@
       "when": 1788031379754,
       "tag": "0023_sloppy_phil_sheldon",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788032973413,
+      "tag": "0024_charming_adam_destine",
+      "breakpoints": true
     }
   ]
 }

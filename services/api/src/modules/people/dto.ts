@@ -19,3 +19,9 @@ export const UpdatePersonDtoSchema = z.object({
   importantDates: z.array(ImportantDateDtoSchema).optional(),
 });
 export type UpdatePersonDto = z.infer<typeof UpdatePersonDtoSchema>;
+
+export const MergePeopleDtoSchema = z.object({
+  survivingId: z.string().min(1),
+  mergedId: z.string().min(1),
+});
+export type MergePeopleDto = z.infer<typeof MergePeopleDtoSchema>;

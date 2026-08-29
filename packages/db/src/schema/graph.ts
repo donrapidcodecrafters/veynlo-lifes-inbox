@@ -89,6 +89,11 @@ export const entityMergeLineage = pgTable("entity_merge_lineage", {
   // The lineage record itself is kept (it's an audit trail, not this user's private data) even after
   // the actor deletes their account — only the identifying link is cleared.
   actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  /** Fact IDs repointed by this merge (PEO-002 person merge, the first real writer of this table), so
+   * unmerge repoints exactly those back rather than every fact currently on the surviving entity (which
+   * may include ones legitimately added after the merge) — same reasoning as merchant_merge_lineage's
+   * repointedPurchaseIds. Empty for a merge that had nothing to repoint. */
+  repointedFactIds: jsonb("repointed_fact_ids").$type<string[]>().notNull().default([]),
   mergedAt: timestamp("merged_at", { withTimezone: true }).notNull().defaultNow(),
   unmergedAt: timestamp("unmerged_at", { withTimezone: true }),
 });

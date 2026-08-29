@@ -795,3 +795,35 @@ still open:
   session confirmed both new rows render on the web Connections page and clicking "Connect" surfaces the
   correct not-configured message. Test account, seeded connection rows, and all scratch files deleted
   afterward.
+- **Seventh gap-closing pass (2026-08-29): People merge/unmerge (PEO-002).**
+  1. **Entity merge/unmerge only ever worked for merchants** — `canonical_entities`/`entity_merge_lineage`
+     already backed People (PeopleService's own writer), but nothing ever wrote to `entity_merge_lineage`
+     and `mergedIntoEntityId` was schema-only. Unlike merchant merge (an admin action on global/shared
+     reference data), a contact is this user's own private data, so merge here is user-initiated on their
+     own People page, not an admin tool — matching `entity_merge_lineage.actorUserId` (a user column, not
+     `merchant_merge_lineage`'s `actorAdminId`) exactly. Added `PeopleService.findDuplicatePersonCandidates`
+     (groups by a normalized display name — simpler than merchant's legal-suffix-stripping heuristic, since
+     a person's name has no such noise to strip), `mergePeople`/`unmergePeople` (repoints `facts.
+     subjectEntityId` from the merged contact to the survivor, flags the merged contact via
+     `mergedIntoEntityId` rather than deleting it, same pattern as `AdminService.mergeMerchants`), and
+     `listPersonMergeLineage`. `relationships` has zero writers anywhere in the app today, so merge only
+     ever needed to repoint facts, not relationships. New UI on both platforms: a "Possible duplicates" card
+     with a one-click "Merge into X" action per candidate, and a "Recent merges" card with "Undo".
+  2. Added a `repointed_fact_ids` column to `entity_merge_lineage` (migration `0024_charming_adam_destine.
+     sql`) — the existing schema had no equivalent to merchant_merge_lineage's `repointedPurchaseIds`, so
+     without it unmerge would have had no precise way to know which facts to move back (vs. guessing from
+     whatever currently points at the survivor, which could include facts added after the merge). Also
+     added a missing `entityMergeLineage` id prefix to `packages/core`'s `generateId` allowlist — the
+     table existed in schema but had never actually been written to before this pass.
+  **Verified live**: real curl round-trip — created "Jon Smith" (with a Birthday fact) and "jon smith"
+  (with an Anniversary fact, deliberately different casing) plus one unrelated contact; duplicate-candidates
+  correctly grouped only the two case-different names; merging repointed exactly 1 fact, the merged
+  contact's Anniversary now showed up under the survivor, the merged contact disappeared from the people
+  list, and the lineage entry showed both sides' real decrypted display names; unmerging restored the
+  merged contact with its own fact back and the survivor back to just its own — a real fact ownership
+  round-trip, not a guess; a second unmerge attempt on the same lineage row was correctly rejected
+  (`ALREADY_UNMERGED`); a cross-tenant merge attempt was correctly rejected (`NOT_OWNER`); a self-merge
+  attempt was correctly rejected (`SAME_PERSON`). A real Playwright session against the web People page
+  confirmed the "Recent merges" card renders with a working "Undo" button and the merged contact's
+  facts appear consolidated under the survivor. Mobile changes are typecheck-verified only (no simulator
+  available in this environment this pass). Test accounts and all scratch files deleted afterward.
