@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, useColorScheme } from "react-native";
 import { close, openHostApp, Text, TextInput, View, type InitialProps } from "expo-share-extension";
+import { lightSemanticColors, darkSemanticColors, brand } from "@veynlo/design-tokens";
 
 // Long shared content gets truncated before being encoded into the deep-link URL that hands off to the
 // main app — openHostApp's native side does a naive "&"/"="-split with no percent-decoding of its own, so
@@ -17,6 +18,11 @@ const MAX_BODY_LENGTH = 1500;
 export default function ShareExtension(props: InitialProps) {
   const [subject, setSubject] = useState(props.url ? "Shared link" : "Shared text");
   const [saving, setSaving] = useState(false);
+  // This extension runs as its own separate native process — it has no access to the main app's
+  // ThemeProvider/useAppTheme() context, so it reads the OS appearance directly instead.
+  const scheme = useColorScheme();
+  const colors = scheme === "dark" ? darkSemanticColors : lightSemanticColors;
+  const styles = createStyles(colors);
 
   const body = (props.text ?? props.url ?? "").slice(0, MAX_BODY_LENGTH);
 
@@ -38,22 +44,24 @@ export default function ShareExtension(props: InitialProps) {
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
         <Pressable style={[styles.button, styles.saveButton]} onPress={save} disabled={saving || !body}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save</Text>}
+          {saving ? <ActivityIndicator color={colors.textOnBrand} /> : <Text style={styles.saveText}>Save</Text>}
         </Pressable>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 20, gap: 12, backgroundColor: "#ffffff" },
-  title: { fontSize: 17, fontWeight: "700", color: "#191d24" },
-  input: { borderWidth: 1, borderColor: "#dde1e8", borderRadius: 10, padding: 12, fontSize: 15, color: "#191d24" },
-  preview: { fontSize: 13, color: "#4a5163", maxHeight: 80 },
-  row: { flexDirection: "row", gap: 10, marginTop: 4 },
-  button: { flex: 1, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  cancelButton: { backgroundColor: "#eef0f4" },
-  cancelText: { color: "#191d24", fontWeight: "600" },
-  saveButton: { backgroundColor: "#3548c4" },
-  saveText: { color: "#ffffff", fontWeight: "600" },
-});
+function createStyles(colors: Record<keyof typeof lightSemanticColors, string>) {
+  return StyleSheet.create({
+    container: { padding: 20, gap: 12, backgroundColor: colors.bgSurface },
+    title: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
+    input: { borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, padding: 12, fontSize: 15, color: colors.textPrimary },
+    preview: { fontSize: 13, color: colors.textSecondary, maxHeight: 80 },
+    row: { flexDirection: "row", gap: 10, marginTop: 4 },
+    button: { flex: 1, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    cancelButton: { backgroundColor: colors.bgSubtle },
+    cancelText: { color: colors.textPrimary, fontWeight: "600" },
+    saveButton: { backgroundColor: brand[500] },
+    saveText: { color: colors.textOnBrand, fontWeight: "600" },
+  });
+}

@@ -44,7 +44,11 @@ export function Button({ variant = "primary", loading, disabled, children, style
       {...props}
     >
       {loading && <ActivityIndicator color={textColor} size="small" />}
-      <Text style={{ color: textColor, fontSize: 16, fontWeight: "600" }}>{children}</Text>
+      {/* numberOfLines=1: a button squeezed for space by a sibling should never wrap its label onto a
+          second line, where it would just get clipped by this button's fixed height instead. */}
+      <Text numberOfLines={1} style={{ color: textColor, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+        {children}
+      </Text>
     </Pressable>
   );
 }

@@ -56,9 +56,12 @@ export default function SessionsPage() {
         <CardBody className="space-y-3">
           {!sessions && <p className="text-sm text-tertiary">Loading…</p>}
           {sessions?.map((s) => (
-            <div key={s.id} className="flex items-center justify-between gap-4 border-b border-border-subtle py-2 last:border-0 last:pb-0">
-              <div>
-                <div className="flex items-center gap-2">
+            <div
+              key={s.id}
+              className="flex flex-col gap-2 border-b border-border-subtle py-2 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium text-primary">
                     {s.displayName ?? PLATFORM_LABEL[s.platform ?? ""] ?? s.platform ?? "Unknown device"}
                   </p>
@@ -70,7 +73,7 @@ export default function SessionsPage() {
                 </p>
               </div>
               {!s.isCurrent && (
-                <Button variant="ghost" size="sm" onClick={() => revoke(s.id)} disabled={revokingId === s.id}>
+                <Button variant="ghost" size="sm" className="shrink-0 whitespace-nowrap self-start" onClick={() => revoke(s.id)} disabled={revokingId === s.id}>
                   {revokingId === s.id ? "Signing out…" : "Sign out"}
                 </Button>
               )}

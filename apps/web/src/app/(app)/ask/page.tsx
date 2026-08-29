@@ -242,24 +242,26 @@ export default function AskPage() {
         </div>
       ) : (
         <>
-      <form onSubmit={onSubmit} className="flex gap-2">
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
         <Input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="When does my warranty expire?"
           className="flex-1"
         />
-        {voiceSupported && (
-          <Button type="button" variant={listening ? "primary" : "secondary"} onClick={toggleVoice}>
-            {listening ? "Listening…" : "🎙"}
+        <div className="flex shrink-0 gap-2">
+          {voiceSupported && (
+            <Button type="button" variant={listening ? "primary" : "secondary"} onClick={toggleVoice} aria-label={listening ? "Listening" : "Ask by voice"}>
+              {listening ? "Listening…" : "🎙"}
+            </Button>
+          )}
+          <Button type="submit" loading={loading} className="flex-1 sm:flex-none">
+            Ask
           </Button>
-        )}
-        <Button type="submit" loading={loading}>
-          Ask
-        </Button>
-        <Button type="button" variant="secondary" onClick={saveCurrentQuestion} disabled={!question.trim()}>
-          Save
-        </Button>
+          <Button type="button" variant="secondary" onClick={saveCurrentQuestion} disabled={!question.trim()} className="flex-1 sm:flex-none">
+            Save
+          </Button>
+        </div>
       </form>
 
       {savedQueries && savedQueries.length > 0 && !result && !loading && history.length === 0 && (

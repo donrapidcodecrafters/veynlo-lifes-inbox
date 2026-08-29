@@ -107,8 +107,19 @@ export default function PersonDetailPage() {
             <Label htmlFor="dates">Important dates</Label>
             {dates.map((d, i) => (
               <div key={i} className="flex gap-2">
-                <Input value={d.label} onChange={(e) => updateDate(i, { label: e.target.value })} placeholder="Birthday" className="flex-1" />
-                <Input type="date" value={d.dateIso} onChange={(e) => updateDate(i, { dateIso: e.target.value })} />
+                <Input value={d.label} onChange={(e) => updateDate(i, { label: e.target.value })} placeholder="Birthday" className="min-w-0 flex-1" />
+                {/* Input's shared base style is `w-full` — inside this flex row that would claim the row's
+                    full width as this field's flex-basis, starving the label field next to it down to
+                    almost nothing. A class can't reliably beat `w-full` here (this app's cn() is a plain
+                    string join, not tailwind-merge, so class override order isn't guaranteed), so this
+                    overrides via inline style instead. */}
+                <Input
+                  type="date"
+                  value={d.dateIso}
+                  onChange={(e) => updateDate(i, { dateIso: e.target.value })}
+                  className="shrink-0"
+                  style={{ width: "auto" }}
+                />
                 <Button variant="ghost" size="sm" onClick={() => removeDate(i)}>
                   Remove
                 </Button>

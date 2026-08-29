@@ -41,8 +41,12 @@ export function Switch({ checked, onCheckedChange, disabled, label, description,
       >
         <span
           className={cn(
-            "absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-150",
-            checked ? "translate-x-[18px]" : "translate-x-0.5",
+            // Tailwind v4's `translate-x-*` sets the CSS `translate` shorthand, which needs a paired
+            // `--tw-translate-y` (from a `translate-y-*` class) to be a valid value — without one, the
+            // whole property computes to invalid and the thumb never actually moves. `left-*` sidesteps
+            // that composition entirely.
+            "absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-[left] duration-150",
+            checked ? "left-[18px]" : "left-0.5",
           )}
           aria-hidden="true"
         />

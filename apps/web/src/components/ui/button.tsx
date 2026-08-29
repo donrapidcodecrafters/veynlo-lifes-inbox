@@ -30,7 +30,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || loading}
         className={cn(
-          "inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-150",
+          // shrink-0/whitespace-nowrap: a button squeezed for space by a flex row sibling should never
+          // wrap its label onto a second line or get crushed toward a near-square/circular shape —
+          // the row around it should stack or scroll instead. Callers needing a genuinely multi-line
+          // button (rare) can still override via their own className.
+          "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg font-medium transition-colors duration-150",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]",
           variantClasses[variant],

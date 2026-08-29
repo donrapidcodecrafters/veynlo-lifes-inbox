@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Input, Label, FieldError, Textarea } from "@/components/ui/input";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 
 // Web Speech API isn't in the standard lib.dom types and is Chrome/Edge-only (no Safari support as of
 // this writing) — feature-detected at runtime, never assumed present. Same shape as the Ask page's
@@ -208,18 +209,20 @@ export default function InboxPage() {
         </div>
         {pasteMessage && <p className="text-sm text-tertiary">{pasteMessage}</p>}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1 rounded-lg bg-subtle p-1">
-            {FILTER_TABS.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => setFilter(f.value)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  filter === f.value ? "bg-surface text-primary shadow-xs" : "text-tertiary"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="max-w-full overflow-x-auto">
+            <div className="flex w-max gap-1 rounded-lg bg-subtle p-1">
+              {FILTER_TABS.map((f) => (
+                <button
+                  key={f.value}
+                  onClick={() => setFilter(f.value)}
+                  className={`shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    filter === f.value ? "bg-surface text-primary shadow-xs" : "text-tertiary"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
           <select
             value={category}
@@ -282,7 +285,7 @@ export default function InboxPage() {
                       </div>
                     </div>
                     {item.reviewState === "new" && correctingId !== item.id && (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button size="sm" onClick={() => act(item.id, "confirm")}>
                           Confirm
                         </Button>
@@ -291,24 +294,16 @@ export default function InboxPage() {
                             Correct
                           </Button>
                         )}
-                        <Button size="sm" variant="secondary" onClick={() => snooze(item.id)}>
-                          Snooze 1 week
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => act(item.id, "archive")}>
-                          Archive
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => act(item.id, "dismiss")}>
-                          Dismiss
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setInspectingId(inspectingId === item.id ? null : item.id)}>
-                          Inspect source
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => blockSender(item.id)}>
-                          Block sender
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setRulePickerId(rulePickerId === item.id ? null : item.id)}>
-                          Create rule
-                        </Button>
+                        <DropdownMenu
+                          items={[
+                            { label: "Snooze 1 week", onSelect: () => snooze(item.id) },
+                            { label: "Archive", onSelect: () => act(item.id, "archive") },
+                            { label: "Dismiss", onSelect: () => act(item.id, "dismiss") },
+                            { label: "Inspect source", onSelect: () => setInspectingId(inspectingId === item.id ? null : item.id) },
+                            { label: "Block sender", onSelect: () => blockSender(item.id), tone: "critical" },
+                            { label: "Create rule", onSelect: () => setRulePickerId(rulePickerId === item.id ? null : item.id) },
+                          ]}
+                        />
                       </div>
                     )}
                     {rulePickerId === item.id && (

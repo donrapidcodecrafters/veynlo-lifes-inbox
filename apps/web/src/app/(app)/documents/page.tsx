@@ -281,26 +281,28 @@ export default function DocumentsPage() {
             <li key={doc.id}>
               <Card>
                 <CardBody className="space-y-3 py-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${doc.title} for export`}
-                      checked={selectedIds.has(doc.id)}
-                      onChange={() => toggleSelected(doc.id)}
-                      className="h-4 w-4 shrink-0 rounded border-border-default"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <p className="truncate text-sm font-medium text-primary">{doc.title}</p>
-                      <p className="text-xs capitalize text-tertiary">
-                        {doc.documentType.replace(/_/g, " ")}
-                        {doc.tags.length > 0 && ` · ${doc.tags.join(", ")}`}
-                      </p>
-                    </button>
-                    <div className="flex items-center gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${doc.title} for export`}
+                        checked={selectedIds.has(doc.id)}
+                        onChange={() => toggleSelected(doc.id)}
+                        className="h-4 w-4 shrink-0 rounded border-border-default"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="line-clamp-2 text-sm font-medium text-primary sm:truncate sm:whitespace-nowrap">{doc.title}</p>
+                        <p className="text-xs capitalize text-tertiary">
+                          {doc.documentType.replace(/_/g, " ")}
+                          {doc.tags.length > 0 && ` · ${doc.tags.join(", ")}`}
+                        </p>
+                      </button>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3 pl-7 sm:pl-0">
                       <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>{doc.processingState.replace(/_/g, " ")}</Badge>
                       <Button size="sm" variant="ghost" onClick={() => openDocument(doc.id)}>
                         Open

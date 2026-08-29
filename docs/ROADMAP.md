@@ -891,3 +891,59 @@ still open:
   and independently useful/testable via the API, specifically to redirect effort to a user-flagged UI/UX
   defect sweep across the whole app (see next entry) — picking the UI wiring back up is the natural next
   step once that sweep is done.
+- **Tenth pass (2026-08-29): app-wide UI/UX defect sweep, user-flagged.** The user reported (with real phone
+  screenshots) buttons with broken padding/overlap, toggles escaping their track, text exceeding button/card
+  edges, and dark-mode issues across "tons" of pages. Audited every web page at phone/tablet/desktop widths,
+  light and dark, via real screenshots (not code inspection alone) — several of the confirmed bugs were only
+  visible that way, and one hypothesis (a "floating tab bar" in a full-page screenshot) turned out to be a
+  screenshot-tool artifact, not a real bug, until the user's own real-device photos proved it was in fact real.
+  1. **Every toggle switch was silently broken app-wide.** Tailwind v4 changed `translate-x-*` to set the
+     `translate` CSS property via a `--tw-translate-x`/`--tw-translate-y` pair; using only `translate-x-*`
+     leaves `--tw-translate-y` undefined, which invalidates the whole property — the slider thumb never
+     moved from its static position. Fixed in the one shared `Switch` component by switching to `left-*`
+     positioning, which needs no paired variable. Confirmed via computed-style inspection, not just a screenshot.
+  2. **Several list pages crushed long titles to a few characters on phone width** (Documents, Saved) because
+     a title and its action buttons shared one non-wrapping row. Fixed by stacking the row on narrow screens
+     (`flex-col sm:flex-row`), the same pattern applied to Connections' provider rows, Settings' session rows,
+     and the Home/Inbox item rows.
+  3. **The Inbox filter tabs and Connections' 6-option history-range picker could force the whole page wider
+     than the viewport** (confirmed via `document.documentElement.scrollWidth`, then swept across every page
+     at 390/768/1280px). Fixed via `overflow-x-auto` (Inbox tabs) and `flex-wrap` (the shared `SegmentedControl`
+     component, so every picker using it is covered, not just this one).
+  4. **The bottom tab bar could genuinely overlap scrolled content on a real phone** — confirmed by the user's
+     own screenshots after a first padding-based patch didn't fully fix it. Rewrote `AppShell` from a
+     `position: fixed` overlay bar to a capped-height flex column where `<main>` is the only internally-
+     scrolling region and the tab bar is a normal, space-reserving flex sibling below it — this eliminates the
+     whole class of real-iOS-Safari fixed-position bugs by construction rather than patching around it. (This
+     rewrite itself introduced a `768px`-tablet-width regression — missing `min-w-0` on the new flex column —
+     caught by the same automated scrollWidth sweep and fixed immediately.)
+  5. **Up to 7 action buttons stacked per Inbox/Home card** ("way too many buttons," per the user). Built a
+     small shared `DropdownMenu` component (web) and `ActionMenu` bottom sheet (mobile, RN `Modal`-based, no
+     new dependency) — each card now shows only its 1-2 primary actions as real buttons, with every secondary
+     action (Snooze, Archive, Dismiss, Inspect source, Block sender, Create rule / Delegate, Share) behind one
+     "More" trigger. Applied to both the web Inbox/Home pages and the mobile app's equivalent tabs.
+  6. **A person's "Important dates" label field rendered as an unreadable empty circle** (confirmed by the
+     user's photo) — the shared `Input` component's `w-full` base style became a `flex-basis:100%` claim
+     inside its row, and a native `<input type="date">`'s real minimum rendering width absorbed nearly all of
+     it, leaving the label field a few pixels wide. Fixed by overriding via inline `style` (this app's `cn()`
+     is a plain string join, not tailwind-merge, so a conflicting class isn't a reliable override here).
+  7. **Buttons could wrap their label onto a second line when squeezed** ("we don't want them to split," per
+     the user) — added `whitespace-nowrap`/`shrink-0` to the shared web `Button` and `numberOfLines={1}` to
+     the shared mobile `Button`, so a cramped button always stays legible on one line and the row around it
+     is what has to adapt, never the button's text.
+  8. **Two real dark-mode gaps on the mobile app** (React Native has no CSS custom properties, so a
+     hardcoded color literal silently never adapts): the iOS share extension had an entirely separate,
+     always-light hardcoded palette (it runs as its own native process with no access to the main app's
+     theme context — fixed via RN's own `useColorScheme()` plus the shared `@veynlo/design-tokens` palette);
+     and one error message on the Saved-item form used a literal hex red instead of `theme.colors.critical`.
+  **Verified live**: real Playwright screenshots (not just code review) at 390/768/1280px × light/dark for
+  every page confirmed each fix, including a real scrolled-viewport check (not `fullPage`, which had
+  previously produced a misleading "floating bar" appearance) proving the app-shell rewrite leaves no gap
+  for the tab bar to overlap; an automated `scrollWidth` sweep across all 16 pages × 3 widths confirmed zero
+  horizontal overflow anywhere, including the tablet-width regression the shell rewrite itself introduced.
+  Attempted to additionally verify against a real iOS Simulator: got the actual native app running against a
+  live Metro bundler (surfacing a real, separate bug — `expo-sharing`'s native module was missing from the
+  already-installed build, since it predates this session's DOC-007 work), but a fresh native rebuild is
+  blocked in this environment by an Xcode/CocoaPods build-script bug with the project's parent folder path
+  containing spaces ("Mac Projects and Files") — disclosed rather than worked around. Test account and all
+  scratch files deleted afterward; a full before/after screenshot gallery was published for the user separately.

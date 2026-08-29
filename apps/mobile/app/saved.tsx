@@ -152,7 +152,7 @@ function AddForm({ onDone }: { onDone: () => void }) {
         <TextField label="Link (optional)" value={url} onChangeText={setUrl} keyboardType="url" autoCapitalize="none" />
       )}
       <TextField label="Note (optional)" value={note} onChangeText={setNote} multiline />
-      {error && <Text style={{ fontSize: 13, color: "#dc2626" }}>{error}</Text>}
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
       <Button onPress={submit} loading={saving}>
         Save
       </Button>

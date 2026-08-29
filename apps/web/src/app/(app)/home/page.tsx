@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
 interface AttentionItem {
@@ -261,7 +262,7 @@ function AttentionItemCard({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {resourceHref(item.linkedResourceType, item.linkedResourceId) && (
               <Link href={resourceHref(item.linkedResourceType, item.linkedResourceId)!}>
                 <Button size="sm" variant="secondary">
@@ -272,20 +273,14 @@ function AttentionItemCard({
             <Button size="sm" onClick={onResolve}>
               Mark handled
             </Button>
-            <Button size="sm" variant="ghost" onClick={onDismiss}>
-              Dismiss
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setExpanded(expanded === "snooze" ? null : "snooze")}>
-              Snooze
-            </Button>
-            {members.length > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => setExpanded(expanded === "delegate" ? null : "delegate")}>
-                Delegate
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={handleShare}>
-              Share
-            </Button>
+            <DropdownMenu
+              items={[
+                { label: "Dismiss", onSelect: onDismiss },
+                { label: "Snooze", onSelect: () => setExpanded(expanded === "snooze" ? null : "snooze") },
+                ...(members.length > 0 ? [{ label: "Delegate", onSelect: () => setExpanded(expanded === "delegate" ? null : "delegate") }] : []),
+                { label: "Share", onSelect: handleShare },
+              ]}
+            />
           </div>
 
           {expanded === "snooze" && (

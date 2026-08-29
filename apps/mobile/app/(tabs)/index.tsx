@@ -8,6 +8,7 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
+import { ActionMenu } from "@/components/action-menu";
 import { EmptyState } from "@/components/empty-state";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
@@ -263,24 +264,14 @@ function AttentionItemCard({
             Mark handled
           </Button>
         </View>
-        <View style={{ flex: 1, minWidth: 90 }}>
-          <Button variant="ghost" onPress={onDismiss}>
-            Dismiss
-          </Button>
-        </View>
-      </View>
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Button variant="ghost" onPress={() => setExpanded(expanded === "snooze" ? null : "snooze")}>
-          Snooze
-        </Button>
-        {members.length > 0 && (
-          <Button variant="ghost" onPress={() => setExpanded(expanded === "delegate" ? null : "delegate")}>
-            Delegate
-          </Button>
-        )}
-        <Button variant="ghost" onPress={handleShare}>
-          Share
-        </Button>
+        <ActionMenu
+          items={[
+            { label: "Dismiss", onSelect: onDismiss },
+            { label: "Snooze", onSelect: () => setExpanded(expanded === "snooze" ? null : "snooze") },
+            ...(members.length > 0 ? [{ label: "Delegate", onSelect: () => setExpanded(expanded === "delegate" ? null : "delegate") }] : []),
+            { label: "Share", onSelect: handleShare },
+          ]}
+        />
       </View>
 
       {expanded === "snooze" && (

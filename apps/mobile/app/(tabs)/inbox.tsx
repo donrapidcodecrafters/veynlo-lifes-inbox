@@ -8,6 +8,7 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
+import { ActionMenu } from "@/components/action-menu";
 import { EmptyState } from "@/components/empty-state";
 import { TextField } from "@/components/text-field";
 
@@ -291,36 +292,16 @@ export default function InboxScreen() {
                         </Button>
                       </View>
                     )}
-                    <View style={{ flex: 1, minWidth: 90 }}>
-                      <Button variant="secondary" onPress={() => snooze(item.id)}>
-                        Snooze 1w
-                      </Button>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 90 }}>
-                      <Button variant="secondary" onPress={() => act(item.id, "archive")}>
-                        Archive
-                      </Button>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 90 }}>
-                      <Button variant="ghost" onPress={() => act(item.id, "dismiss")}>
-                        Dismiss
-                      </Button>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 90 }}>
-                      <Button variant="ghost" onPress={() => setInspectingId(inspectingId === item.id ? null : item.id)}>
-                        Inspect source
-                      </Button>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 90 }}>
-                      <Button variant="ghost" onPress={() => blockSender(item.id)}>
-                        Block sender
-                      </Button>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 90 }}>
-                      <Button variant="ghost" onPress={() => setRulePickerId(rulePickerId === item.id ? null : item.id)}>
-                        Create rule
-                      </Button>
-                    </View>
+                    <ActionMenu
+                      items={[
+                        { label: "Snooze 1 week", onSelect: () => snooze(item.id) },
+                        { label: "Archive", onSelect: () => act(item.id, "archive") },
+                        { label: "Dismiss", onSelect: () => act(item.id, "dismiss") },
+                        { label: "Inspect source", onSelect: () => setInspectingId(inspectingId === item.id ? null : item.id) },
+                        { label: "Block sender", onSelect: () => blockSender(item.id), tone: "critical" },
+                        { label: "Create rule", onSelect: () => setRulePickerId(rulePickerId === item.id ? null : item.id) },
+                      ]}
+                    />
                   </View>
                 )}
                 {rulePickerId === item.id && (

@@ -188,7 +188,7 @@ export default function ConnectionsPage() {
       )}
 
       <Card>
-        <CardBody className="flex items-center justify-between gap-4">
+        <CardBody className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-[0.9375rem] font-medium text-primary">History to import</p>
             <p className="text-sm text-tertiary">How far back to look when you connect email or calendar below. Applies going forward too.</p>
@@ -267,9 +267,9 @@ export default function ConnectionsPage() {
           {data.map((c) => (
             <Card key={c.id}>
               <CardBody className="space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="text-[0.9375rem] font-medium text-primary">{PROVIDER_LABEL[c.provider] ?? c.provider}</p>
                       <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace("_", " ")}</Badge>
                     </div>
@@ -280,7 +280,7 @@ export default function ConnectionsPage() {
                     {c.healthDetail && <p className="mt-1 text-sm text-warning-subtle-text">{c.healthDetail}</p>}
                   </div>
                   {confirmingDeleteId !== c.id && (
-                    <div className="flex shrink-0 gap-2">
+                    <div className="flex flex-wrap shrink-0 gap-2">
                       <Button variant="ghost" size="sm" onClick={() => disconnect(c.id, false)}>
                         Disconnect
                       </Button>

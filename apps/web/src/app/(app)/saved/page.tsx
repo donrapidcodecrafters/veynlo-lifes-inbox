@@ -66,9 +66,9 @@ export default function SavedPage() {
             <li key={item.id}>
               <Card>
                 <CardBody className="space-y-3 py-3">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <button type="button" onClick={() => setExpandedId(expandedId === item.id ? null : item.id)} className="min-w-0 flex-1 text-left">
-                      <p className="truncate text-sm font-medium text-primary">
+                      <p className="line-clamp-2 text-sm font-medium text-primary sm:truncate sm:whitespace-nowrap">
                         {item.pinned && "📌 "}
                         {item.title}
                       </p>
@@ -77,7 +77,7 @@ export default function SavedPage() {
                         {item.tags.length > 0 && ` · ${item.tags.join(", ")}`}
                       </p>
                     </button>
-                    <div className="flex items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-3">
                       <Badge tone="neutral">{item.category}</Badge>
                       {item.url && (
                         <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
