@@ -716,7 +716,9 @@ export class IngestionService {
     provider: string;
     ownerUserId: string;
     householdId: string | null;
-    connectionId: string;
+    /** Null for a source with no `connections` row at all — e.g. a device's local calendar pushed
+     * directly from the mobile app, which has no OAuth connection or feed URL to represent as one. */
+    connectionId: string | null;
     uid: string;
     title: string;
     start: TemporalValue;
@@ -727,7 +729,9 @@ export class IngestionService {
     const contentHash = createHash("sha256")
       .update(JSON.stringify({ title: params.title, start: params.start, end: params.end, location: params.location, isAllDay: params.isAllDay }))
       .digest("hex");
-    const idempotencyKey = `${params.provider}:${params.connectionId}:${params.uid}:${contentHash}`;
+    // Falls back to ownerUserId when there's no connection row to scope by (a device's local calendar) —
+    // still unique per user+provider+event, which is all this key needs to guarantee.
+    const idempotencyKey = `${params.provider}:${params.connectionId ?? params.ownerUserId}:${params.uid}:${contentHash}`;
 
     const [existingSourceEvent] = await this.db
       .select({ id: schema.sourceEvents.id })

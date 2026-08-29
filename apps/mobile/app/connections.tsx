@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { Linking, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
+import * as Calendar from "expo-calendar";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -52,6 +53,8 @@ export default function ConnectionsScreen() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [deviceCalendarSyncing, setDeviceCalendarSyncing] = useState(false);
+  const [deviceCalendarMessage, setDeviceCalendarMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
@@ -93,6 +96,57 @@ export default function ConnectionsScreen() {
     await api.post(`/v1/connectors/${id}/disconnect`, { deleteDerivedData });
     setConfirmingDeleteId(null);
     load();
+  }
+
+  /**
+   * Push-from-client sync (§Connections "Apple local calendar") — there's no OAuth token or feed URL a
+   * server could poll for a device's own calendar, so this app reads it directly via expo-calendar and
+   * posts what it finds. Manual "Sync now" only, not a background job: real background sync needs
+   * TaskManager/BackgroundFetch (its own cross-platform battery/OS-permission complexity), a deliberately
+   * separate, larger follow-up rather than something to fold in here.
+   */
+  async function syncDeviceCalendar() {
+    setDeviceCalendarSyncing(true);
+    setDeviceCalendarMessage(null);
+    try {
+      const perm = await Calendar.requestCalendarPermissionsAsync();
+      if (perm.status !== "granted") {
+        setDeviceCalendarMessage("Calendar access is off — enable it in your device settings to sync.");
+        return;
+      }
+      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const startDate = new Date(Date.now() - 30 * 86_400_000);
+      const endDate = new Date(Date.now() + 365 * 86_400_000);
+      const events = await Calendar.getEventsAsync(
+        calendars.map((c) => c.id),
+        startDate,
+        endDate,
+      );
+      const payloadEvents = events.slice(0, 500).map((e) => ({
+        uid: e.id,
+        title: e.title || "Untitled event",
+        startIso: new Date(e.startDate).toISOString(),
+        endIso: e.endDate ? new Date(e.endDate).toISOString() : null,
+        isAllDay: Boolean(e.allDay),
+        location: e.location || null,
+      }));
+      if (payloadEvents.length === 0) {
+        setDeviceCalendarMessage("No events found in the next year.");
+        return;
+      }
+      const result = await api.post<{ filedCount: number; totalCount: number }>("/v1/ingestion/device-calendar", {
+        events: payloadEvents,
+      });
+      setDeviceCalendarMessage(
+        result.filedCount > 0
+          ? `Synced — ${result.filedCount} new or updated event${result.filedCount === 1 ? "" : "s"}.`
+          : "Synced — everything was already up to date.",
+      );
+    } catch (err) {
+      setDeviceCalendarMessage(err instanceof ApiError ? err.message : "Couldn't sync your calendar. Please try again.");
+    } finally {
+      setDeviceCalendarSyncing(false);
+    }
   }
 
   return (
@@ -141,6 +195,21 @@ export default function ConnectionsScreen() {
               onCancel={() => setShowIcsForm(false)}
             />
           )}
+        </Card>
+
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>This phone's calendar</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                Sync events from your device's own Calendar app. Manual sync — pull down to run it again.
+              </Text>
+            </View>
+            <Button variant="secondary" onPress={syncDeviceCalendar} loading={deviceCalendarSyncing}>
+              Sync now
+            </Button>
+          </View>
+          {deviceCalendarMessage && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{deviceCalendarMessage}</Text>}
         </Card>
       </View>
 
