@@ -5,7 +5,14 @@ import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AttentionService } from "./attention.service";
 import { InboxService } from "./inbox.service";
-import { CorrectInboxItemDtoSchema, type CorrectInboxItemDto } from "./dto";
+import {
+  CorrectInboxItemDtoSchema,
+  type CorrectInboxItemDto,
+  SnoozeAttentionItemDtoSchema,
+  type SnoozeAttentionItemDto,
+  DelegateAttentionItemDtoSchema,
+  type DelegateAttentionItemDto,
+} from "./dto";
 
 @Controller()
 @UseGuards(AuthGuard)
@@ -20,6 +27,11 @@ export class AttentionController {
     return this.attention.home(user.userId);
   }
 
+  @Get("v1/home/today")
+  today(@CurrentUser() user: AuthenticatedUser) {
+    return this.attention.today(user.userId);
+  }
+
   @Post("v1/attention/:id/resolve")
   resolve(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.attention.resolve(id, user.userId);
@@ -28,6 +40,28 @@ export class AttentionController {
   @Post("v1/attention/:id/dismiss")
   dismiss(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("reason") reason?: string) {
     return this.attention.dismiss(id, user.userId, reason ?? "not_relevant");
+  }
+
+  @Post("v1/attention/:id/snooze")
+  @UsePipes(new ZodValidationPipe(SnoozeAttentionItemDtoSchema))
+  snoozeAttention(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SnoozeAttentionItemDto) {
+    return this.attention.snooze(id, user.userId, new Date(dto.until));
+  }
+
+  @Post("v1/attention/:id/delegate")
+  @UsePipes(new ZodValidationPipe(DelegateAttentionItemDtoSchema))
+  delegate(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: DelegateAttentionItemDto) {
+    return this.attention.delegate(id, user.userId, dto.assigneeUserId);
+  }
+
+  @Post("v1/attention/:id/share")
+  share(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.attention.createShareLink(id, user.userId);
+  }
+
+  @Post("v1/attention/:id/share/revoke")
+  revokeShare(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.attention.revokeShareLinks(id, user.userId);
   }
 
   @Get("v1/inbox")

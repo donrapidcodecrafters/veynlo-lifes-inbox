@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { swrFetcher, api } from "@/lib/api-client";
@@ -17,6 +18,7 @@ interface AttentionItem {
   moneyAtStakeMinorUnits: number | null;
   moneyAtStakeCurrency: string | null;
   primaryActions: string[];
+  assignedToUserId: string | null;
 }
 
 interface HomeResponse {
@@ -26,6 +28,28 @@ interface HomeResponse {
   unhealthyConnections: Array<{ id: string; provider: string; health: string }>;
 }
 
+interface TodayItem {
+  kind: "event" | "task" | "bill";
+  id: string;
+  title: string;
+  at: string;
+}
+
+interface TodayResponse {
+  items: TodayItem[];
+}
+
+interface HouseholdMembership {
+  household: { id: string; name: string };
+  membership: { userId: string | null };
+}
+
+interface Member {
+  userId: string | null;
+  status: string;
+  displayName: string | null;
+}
+
 const URGENCY_TONE: Record<AttentionItem["urgency"], "critical" | "warning" | "info" | "neutral"> = {
   critical: "critical",
   important: "warning",
@@ -33,8 +57,20 @@ const URGENCY_TONE: Record<AttentionItem["urgency"], "critical" | "warning" | "i
   informational: "neutral",
 };
 
+const SNOOZE_OPTIONS = [
+  { label: "1 hour", ms: 60 * 60 * 1000 },
+  { label: "Tomorrow", ms: 24 * 60 * 60 * 1000 },
+  { label: "1 week", ms: 7 * 24 * 60 * 60 * 1000 },
+];
+
+const TODAY_KIND_LABEL: Record<TodayItem["kind"], string> = { event: "Event", task: "Task", bill: "Bill" };
+
 export default function HomePage() {
   const { data, isLoading, mutate } = useSWR<HomeResponse>("/v1/home", swrFetcher);
+  const { data: today } = useSWR<TodayResponse>("/v1/home/today", swrFetcher);
+  const { data: households } = useSWR<HouseholdMembership[]>("/v1/households", swrFetcher);
+  const householdId = households?.[0]?.household.id ?? null;
+  const { data: members } = useSWR<Member[]>(householdId ? `/v1/households/${householdId}/members` : null, swrFetcher);
 
   async function handleResolve(id: string) {
     await api.post(`/v1/attention/${id}/resolve`);
@@ -43,6 +79,16 @@ export default function HomePage() {
 
   async function handleDismiss(id: string) {
     await api.post(`/v1/attention/${id}/dismiss`, { reason: "not_relevant" });
+    mutate();
+  }
+
+  async function handleSnooze(id: string, ms: number) {
+    await api.post(`/v1/attention/${id}/snooze`, { until: new Date(Date.now() + ms).toISOString() });
+    mutate();
+  }
+
+  async function handleDelegate(id: string, assigneeUserId: string) {
+    await api.post(`/v1/attention/${id}/delegate`, { assigneeUserId });
     mutate();
   }
 
@@ -67,6 +113,28 @@ export default function HomePage() {
             </Link>
           </CardBody>
         </Card>
+      )}
+
+      {today && today.items.length > 0 && (
+        <section aria-labelledby="today-heading">
+          <h2 id="today-heading" className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">
+            Today
+          </h2>
+          <Card>
+            <CardBody className="divide-y divide-border-subtle p-0">
+              {today.items.map((item) => (
+                <div key={`${item.kind}-${item.id}`} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
+                    <p className="text-sm text-tertiary">
+                      {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </CardBody>
+          </Card>
+        </section>
       )}
 
       <section aria-labelledby="needs-you-heading">
@@ -98,39 +166,123 @@ export default function HomePage() {
 
         {!isLoading && data && data.items.length > 0 && (
           <ul className="space-y-3">
-            {data.items.map((item) => {
-              const due = formatTemporal(item.dueAt);
-              const money = formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency);
-              return (
-                <li key={item.id}>
-                  <Card>
-                    <CardBody className="space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1.5">
-                          <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
-                          <p className="text-[0.9375rem] font-medium text-primary">{item.reasonText}</p>
-                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-tertiary">
-                            {due && <span>Due {due}</span>}
-                            {money && <span className="font-medium text-primary">{money} at stake</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={() => handleResolve(item.id)}>
-                          Mark handled
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDismiss(item.id)}>
-                          Dismiss
-                        </Button>
-                      </div>
-                    </CardBody>
-                  </Card>
-                </li>
-              );
-            })}
+            {data.items.map((item) => (
+              <AttentionItemCard
+                key={item.id}
+                item={item}
+                members={members?.filter((m) => m.userId && m.status === "active") ?? []}
+                onResolve={() => handleResolve(item.id)}
+                onDismiss={() => handleDismiss(item.id)}
+                onSnooze={(ms) => handleSnooze(item.id, ms)}
+                onDelegate={(assigneeUserId) => handleDelegate(item.id, assigneeUserId)}
+              />
+            ))}
           </ul>
         )}
       </section>
     </div>
+  );
+}
+
+function AttentionItemCard({
+  item,
+  members,
+  onResolve,
+  onDismiss,
+  onSnooze,
+  onDelegate,
+}: {
+  item: AttentionItem;
+  members: Member[];
+  onResolve: () => void;
+  onDismiss: () => void;
+  onSnooze: (ms: number) => void;
+  onDelegate: (assigneeUserId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<"snooze" | "delegate" | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const due = formatTemporal(item.dueAt);
+  const money = formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency);
+
+  async function handleShare() {
+    const { url } = await api.post<{ url: string }>(`/v1/attention/${item.id}/share`);
+    setShareUrl(url);
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <li>
+      <Card>
+        <CardBody className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1.5">
+              <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
+              <p className="text-[0.9375rem] font-medium text-primary">{item.reasonText}</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-tertiary">
+                {due && <span>Due {due}</span>}
+                {money && <span className="font-medium text-primary">{money} at stake</span>}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={onResolve}>
+              Mark handled
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onDismiss}>
+              Dismiss
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setExpanded(expanded === "snooze" ? null : "snooze")}>
+              Snooze
+            </Button>
+            {members.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setExpanded(expanded === "delegate" ? null : "delegate")}>
+                Delegate
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={handleShare}>
+              Share
+            </Button>
+          </div>
+
+          {expanded === "snooze" && (
+            <div className="flex flex-wrap gap-2 rounded-lg bg-subtle p-2">
+              {SNOOZE_OPTIONS.map((opt) => (
+                <Button key={opt.label} size="sm" variant="secondary" onClick={() => onSnooze(opt.ms)}>
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {expanded === "delegate" && (
+            <div className="flex flex-wrap gap-2 rounded-lg bg-subtle p-2">
+              {members.map((m) => (
+                <Button key={m.userId} size="sm" variant="secondary" onClick={() => m.userId && onDelegate(m.userId)}>
+                  {m.displayName ?? "Household member"}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {shareUrl && (
+            <div className="flex items-center gap-2 rounded-lg bg-subtle p-2">
+              <code className="flex-1 truncate text-sm text-primary">{shareUrl}</code>
+              <Button size="sm" variant="secondary" onClick={copyShareUrl}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+    </li>
   );
 }

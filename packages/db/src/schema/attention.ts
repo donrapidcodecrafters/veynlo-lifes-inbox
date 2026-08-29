@@ -49,6 +49,10 @@ export const attentionItems = pgTable(
     primaryActions: jsonb("primary_actions").$type<string[]>().notNull().default([]),
     resolved: boolean("resolved").notNull().default(false),
     dismissedReason: encryptedText("dismissed_reason"),
+    // HOME-001 snooze/delegate actions — same column names/shapes as tasks.snoozedUntil/assignedToUserId
+    // for consistency, though that table's own columns are a separate, still-unwired gap (see ROADMAP).
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    assignedToUserId: text("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

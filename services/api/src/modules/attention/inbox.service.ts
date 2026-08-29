@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, lte } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import type { TemporalValue } from "@veynlo/core";
@@ -25,10 +25,31 @@ export class InboxService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   async list(userId: string, filter: { reviewState?: string; category?: string } = {}) {
+    await this.unsnoozeExpired(userId);
     const conditions = [eq(schema.inboxItems.ownerUserId, userId)];
     if (filter.reviewState) conditions.push(eq(schema.inboxItems.reviewState, filter.reviewState));
     if (filter.category) conditions.push(eq(schema.inboxItems.category, filter.category));
     return this.db.select().from(schema.inboxItems).where(and(...conditions));
+  }
+
+  /**
+   * Real, previously-missing fix: nothing anywhere flipped `reviewState` back once `snoozedUntil` passed
+   * — a snoozed item stayed invisible to `?reviewState=new` forever, and a `?reviewState=snoozed` filter
+   * kept showing items whose snooze had already expired. Runs on every list() call rather than a
+   * background tick, so it's always correct by the time a client actually reads the data.
+   */
+  private async unsnoozeExpired(userId: string): Promise<void> {
+    await this.db
+      .update(schema.inboxItems)
+      .set({ reviewState: "new", snoozedUntil: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.inboxItems.ownerUserId, userId),
+          eq(schema.inboxItems.reviewState, "snoozed"),
+          isNotNull(schema.inboxItems.snoozedUntil),
+          lte(schema.inboxItems.snoozedUntil, new Date()),
+        ),
+      );
   }
 
   async confirm(id: string, userId: string) {

@@ -1,0 +1,3 @@
+ALTER TABLE "attention_items" ADD COLUMN "snoozed_until" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "attention_items" ADD COLUMN "assigned_to_user_id" text;--> statement-breakpoint
+ALTER TABLE "attention_items" ADD CONSTRAINT "attention_items_assigned_to_user_id_users_id_fk" FOREIGN KEY ("assigned_to_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;

@@ -45,3 +45,13 @@ export const CorrectInboxItemDtoSchema = z.object({
   cancellationInstructionsUrl: z.string().max(500).nullable().optional(),
 });
 export type CorrectInboxItemDto = z.infer<typeof CorrectInboxItemDtoSchema>;
+
+export const SnoozeAttentionItemDtoSchema = z.object({
+  until: z.string().min(1),
+});
+export type SnoozeAttentionItemDto = z.infer<typeof SnoozeAttentionItemDtoSchema>;
+
+export const DelegateAttentionItemDtoSchema = z.object({
+  assigneeUserId: z.string().min(1).nullable(),
+});
+export type DelegateAttentionItemDto = z.infer<typeof DelegateAttentionItemDtoSchema>;
