@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, integer, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
 import { encryptedText } from "./encrypted-type";
 
 export const userStatusEnum = pgEnum("user_status", ["active", "suspended", "deletion_pending", "deleted"]);
@@ -37,6 +37,12 @@ export const users = pgTable("users", {
   // IngestionService.classifyAndExtract chokepoint as aiProcessingEnabled above, but per-category rather
   // than all-or-nothing: a disabled category is filtered out of `domains` before any extractor runs for it.
   disabledMailCategories: jsonb("disabled_mail_categories").$type<string[]>().notNull().default([]),
+  // PRIV-001 "retention policy settings beyond Documents" — null (the default) means keep raw evidence
+  // forever, matching every existing user's current behavior. When set, DataRetentionService's recurring
+  // scan redacts (never deletes the row, which purchases/bills/etc. may still reference via sourceEventId)
+  // source_events/evidence_refs older than this many days — the encrypted raw subject/snippet/from-address/
+  // content-ref fields only, not the derived structured records already extracted from them.
+  dataRetentionDays: integer("data_retention_days"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

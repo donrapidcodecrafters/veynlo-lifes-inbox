@@ -3,7 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Logger as PinoLogger } from "nestjs-pino";
 import { Worker } from "bullmq";
-import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
 import { AppModule } from "./app.module";
@@ -20,6 +20,7 @@ import {
   type NotificationDeliveryJobData,
   type NotificationDispatchJobData,
   type DataExportJobData,
+  type DataRetentionScanJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
@@ -356,6 +357,50 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
+  /**
+   * PRIV-001 "retention policy settings beyond Documents" — redacts (never deletes the row, which
+   * purchases/bills/calendar_events/etc. may still reference via sourceEventId) the raw evidence fields
+   * on source_events/evidence_refs once they're older than the owning user's `dataRetentionDays`. Every
+   * derived structured record (the actual purchase/bill/task) stays untouched — this only clears the
+   * original raw subject/snippet/from-address/content-ref, the same "keep what was extracted, drop the
+   * original" posture as DocumentsService.setRetention's non-"full_original" policies.
+   */
+  const dataRetentionScanWorker = new Worker<DataRetentionScanJobData>(
+    QUEUE_NAMES.dataRetentionScan,
+    async () => {
+      const usersWithRetention = await db
+        .select({ id: schema.users.id, dataRetentionDays: schema.users.dataRetentionDays })
+        .from(schema.users)
+        .where(isNotNull(schema.users.dataRetentionDays));
+      for (const user of usersWithRetention) {
+        const cutoff = new Date(Date.now() - user.dataRetentionDays! * 86_400_000);
+        const staleEvents = await db
+          .select({ id: schema.sourceEvents.id })
+          .from(schema.sourceEvents)
+          .where(
+            and(
+              eq(schema.sourceEvents.ownerUserId, user.id),
+              lte(schema.sourceEvents.receivedAt, cutoff),
+              or(
+                isNotNull(schema.sourceEvents.rawContentRef),
+                isNotNull(schema.sourceEvents.subjectLine),
+                isNotNull(schema.sourceEvents.snippet),
+                isNotNull(schema.sourceEvents.fromAddress),
+              ),
+            ),
+          );
+        if (staleEvents.length === 0) continue;
+        const staleEventIds = staleEvents.map((e) => e.id);
+        await db
+          .update(schema.sourceEvents)
+          .set({ rawContentRef: null, subjectLine: null, snippet: null, fromAddress: null })
+          .where(inArray(schema.sourceEvents.id, staleEventIds));
+        await db.update(schema.evidenceRefs).set({ excerpt: null }).where(inArray(schema.evidenceRefs.sourceEventId, staleEventIds));
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
@@ -366,6 +411,7 @@ async function bootstrap() {
     inboxUnsnoozeWorker,
     attentionScanWorker,
     dataExportWorker,
+    dataRetentionScanWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
@@ -377,9 +423,10 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringConnectorScan();
   await queueProducer.scheduleRecurringInboxUnsnooze();
   await queueProducer.scheduleRecurringAttentionScan();
+  await queueProducer.scheduleRecurringDataRetentionScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan",
   );
 
   const shutdown = async () => {
@@ -394,6 +441,7 @@ async function bootstrap() {
       inboxUnsnoozeWorker.close(),
       attentionScanWorker.close(),
       dataExportWorker.close(),
+      dataRetentionScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);

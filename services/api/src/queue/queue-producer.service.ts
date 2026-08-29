@@ -12,6 +12,7 @@ import {
   type AttentionScanJobData,
   type ConnectionDataDeletionJobData,
   type DataExportJobData,
+  type DataRetentionScanJobData,
 } from "./queue-names";
 
 /**
@@ -48,6 +49,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly dataExportQueue = new Queue<DataExportJobData>(QUEUE_NAMES.dataExport, {
+    connection: getRedisConnection(),
+  });
+  private readonly dataRetentionScanQueue = new Queue<DataRetentionScanJobData>(QUEUE_NAMES.dataRetentionScan, {
     connection: getRedisConnection(),
   });
 
@@ -171,6 +175,14 @@ export class QueueProducerService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * PRIV-001 "retention policy settings beyond Documents" — daily is plenty for a setting measured in
+   * months, same reasoning as attentionScan's hourly-not-15-minute cadence for deadlines that move in days.
+   */
+  async scheduleRecurringDataRetentionScan(): Promise<void> {
+    await this.dataRetentionScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-retention-scan" });
+  }
+
   async onModuleDestroy() {
     await Promise.all([
       this.connectorSyncQueue.close(),
@@ -182,6 +194,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.attentionScanQueue.close(),
       this.connectionDataDeletionQueue.close(),
       this.dataExportQueue.close(),
+      this.dataRetentionScanQueue.close(),
     ]);
   }
 }

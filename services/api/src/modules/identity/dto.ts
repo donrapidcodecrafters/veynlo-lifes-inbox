@@ -47,6 +47,15 @@ export const SetDisabledMailCategoriesDtoSchema = z.object({
 });
 export type SetDisabledMailCategoriesDto = z.infer<typeof SetDisabledMailCategoriesDtoSchema>;
 
+// PRIV-001 "retention policy settings beyond Documents" — a large-but-finite bound (730 days) stands in
+// for "keep as long as possible short of forever," same reasoning as connectors' 3650-day "All history"
+// option; `null` means keep forever (the default, unchanged behavior for every existing user).
+export const DATA_RETENTION_DAYS_OPTIONS = [90, 180, 365, 730, null] as const;
+export const SetDataRetentionDaysDtoSchema = z.object({
+  days: z.union([z.literal(90), z.literal(180), z.literal(365), z.literal(730), z.null()]),
+});
+export type SetDataRetentionDaysDto = z.infer<typeof SetDataRetentionDaysDtoSchema>;
+
 export const RegisterPushTokenDtoSchema = z.object({
   pushToken: z.string().min(1).max(400),
 });

@@ -827,3 +827,30 @@ still open:
   confirmed the "Recent merges" card renders with a working "Undo" button and the merged contact's
   facts appear consolidated under the survivor. Mobile changes are typecheck-verified only (no simulator
   available in this environment this pass). Test accounts and all scratch files deleted afterward.
+- **Eighth gap-closing pass (2026-08-29): Privacy/consent center completion (PRIV-001).** The earlier
+  audit claimed "only one global AI toggle exists" for privacy controls — re-checking that claim first
+  found it mostly wrong: per-sender exclusion (`sender_rules`, block-sender) and per-category exclusion
+  (`users.disabledMailCategories`) were already fully built and correctly enforced at the right ingestion
+  chokepoint (`IngestionService.classifyAndExtract`, before any AI call) — they just had **no UI anywhere**
+  on either platform to see or manage them. The one genuinely missing piece was a retention policy at the
+  account level (Documents already had one; nothing else did).
+  1. Added the missing UI for what already existed: a "Mail categories" toggle grid and a "Blocked senders"
+     list-with-remove section on both platforms' Privacy page, wired to the already-existing `POST /v1/auth/
+     disabled-mail-categories` and `GET`/`POST .../delete` sender-rule routes — zero new backend needed here.
+  2. Built the one real gap: `users.dataRetentionDays` (nullable, default null = keep forever) plus a new
+     daily `data-retention-scan` recurring worker job that redacts (never deletes the row) `source_events`/
+     `evidence_refs` older than the threshold — clearing only the raw captured subject/snippet/from-address/
+     content-ref, leaving every derived structured record (the actual purchase/bill/calendar event/task
+     already extracted from it) completely untouched. Same "keep what was extracted, drop the original"
+     posture as `DocumentsService.setRetention`'s non-`full_original` policies, just at the account level
+     instead of per-document. Exposed as a picker (web) / pill row (mobile) on the Privacy page.
+  **Verified live**: real curl round-trips confirming `disabled-mail-categories` and `data-retention` both
+  persist and reject invalid values; a real sender-rule seeded and confirmed listable/deletable through the
+  actual API; a real calendar event ingested via the device-calendar endpoint (genuinely encrypted, not raw
+  SQL), its `source_events` row backdated 100 days, the retention-scan job manually triggered end-to-end
+  through the real worker process — confirmed all four raw evidence fields turned null while the derived
+  `calendar_events` row (title, location, times) came back fully intact and correctly decrypted through the
+  real `/v1/events` endpoint afterward. A real Playwright session against the web Privacy page confirmed
+  the Mail categories toggles correctly reflected the API-set state (Travel/Warranties off, others on) and
+  the retention picker persisted a live change. Test account, seeded rows, and all scratch files deleted
+  afterward.

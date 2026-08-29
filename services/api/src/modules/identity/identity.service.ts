@@ -508,4 +508,9 @@ export class IdentityService {
   async setDisabledMailCategories(userId: string, categories: string[]): Promise<void> {
     await this.db.update(schema.users).set({ disabledMailCategories: categories, updatedAt: new Date() }).where(eq(schema.users.id, userId));
   }
+
+  /** PRIV-001 "retention policy settings beyond Documents" — see the schema comment on `users.dataRetentionDays` for what this actually gates. */
+  async setDataRetentionDays(userId: string, days: number | null): Promise<void> {
+    await this.db.update(schema.users).set({ dataRetentionDays: days, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+  }
 }

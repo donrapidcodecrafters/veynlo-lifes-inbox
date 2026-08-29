@@ -16,6 +16,7 @@ import {
   ResetPasswordDtoSchema,
   SetAiProcessingDtoSchema,
   SetDisabledMailCategoriesDtoSchema,
+  SetDataRetentionDaysDtoSchema,
   RegisterPushTokenDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
@@ -24,6 +25,7 @@ import {
   type ResetPasswordDto,
   type SetAiProcessingDto,
   type SetDisabledMailCategoriesDto,
+  type SetDataRetentionDaysDto,
   type RegisterPushTokenDto,
 } from "./dto";
 
@@ -189,6 +191,14 @@ export class IdentityController {
   async setDisabledMailCategories(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetDisabledMailCategoriesDto) {
     await this.identity.setDisabledMailCategories(user.userId, dto.categories);
     return { categories: dto.categories };
+  }
+
+  @Post("data-retention")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(SetDataRetentionDaysDtoSchema))
+  async setDataRetentionDays(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetDataRetentionDaysDto) {
+    await this.identity.setDataRetentionDays(user.userId, dto.days);
+    return { days: dto.days };
   }
 
   @Post("push-token")

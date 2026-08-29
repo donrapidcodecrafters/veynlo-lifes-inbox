@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Switch, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -13,6 +13,8 @@ interface Me {
   id: string;
   email: string | null;
   aiProcessingEnabled: boolean;
+  disabledMailCategories: string[];
+  dataRetentionDays: number | null;
 }
 
 interface Connection {
@@ -22,13 +24,40 @@ interface Connection {
   lastSuccessfulSyncAt: string | null;
 }
 
+interface SenderRule {
+  id: string;
+  senderAddress: string;
+  action: "block" | "category_override";
+  categoryOverride: string | null;
+}
+
 const PROVIDER_LABEL: Record<string, string> = {
   gmail: "Gmail",
   outlook: "Outlook",
   ics: "Calendar feed",
   google_calendar: "Google Calendar",
   microsoft_calendar: "Microsoft Calendar",
+  google_tasks: "Google Tasks",
+  microsoft_todo: "Microsoft To Do",
 };
+
+const MAIL_CATEGORIES = [
+  { value: "receipt", label: "Receipts" },
+  { value: "shipment", label: "Shipments" },
+  { value: "bill", label: "Bills" },
+  { value: "subscription", label: "Subscriptions" },
+  { value: "calendar_event", label: "Calendar events" },
+  { value: "travel", label: "Travel" },
+  { value: "warranty", label: "Warranties" },
+] as const;
+
+const RETENTION_OPTIONS = [
+  { value: null, label: "Forever" },
+  { value: 90, label: "90d" },
+  { value: 180, label: "180d" },
+  { value: 365, label: "1yr" },
+  { value: 730, label: "2yr" },
+] as const;
 
 /** §Account/security "privacy/consent center" (PRIV-001) — mirrors the web /settings/privacy page. */
 export default function PrivacyScreen() {
@@ -36,12 +65,23 @@ export default function PrivacyScreen() {
   const router = useRouter();
   const [me, setMe] = useState<Me | undefined>(undefined);
   const [connections, setConnections] = useState<Connection[] | undefined>(undefined);
+  const [senderRules, setSenderRules] = useState<SenderRule[] | undefined>(undefined);
   const [updatingAi, setUpdatingAi] = useState(false);
+  const [updatingCategories, setUpdatingCategories] = useState(false);
+  const [updatingRetention, setUpdatingRetention] = useState(false);
+  const [removingRuleId, setRemovingRuleId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api.get<Me>("/v1/auth/me").then(setMe);
     api.get<Connection[]>("/v1/connectors").then(setConnections);
+    api.get<SenderRule[]>("/v1/inbox/sender-rules").then(setSenderRules);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   async function toggleAiProcessing(enabled: boolean) {
     setUpdatingAi(true);
@@ -50,6 +90,38 @@ export default function PrivacyScreen() {
       await api.post("/v1/auth/ai-processing", { enabled });
     } finally {
       setUpdatingAi(false);
+    }
+  }
+
+  async function toggleCategory(category: string, disabled: boolean) {
+    if (!me) return;
+    const next = disabled ? [...me.disabledMailCategories, category] : me.disabledMailCategories.filter((c) => c !== category);
+    setUpdatingCategories(true);
+    setMe((prev) => (prev ? { ...prev, disabledMailCategories: next } : prev));
+    try {
+      await api.post("/v1/auth/disabled-mail-categories", { categories: next });
+    } finally {
+      setUpdatingCategories(false);
+    }
+  }
+
+  async function setRetention(days: number | null) {
+    setUpdatingRetention(true);
+    setMe((prev) => (prev ? { ...prev, dataRetentionDays: days } : prev));
+    try {
+      await api.post("/v1/auth/data-retention", { days });
+    } finally {
+      setUpdatingRetention(false);
+    }
+  }
+
+  async function removeSenderRule(ruleId: string) {
+    setRemovingRuleId(ruleId);
+    try {
+      await api.post(`/v1/inbox/sender-rules/${ruleId}/delete`);
+      setSenderRules((prev) => prev?.filter((r) => r.id !== ruleId));
+    } finally {
+      setRemovingRuleId(null);
     }
   }
 
@@ -69,6 +141,49 @@ export default function PrivacyScreen() {
             </Text>
           </View>
           <Switch value={me?.aiProcessingEnabled ?? true} onValueChange={toggleAiProcessing} disabled={updatingAi} />
+        </Card>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Mail categories</Text>
+        <Card style={{ gap: 10 }}>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            Turn off any category you&apos;d rather Veynlo never extract from your mail at all.
+          </Text>
+          {MAIL_CATEGORIES.map((cat) => {
+            const disabled = me?.disabledMailCategories.includes(cat.value) ?? false;
+            return (
+              <View key={cat.value} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>{cat.label}</Text>
+                <Switch value={!disabled} onValueChange={(enabled) => toggleCategory(cat.value, !enabled)} disabled={updatingCategories} />
+              </View>
+            );
+          })}
+        </Card>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Blocked senders</Text>
+        <Card style={{ gap: 8 }}>
+          {!senderRules && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Loading…</Text>}
+          {senderRules?.length === 0 && (
+            <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+              No sender rules yet — block a sender from any Inbox item to stop it from being processed at all.
+            </Text>
+          )}
+          {senderRules?.map((rule) => (
+            <View key={rule.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }} numberOfLines={1}>
+                {rule.senderAddress}
+              </Text>
+              <Badge tone={rule.action === "block" ? "critical" : "neutral"}>
+                {rule.action === "block" ? "Blocked" : `Always: ${rule.categoryOverride}`}
+              </Badge>
+              <Button variant="ghost" loading={removingRuleId === rule.id} onPress={() => removeSenderRule(rule.id)}>
+                Remove
+              </Button>
+            </View>
+          ))}
         </Card>
       </View>
 
@@ -106,6 +221,35 @@ export default function PrivacyScreen() {
             <Button variant="secondary" onPress={() => router.push("/data-export")}>
               Export
             </Button>
+          </View>
+        </Card>
+        <Card style={{ gap: 8 }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Raw evidence retention</Text>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            How long to keep the original captured email content once it&apos;s processed. Anything already extracted is kept regardless.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {RETENTION_OPTIONS.map((opt) => {
+              const active = (me?.dataRetentionDays ?? null) === opt.value;
+              return (
+                <Text
+                  key={opt.label}
+                  onPress={() => !updatingRetention && setRetention(opt.value)}
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "600",
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: theme.radius.full,
+                    backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                    color: active ? theme.colors.textOnBrand : theme.colors.textSecondary,
+                    overflow: "hidden",
+                  }}
+                >
+                  {opt.label}
+                </Text>
+              );
+            })}
           </View>
         </Card>
       </View>
