@@ -134,6 +134,13 @@
       "when": 1788024164831,
       "tag": "0018_unique_valkyrie",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788024774894,
+      "tag": "0019_peaceful_captain_stacy",
+      "breakpoints": true
     }
   ]
 }

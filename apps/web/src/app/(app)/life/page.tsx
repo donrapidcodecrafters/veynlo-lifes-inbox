@@ -148,6 +148,12 @@ export default function LifePage() {
           >
             People →
           </Link>
+          <Link
+            href="/saved"
+            className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
+          >
+            Saved →
+          </Link>
         </div>
       </header>
 

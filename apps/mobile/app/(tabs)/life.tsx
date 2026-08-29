@@ -179,6 +179,11 @@ export default function LifeScreen() {
             People
           </Button>
         </View>
+        <View style={{ flex: 1 }}>
+          <Button variant="secondary" onPress={() => router.push("/saved")}>
+            Saved
+          </Button>
+        </View>
       </View>
 
       {openConflicts.length > 0 && (

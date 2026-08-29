@@ -25,6 +25,7 @@ import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { SharedModule } from "./modules/shared/shared.module";
 import { HistoryModule } from "./modules/history/history.module";
 import { PeopleModule } from "./modules/people/people.module";
+import { SavedItemsModule } from "./modules/saved-items/saved-items.module";
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { PeopleModule } from "./modules/people/people.module";
     SharedModule,
     HistoryModule,
     PeopleModule,
+    SavedItemsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

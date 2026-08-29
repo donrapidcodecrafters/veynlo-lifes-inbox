@@ -18,4 +18,5 @@ export * from "./feature-flags";
 export * from "./onboarding";
 export * from "./sender-rules";
 export * from "./saved-queries";
+export * from "./saved-items";
 export * from "./object-notes";
