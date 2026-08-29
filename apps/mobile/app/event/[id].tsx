@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Share, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -32,6 +33,9 @@ export default function EventDetailScreen() {
   const [data, setData] = useState<EventDetail | null | undefined>(undefined);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api.get<EventDetail | null>(`/v1/events/${id}`).then(setData);
@@ -59,6 +63,32 @@ export default function EventDetailScreen() {
     }
   }
 
+  async function share() {
+    setSharing(true);
+    try {
+      const result = await api.post<{ url: string }>(`/v1/events/${id}/share`);
+      setShareUrl(result.url);
+      setCopied(false);
+      // Best-effort — the persistent copy/revoke row below is the real UI either way. Many browsers (most
+      // desktop ones, confirmed live via Expo web) have no Web Share API at all and Share.share() throws
+      // synchronously there; native iOS/Android always support it, but never let its absence block the flow.
+      await Share.share({ message: result.url }).catch(() => undefined);
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    await Clipboard.setStringAsync(shareUrl);
+    setCopied(true);
+  }
+
+  async function revokeShare() {
+    await api.post(`/v1/events/${id}/share/revoke`);
+    setShareUrl(null);
+  }
+
   return (
     <Screen>
       <ScreenHeader title={event.title} subtitle={subtitle} />
@@ -69,6 +99,31 @@ export default function EventDetailScreen() {
           {event.providerEventId ? "Sync changes to calendar" : "Sync to Google/Outlook Calendar"}
         </Button>
         {syncMessage && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{syncMessage}</Text>}
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+          {!shareUrl ? (
+            <Button variant="ghost" onPress={share} loading={sharing}>
+              Share
+            </Button>
+          ) : (
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 13, color: theme.colors.textPrimary }} numberOfLines={1}>
+                {shareUrl}
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Button variant="secondary" onPress={copyShareUrl}>
+                    {copied ? "Copied" : "Copy"}
+                  </Button>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button variant="ghost" onPress={revokeShare}>
+                    Revoke
+                  </Button>
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
       </Card>
       <HistorySection resourceType="calendar_event" resourceId={id} />
       <EvidenceCard evidence={evidence} />

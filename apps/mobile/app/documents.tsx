@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, Share, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -315,7 +316,11 @@ export default function DocumentsScreen() {
             <Card key={doc.id} style={{ gap: 10 }}>
               <Pressable
                 onPress={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
-                accessibilityRole="button"
+                // Deliberately no accessibilityRole="button" here — this row contains its OWN separately
+                // actionable children (the checkbox below, the "Open" button), and a "button" role on a
+                // container with real interactive descendants renders as a literal nested <button> on web
+                // (an HTML violation caught live via react-native-web) and is an ambiguous double-tap
+                // target for a screen reader on native too.
                 accessibilityLabel={expandedId === doc.id ? `Collapse ${doc.title}` : `Edit ${doc.title}`}
                 style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
               >
@@ -401,6 +406,35 @@ function DocumentEditor({
   const [retentionPolicy, setRetentionPolicy] = useState(doc.retentionPolicy);
   const [savingRetention, setSavingRetention] = useState(false);
   const [confirmingRetention, setConfirmingRetention] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function share() {
+    setSharing(true);
+    try {
+      const result = await api.post<{ url: string }>(`/v1/documents/${doc.id}/share`);
+      setShareUrl(result.url);
+      setCopied(false);
+      // Best-effort — the persistent copy/revoke row below is the real UI either way. Many browsers (most
+      // desktop ones, confirmed live via Expo web) have no Web Share API at all and Share.share() throws
+      // synchronously there; native iOS/Android always support it, but never let its absence block the flow.
+      await Share.share({ message: result.url }).catch(() => undefined);
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    await Clipboard.setStringAsync(shareUrl);
+    setCopied(true);
+  }
+
+  async function revokeShare() {
+    await api.post(`/v1/documents/${doc.id}/share/revoke`);
+    setShareUrl(null);
+  }
 
   async function applyRetention(policy: string) {
     setSavingRetention(true);
@@ -577,6 +611,33 @@ function DocumentEditor({
               </Button>
             </View>
           </Card>
+        )}
+      </View>
+
+      <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Sharing</Text>
+        {!shareUrl ? (
+          <Button variant="ghost" onPress={share} loading={sharing}>
+            Share
+          </Button>
+        ) : (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 13, color: theme.colors.textPrimary }} numberOfLines={1}>
+              {shareUrl}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Button variant="secondary" onPress={copyShareUrl}>
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button variant="ghost" onPress={revokeShare}>
+                  Revoke
+                </Button>
+              </View>
+            </View>
+          </View>
         )}
       </View>
 

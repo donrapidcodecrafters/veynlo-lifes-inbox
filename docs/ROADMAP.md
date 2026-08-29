@@ -1143,3 +1143,35 @@ still open:
   trail correctly survives account deletion by design (a 4th row, the `account_deletion` event itself,
   remained after the account was gone — `actor_id` is a plain string column, not a foreign key, exactly as
   `SECURITY.md` already documented). Test account deleted afterward.
+
+- **Seventeenth gap-closing pass (2026-08-29): mobile UI for sharing (the deferred half of the Ninth pass).**
+  The Ninth gap-closing pass built Share/Revoke UI on web only, explicitly deferring mobile as "a
+  reasonable, bounded next step." Ported it: Share/Copy/Revoke on the mobile Documents editor and the
+  mobile Event detail screen (using `expo-clipboard` for copy and React Native's own `Share.share()` to
+  additionally offer the native share sheet), plus a new `/shared-links` screen mirroring the web "Shared
+  links" settings page, linked from mobile Settings.
+  **Two real bugs found and fixed via live verification, not just typecheck** (using `expo start --web` —
+  the same platform the app's own architecture already treats as a first-class target, not a testing
+  shortcut):
+  1. `Share.share()` throws synchronously on any browser without the Web Share API (most desktop browsers,
+     confirmed live) — the call wasn't wrapped in its own try/catch, so it crashed the whole `share()`
+     handler into an unhandled rejection and React's error overlay, which then blocked all further clicks
+     dead. Fixed by making it best-effort (`.catch(() => undefined)`) — the persistent copy/revoke row is
+     the real UI regardless of whether the native share sheet is available.
+  2. Adding `accessibilityRole="button"` to the Documents row's outer Pressable (from the Fifteenth pass'
+     accessibility sweep) turned a pre-existing structural issue — a clickable row that ALSO contains its
+     own separately-actionable checkbox and "Open" button — into a literal invalid nested `<button>` in the
+     DOM once react-native-web started rendering it as a real `<button>` tag instead of a generic `<div>`.
+     Caught via a real React hydration-error console message during this pass's own live verification, not
+     inferred. Fixed by removing that specific `accessibilityRole`, since a container with genuinely
+     interactive descendants shouldn't itself claim the "button" role either on web (invalid markup) or on
+     native (an ambiguous double-tap target for a screen reader) — the accessibilityLabel stays.
+  **Verified live end-to-end** via a real Playwright session against `expo start --web`: real sign-up
+  through the actual mobile UI, real document upload, clicked the real "Share" button and confirmed the
+  link row appeared, clicked "Copy" and confirmed the "Copied" label, clicked "Revoke" and confirmed the
+  Share button reappeared, shared again and confirmed the new `/shared-links` screen listed it as "active"
+  with the right resource-type label, and confirmed zero hydration/nesting console errors after the fixes
+  (there had been real ones before). Test accounts and scratch files cleaned up afterward — this pass's own
+  end-to-end test script had an unrelated bug in its own cleanup step (its delete-account flow silently
+  didn't fire), caught via a stale `status: 'active'` row rather than trusting the script's own "success"
+  log line, and cleaned up directly via SQL once identified.

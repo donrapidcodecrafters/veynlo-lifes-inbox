@@ -139,6 +139,9 @@ export default function SettingsScreen() {
         <Button variant="secondary" onPress={() => router.push("/connections")}>
           Connections
         </Button>
+        <Button variant="secondary" onPress={() => router.push("/shared-links")}>
+          Shared links
+        </Button>
         <Button variant="secondary" onPress={() => router.push("/data-export")}>
           Export your data
         </Button>
