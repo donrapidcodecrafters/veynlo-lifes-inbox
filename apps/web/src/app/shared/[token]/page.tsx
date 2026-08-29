@@ -5,9 +5,11 @@ import { useParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
 
-interface SharedItem {
+interface SharedAttentionItem {
+  resourceType: "attention_item";
   reasonText: string;
   urgency: "critical" | "important" | "useful" | "informational";
   dueAt: TemporalValueLike | null;
@@ -15,21 +17,92 @@ interface SharedItem {
   moneyAtStakeCurrency: string | null;
 }
 
-const URGENCY_TONE: Record<SharedItem["urgency"], "critical" | "warning" | "info" | "neutral"> = {
+interface SharedDocument {
+  resourceType: "document";
+  title: string;
+  documentType: string;
+  downloadUrl: string | null;
+}
+
+interface SharedCalendarEvent {
+  resourceType: "calendar_event";
+  title: string;
+  start: TemporalValueLike;
+  end: TemporalValueLike | null;
+  isAllDay: boolean;
+  location: string | null;
+}
+
+type SharedResource = SharedAttentionItem | SharedDocument | SharedCalendarEvent;
+
+const URGENCY_TONE: Record<SharedAttentionItem["urgency"], "critical" | "warning" | "info" | "neutral"> = {
   critical: "critical",
   important: "warning",
   useful: "info",
   informational: "neutral",
 };
 
+function SharedContent({ item }: { item: SharedResource }) {
+  if (item.resourceType === "document") {
+    return (
+      <CardBody className="space-y-3">
+        <Badge tone="neutral">{item.documentType.replace(/_/g, " ")}</Badge>
+        <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
+        {item.downloadUrl ? (
+          <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer">
+            <Button size="sm">Download</Button>
+          </a>
+        ) : (
+          <p className="text-sm text-tertiary">The original file is no longer available.</p>
+        )}
+      </CardBody>
+    );
+  }
+
+  if (item.resourceType === "calendar_event") {
+    const start = formatTemporal(item.start);
+    const end = formatTemporal(item.end);
+    return (
+      <CardBody className="space-y-2">
+        <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-tertiary">
+          {start && (
+            <span>
+              {start}
+              {end && !item.isAllDay ? ` – ${end}` : ""}
+              {item.isAllDay ? " · All day" : ""}
+            </span>
+          )}
+          {item.location && <span>{item.location}</span>}
+        </div>
+      </CardBody>
+    );
+  }
+
+  return (
+    <CardBody className="space-y-2">
+      <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
+      <p className="text-[0.9375rem] font-medium text-primary">{item.reasonText}</p>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-tertiary">
+        {formatTemporal(item.dueAt) && <span>Due {formatTemporal(item.dueAt)}</span>}
+        {formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency) && (
+          <span className="font-medium text-primary">
+            {formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency)} at stake
+          </span>
+        )}
+      </div>
+    </CardBody>
+  );
+}
+
 /** Public — no sign-in required. Anyone with this link can view exactly the fields SharedService returns, nothing else. */
 export default function SharedItemPage() {
   const params = useParams<{ token: string }>();
-  const [item, setItem] = useState<SharedItem | "loading" | "invalid">("loading");
+  const [item, setItem] = useState<SharedResource | "loading" | "invalid">("loading");
 
   useEffect(() => {
     api
-      .get<SharedItem>(`/v1/shared/${params.token}`)
+      .get<SharedResource>(`/v1/shared/${params.token}`)
       .then(setItem)
       .catch((err) => setItem(err instanceof ApiError ? "invalid" : "invalid"));
   }, [params.token]);
@@ -61,18 +134,7 @@ export default function SharedItemPage() {
 
         {item !== "loading" && item !== "invalid" && (
           <Card>
-            <CardBody className="space-y-2">
-              <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
-              <p className="text-[0.9375rem] font-medium text-primary">{item.reasonText}</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-tertiary">
-                {formatTemporal(item.dueAt) && <span>Due {formatTemporal(item.dueAt)}</span>}
-                {formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency) && (
-                  <span className="font-medium text-primary">
-                    {formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency)} at stake
-                  </span>
-                )}
-              </div>
-            </CardBody>
+            <SharedContent item={item} />
           </Card>
         )}
       </div>

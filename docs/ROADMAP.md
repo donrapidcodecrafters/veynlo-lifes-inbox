@@ -854,7 +854,7 @@ still open:
   the Mail categories toggles correctly reflected the API-set state (Travel/Warranties off, others on) and
   the retention picker persisted a live change. Test account, seeded rows, and all scratch files deleted
   afterward.
-- **Ninth gap-closing pass (2026-08-29, backend only — see note below): Sharing system expansion, backend.**
+- **Ninth gap-closing pass (2026-08-29): Sharing system expansion.**
   The audit claimed sharing needed a rebuild (no direct grants, no audit screens); re-checking first found
   the mechanism was already generic — `share_links` has always been polymorphic (`resourceType`/
   `resourceId`), `resolveShareLinkAccess` (packages/authz) already resource-type-agnostic — `AttentionService`
@@ -884,13 +884,19 @@ still open:
   title/time/location; `GET /v1/shared-links` correctly listed both share links (one revoked, one active)
   with real timestamps; a cross-tenant share attempt on another user's document correctly rejected
   (`NOT_OWNER`). Test accounts and scratch files deleted afterward.
-  **Not done this pass, deliberately paused here**: UI for any of this — no Share/revoke buttons on the
-  Documents or Events pages (web or mobile), no "Shared by me" screen, and the public `/shared/[token]`
-  web page still only renders the attention-item shape (a document/calendar-event link resolves correctly
-  server-side right now but has no matching UI branch to display it). Paused mid-feature, backend-complete
-  and independently useful/testable via the API, specifically to redirect effort to a user-flagged UI/UX
-  defect sweep across the whole app (see next entry) — picking the UI wiring back up is the natural next
-  step once that sweep is done.
+  **Web UI wiring completed in a follow-up pass, after the UI/UX sweep below**: Share/Revoke controls added
+  to the web Documents editor panel and the web Event detail page; `/shared/[token]` now renders a
+  per-resourceType shape (document → title/type/Download button; calendar event → title/time/location;
+  attention item → its original shape); a new "Shared links" screen (`/settings/shared`, linked from
+  Settings) lists every link the user has created with its status (active/expired/revoked) and a Revoke
+  action, backed by the already-built `GET /v1/shared-links`. **Verified live**: a real Playwright session —
+  shared a real uploaded document from its editor panel, opened the resulting link in a separate
+  unauthenticated browser context and confirmed the public page rendered a real, clickable Download button,
+  revoked it from the same editor panel, and confirmed the Shared Links screen showed it as "revoked" with
+  the right timestamp. **Still not done**: the equivalent UI on the mobile app (share/revoke buttons on
+  Documents/Events, a Shared screen) — the mobile app's own Share/Snooze/Delegate button-cluster fixes went
+  in during the UI/UX sweep below, but the sharing feature's mobile UI specifically was deprioritized in
+  favor of the higher-value web-first verification; a reasonable, bounded next step if picked up later.
 - **Tenth pass (2026-08-29): app-wide UI/UX defect sweep, user-flagged.** The user reported (with real phone
   screenshots) buttons with broken padding/overlap, toggles escaping their track, text exceeding button/card
   edges, and dark-mode issues across "tons" of pages. Audited every web page at phone/tablet/desktop widths,

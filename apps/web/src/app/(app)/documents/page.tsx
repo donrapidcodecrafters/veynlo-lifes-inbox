@@ -344,6 +344,31 @@ function DocumentEditor({
   const [retentionPolicy, setRetentionPolicy] = useState(doc.retentionPolicy);
   const [savingRetention, setSavingRetention] = useState(false);
   const [confirmingRetention, setConfirmingRetention] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function share() {
+    setSharing(true);
+    try {
+      const result = await api.post<{ url: string }>(`/v1/documents/${doc.id}/share`);
+      setShareUrl(result.url);
+      setCopied(false);
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+  }
+
+  async function revokeShare() {
+    await api.post(`/v1/documents/${doc.id}/share/revoke`);
+    setShareUrl(null);
+  }
 
   async function applyRetention(policy: string) {
     setSavingRetention(true);
@@ -498,6 +523,25 @@ function DocumentEditor({
                 Cancel
               </Button>
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2 border-t border-border-subtle pt-3">
+        <p className="text-sm font-medium text-primary">Sharing</p>
+        {!shareUrl ? (
+          <Button size="sm" variant="ghost" onClick={share} loading={sharing}>
+            Share
+          </Button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-subtle p-2">
+            <code className="min-w-0 flex-1 truncate text-sm text-primary">{shareUrl}</code>
+            <Button size="sm" variant="secondary" onClick={copyShareUrl}>
+              {copied ? "Copied" : "Copy"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={revokeShare}>
+              Revoke
+            </Button>
           </div>
         )}
       </div>

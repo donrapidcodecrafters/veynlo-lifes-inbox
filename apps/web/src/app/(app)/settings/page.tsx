@@ -205,6 +205,17 @@ export default function SettingsPage() {
           <Card>
             <CardBody className="flex items-center justify-between">
               <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Shared links</p>
+                <p className="text-sm text-tertiary">See and revoke everything you've shared via a link.</p>
+              </div>
+              <Link href="/settings/shared">
+                <Button variant="secondary">Manage</Button>
+              </Link>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody className="flex items-center justify-between">
+              <div>
                 <p className="text-[0.9375rem] font-medium text-primary">Export your data</p>
                 <p className="text-sm text-tertiary">Download a copy of everything Veynlo has recorded for you.</p>
               </div>

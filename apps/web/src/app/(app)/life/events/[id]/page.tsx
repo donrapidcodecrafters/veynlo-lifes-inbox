@@ -33,6 +33,9 @@ export default function EventDetailPage() {
   const { data, isLoading, mutate } = useSWR<EventDetail | null>(`/v1/events/${id}`, swrFetcher);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-xl bg-subtle" />;
   if (!data) return <EmptyState title="Not found" description="This event doesn't exist or you don't have access to it." />;
@@ -40,6 +43,28 @@ export default function EventDetailPage() {
   const { event, evidence } = data;
   const start = formatTemporal(event.start);
   const end = formatTemporal(event.end);
+
+  async function share() {
+    setSharing(true);
+    try {
+      const result = await api.post<{ url: string }>(`/v1/events/${id}/share`);
+      setShareUrl(result.url);
+      setCopied(false);
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+  }
+
+  async function revokeShare() {
+    await api.post(`/v1/events/${id}/share/revoke`);
+    setShareUrl(null);
+  }
 
   async function syncToCalendar() {
     setSyncing(true);
@@ -90,8 +115,24 @@ export default function EventDetailPage() {
             <Button size="sm" variant="secondary" onClick={syncToCalendar} loading={syncing}>
               {event.providerEventId ? "Sync changes to calendar" : "Sync to Google/Outlook Calendar"}
             </Button>
+            {!shareUrl && (
+              <Button size="sm" variant="ghost" onClick={share} loading={sharing}>
+                Share
+              </Button>
+            )}
             {syncMessage && <p className="text-sm text-tertiary">{syncMessage}</p>}
           </div>
+          {shareUrl && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-subtle p-2">
+              <code className="min-w-0 flex-1 truncate text-sm text-primary">{shareUrl}</code>
+              <Button size="sm" variant="secondary" onClick={copyShareUrl}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={revokeShare}>
+                Revoke
+              </Button>
+            </div>
+          )}
         </CardBody>
       </Card>
 
