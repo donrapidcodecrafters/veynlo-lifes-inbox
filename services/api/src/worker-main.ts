@@ -124,11 +124,23 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 4 },
   );
 
-  // Recurring tick (see QueueProducerService.scheduleRecurringConnectorScan): finds every healthy,
-  // still-connected direct-API/feed connection (Gmail, Outlook, ICS, Google Calendar) and enqueues one
-  // incremental sync per connection. Deduplicated by enqueueConnectorSync's jobId
-  // (`${connectionId}-incremental`), so a connection already mid-sync when this tick fires is just skipped
-  // rather than double-queued.
+  // Recurring tick (see QueueProducerService.scheduleRecurringConnectorScan): finds every still-connected
+  // direct-API/feed connection (Gmail, Outlook, ICS, Google Calendar) and enqueues one incremental sync per
+  // connection. Deduplicated by enqueueConnectorSync's jobId (`${connectionId}-incremental`), so a
+  // connection already mid-sync when this tick fires is just skipped rather than double-queued.
+  //
+  // Real gap this closes: a connection that exhausts BullMQ's 5 retry attempts and lands on a non-healthy
+  // status (rate_limited/reauth_required/provider_outage/degraded — see classifyConnectorError) used to be
+  // PERMANENTLY excluded from every future tick, since this query only ever selected health="healthy".
+  // Nothing else in the codebase ever re-included it — a transient rate-limit or a single provider outage
+  // became a silently-dead connector forever, with no path back to healthy short of the user manually
+  // disconnecting and fully re-authorizing. Now also retries the recoverable non-healthy states, gated by a
+  // cooldown (skip anything that failed within the last half hour) so a connection that just failed on this
+  // same tick cycle isn't hammered again a few seconds later — it gets picked back up on a later tick
+  // instead, giving it a real, ongoing chance to self-heal (a rate limit clears, a transient 5xx passes,
+  // token refresh starts working again) rather than a one-shot backoff that gives up forever.
+  const RECOVERABLE_CONNECTOR_HEALTH_STATES = ["rate_limited", "reauth_required", "provider_outage", "degraded"];
+  const CONNECTOR_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
   const connectorScanWorker = new Worker<ConnectorScanJobData>(
     QUEUE_NAMES.connectorScan,
     async () => {
@@ -146,7 +158,13 @@ async function bootstrap() {
               "google_tasks",
               "microsoft_todo",
             ]),
-            eq(schema.connections.health, "healthy"),
+            or(
+              eq(schema.connections.health, "healthy"),
+              and(
+                inArray(schema.connections.health, RECOVERABLE_CONNECTOR_HEALTH_STATES),
+                lte(schema.connections.updatedAt, new Date(Date.now() - CONNECTOR_RETRY_COOLDOWN_MS)),
+              ),
+            ),
             isNull(schema.connections.disconnectedAt),
           ),
         );
