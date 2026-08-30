@@ -50,6 +50,25 @@ const MODEL_BY_TIER = {
 } as const;
 
 /**
+ * Per-million-token pricing in USD cents, keyed by the same model ids as `MODEL_BY_TIER`. Anthropic's
+ * published pricing changes independently of this codebase — these are a point-in-time snapshot for cost
+ * *observability* (admin model-health dashboard), not a billing-critical figure, so an occasional drift
+ * against the live price list is an acceptable tradeoff against hardcoding an env-var indirection nobody
+ * would remember to update either.
+ */
+const PRICE_CENTS_PER_MILLION_TOKENS: Record<string, { input: number; output: number }> = {
+  "claude-haiku-4-5-20251001": { input: 100, output: 500 },
+  "claude-sonnet-5": { input: 300, output: 1500 },
+};
+
+export function estimateCostMinorUnits(model: string, inputTokens: number, outputTokens: number): number | null {
+  const price = PRICE_CENTS_PER_MILLION_TOKENS[model];
+  if (!price) return null;
+  const cents = (inputTokens / 1_000_000) * price.input + (outputTokens / 1_000_000) * price.output;
+  return Math.round(cents);
+}
+
+/**
  * §39.2 real per-extraction calibration — previously a hardcoded `0.82` for every single extraction
  * regardless of domain or quality, which meant nothing could ever cross `RISK_THRESHOLDS.highThreshold`
  * (0.85) OR drop below `reviewThreshold` (0.55): every AI-derived fact was permanently stuck in the
@@ -125,18 +144,20 @@ export class AnthropicExtractionService {
         ? await this.callBeta(client, { model, request, jsonSchema, toolName })
         : await this.callStable(client, { model, request, jsonSchema, toolName });
       if (!toolUseInput) {
-        await this.finishRun(runId, "failed", "Model returned no tool_use block", startedAt);
+        await this.finishRun(runId, "failed", "Model returned no tool_use block", startedAt, null);
         return null;
       }
+
+      const costMinorUnits = estimateCostMinorUnits(model, toolUseInput.usage.inputTokens, toolUseInput.usage.outputTokens);
 
       const parsed = request.schema.safeParse(toolUseInput.input);
       if (!parsed.success) {
         this.logger.error(`Schema validation failed for ${request.extractorName}: ${parsed.error.message}`);
-        await this.finishRun(runId, "failed", `Schema validation failed: ${parsed.error.message}`, startedAt);
+        await this.finishRun(runId, "failed", `Schema validation failed: ${parsed.error.message}`, startedAt, costMinorUnits);
         return null; // §39.2: never let invalid structured output enter canonical data
       }
 
-      await this.finishRun(runId, "success", null, startedAt);
+      await this.finishRun(runId, "success", null, startedAt, costMinorUnits);
       return {
         data: parsed.data,
         confidenceScore: calibrateConfidence(parsed.data),
@@ -147,8 +168,9 @@ export class AnthropicExtractionService {
     } catch (err) {
       // A real API-level failure (network error, rate limit, etc.) — record it, then let it propagate
       // exactly as it did before this method tracked runs at all; callers' existing error handling is
-      // unchanged, this only adds an observability side-effect on the way out.
-      await this.finishRun(runId, "failed", String((err as Error)?.message ?? err), startedAt);
+      // unchanged, this only adds an observability side-effect on the way out. No token usage is available
+      // here (the request may not have completed), so cost is left null rather than guessed.
+      await this.finishRun(runId, "failed", String((err as Error)?.message ?? err), startedAt, null);
       throw err;
     }
   }
@@ -182,12 +204,18 @@ export class AnthropicExtractionService {
     return id;
   }
 
-  private async finishRun(runId: string | null, status: "success" | "failed", errorDetail: string | null, startedAt: Date): Promise<void> {
+  private async finishRun(
+    runId: string | null,
+    status: "success" | "failed",
+    errorDetail: string | null,
+    startedAt: Date,
+    costMinorUnits: number | null,
+  ): Promise<void> {
     if (!runId) return;
     const completedAt = new Date();
     await this.db
       .update(schema.extractionRuns)
-      .set({ status, errorDetail, latencyMs: completedAt.getTime() - startedAt.getTime(), completedAt })
+      .set({ status, errorDetail, latencyMs: completedAt.getTime() - startedAt.getTime(), completedAt, costMinorUnits })
       .where(eq(schema.extractionRuns.id, runId));
   }
 

@@ -33,6 +33,7 @@ interface ConnectorHealthSummary {
 interface ModelHealthSummary {
   windowDays: number;
   totalRuns: number;
+  totalCostMinorUnits: number;
   byExtractor: Array<{
     extractorName: string;
     total: number;
@@ -41,6 +42,7 @@ interface ModelHealthSummary {
     running: number;
     successRate: number | null;
     avgLatencyMs: number | null;
+    totalCostMinorUnits: number;
   }>;
   recentFailures: Array<{ extractorName: string; modelKey: string | null; errorDetail: string | null; startedAt: string }>;
 }
@@ -519,6 +521,10 @@ export default function DashboardPage() {
         )}
         {modelHealth && modelHealth.totalRuns > 0 && (
           <div className="space-y-4">
+            <p className="text-sm text-tertiary">
+              Total AI spend this window: <span className="text-primary">{formatMoney(modelHealth.totalCostMinorUnits, "USD")}</span>{" "}
+              <span className="text-xs">(estimated from token usage, not a billing source of truth)</span>
+            </p>
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase text-tertiary">
@@ -526,6 +532,7 @@ export default function DashboardPage() {
                   <th className="pb-2 font-medium">Runs</th>
                   <th className="pb-2 font-medium">Success rate</th>
                   <th className="pb-2 font-medium">Avg latency</th>
+                  <th className="pb-2 font-medium">Est. cost</th>
                 </tr>
               </thead>
               <tbody>
@@ -541,6 +548,7 @@ export default function DashboardPage() {
                       </span>
                     </td>
                     <td className="py-2 text-tertiary">{e.avgLatencyMs !== null ? `${e.avgLatencyMs.toLocaleString()}ms` : "—"}</td>
+                    <td className="py-2 text-tertiary">{formatMoney(e.totalCostMinorUnits, "USD")}</td>
                   </tr>
                 ))}
               </tbody>

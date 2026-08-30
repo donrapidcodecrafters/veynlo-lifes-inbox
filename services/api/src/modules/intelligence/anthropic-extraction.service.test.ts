@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calibrateConfidence } from "./anthropic-extraction.service";
+import { calibrateConfidence, estimateCostMinorUnits } from "./anthropic-extraction.service";
 
 describe("calibrateConfidence", () => {
   it("scores a complete extraction with no flagged uncertainty near the top of the range", () => {
@@ -47,5 +47,21 @@ describe("calibrateConfidence", () => {
     expect(calibrateConfidence({})).toBeLessThanOrEqual(0.97);
     expect(calibrateConfidence(null)).toBe(0.75);
     expect(calibrateConfidence("not an object")).toBe(0.75);
+  });
+});
+
+describe("estimateCostMinorUnits", () => {
+  it("computes a real cost in cents from token counts for a known model", () => {
+    // 1M input tokens + 1M output tokens against the Haiku price row (100 + 500 cents).
+    expect(estimateCostMinorUnits("claude-haiku-4-5-20251001", 1_000_000, 1_000_000)).toBe(600);
+  });
+
+  it("scales linearly with token count", () => {
+    expect(estimateCostMinorUnits("claude-sonnet-5", 500_000, 0)).toBe(150);
+    expect(estimateCostMinorUnits("claude-sonnet-5", 0, 500_000)).toBe(750);
+  });
+
+  it("returns null for an unpriced model rather than silently guessing", () => {
+    expect(estimateCostMinorUnits("some-future-model", 1000, 1000)).toBeNull();
   });
 });

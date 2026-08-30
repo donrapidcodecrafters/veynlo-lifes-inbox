@@ -163,6 +163,7 @@ export class AdminService {
         latencyMs: schema.extractionRuns.latencyMs,
         errorDetail: schema.extractionRuns.errorDetail,
         startedAt: schema.extractionRuns.startedAt,
+        costMinorUnits: schema.extractionRuns.costMinorUnits,
       })
       .from(schema.extractionRuns)
       .innerJoin(schema.extractorVersions, eq(schema.extractorVersions.id, schema.extractionRuns.extractorVersionId))
@@ -176,10 +177,13 @@ export class AdminService {
       running: number;
       totalLatencyMs: number;
       latencyCount: number;
+      totalCostMinorUnits: number;
     }
     const byExtractor = new Map<string, Bucket>();
+    let totalCostMinorUnits = 0;
     for (const row of rows) {
-      const bucket = byExtractor.get(row.extractorName) ?? { total: 0, success: 0, failed: 0, running: 0, totalLatencyMs: 0, latencyCount: 0 };
+      const bucket = byExtractor.get(row.extractorName) ??
+        { total: 0, success: 0, failed: 0, running: 0, totalLatencyMs: 0, latencyCount: 0, totalCostMinorUnits: 0 };
       bucket.total += 1;
       if (row.status === "success") bucket.success += 1;
       else if (row.status === "failed") bucket.failed += 1;
@@ -188,12 +192,17 @@ export class AdminService {
         bucket.totalLatencyMs += row.latencyMs;
         bucket.latencyCount += 1;
       }
+      if (row.costMinorUnits != null) {
+        bucket.totalCostMinorUnits += row.costMinorUnits;
+        totalCostMinorUnits += row.costMinorUnits;
+      }
       byExtractor.set(row.extractorName, bucket);
     }
 
     return {
       windowDays,
       totalRuns: rows.length,
+      totalCostMinorUnits,
       byExtractor: [...byExtractor.entries()].map(([extractorName, b]) => ({
         extractorName,
         total: b.total,
@@ -202,6 +211,7 @@ export class AdminService {
         running: b.running,
         successRate: b.total > 0 ? b.success / b.total : null,
         avgLatencyMs: b.latencyCount > 0 ? Math.round(b.totalLatencyMs / b.latencyCount) : null,
+        totalCostMinorUnits: b.totalCostMinorUnits,
       })),
       recentFailures: rows
         .filter((r) => r.status === "failed")

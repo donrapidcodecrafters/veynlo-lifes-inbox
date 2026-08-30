@@ -66,3 +66,51 @@ describe("AdminService.findUserByEmail — support-lookup redaction", () => {
     expect(after.every((e) => e.action === "admin.user_lookup")).toBe(true);
   });
 });
+
+describe("AdminService.modelHealthSummary — cost aggregation", () => {
+  const extractorVersionId = generateId("extractorVersion");
+  const extractorName = `test_extractor_${generateId("extractionRun")}`;
+  const runIds: string[] = [];
+
+  beforeAll(async () => {
+    await db.insert(schema.extractorVersions).values({
+      id: extractorVersionId,
+      stage: "extraction",
+      name: extractorName,
+      version: "1",
+      modelKey: "claude-haiku-4-5-20251001",
+    });
+    const runs = [
+      { costMinorUnits: 12, status: "success" as const },
+      { costMinorUnits: 34, status: "success" as const },
+      { costMinorUnits: null, status: "failed" as const }, // a real network-failure run has no token usage
+    ];
+    for (const r of runs) {
+      const id = generateId("extractionRun");
+      runIds.push(id);
+      await db.insert(schema.extractionRuns).values({
+        id,
+        sourceEventId: generateId("sourceEvent"), // no FK constraint on this column — a fabricated id is fine
+        stage: "extraction",
+        extractorVersionId,
+        status: r.status,
+        costMinorUnits: r.costMinorUnits,
+        completedAt: new Date(),
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await db.delete(schema.extractionRuns).where(inArray(schema.extractionRuns.id, runIds));
+    await db.delete(schema.extractorVersions).where(eq(schema.extractorVersions.id, extractorVersionId));
+  });
+
+  it("sums real costMinorUnits per extractor and overall, ignoring runs with no recorded cost", async () => {
+    const summary = await admin.modelHealthSummary(7);
+    const bucket = summary.byExtractor.find((e) => e.extractorName === extractorName);
+    expect(bucket).toBeDefined();
+    expect(bucket?.total).toBe(3);
+    expect(bucket?.totalCostMinorUnits).toBe(46);
+    expect(summary.totalCostMinorUnits).toBeGreaterThanOrEqual(46);
+  });
+});
