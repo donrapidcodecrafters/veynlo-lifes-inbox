@@ -69,6 +69,29 @@ export class QueueProducerService implements OnModuleDestroy {
   }
 
   /**
+   * Same per-job options as enqueueConnectorSync, but as one BullMQ addBulk round-trip to Redis instead
+   * of N sequential adds — the recurring 15-minute scan (worker-main.ts) used to await one enqueue per
+   * eligible connection in a plain for-loop, which becomes the scan tick's own bottleneck once there are
+   * thousands of connections instead of a handful.
+   */
+  async enqueueConnectorSyncBulk(items: ConnectorSyncJobData[]): Promise<void> {
+    if (items.length === 0) return;
+    await this.connectorSyncQueue.addBulk(
+      items.map((data) => ({
+        name: "sync",
+        data,
+        opts: {
+          jobId: `${data.connectionId}-${data.kind}`,
+          attempts: 5,
+          backoff: { type: "exponential" as const, delay: 5000 },
+          removeOnComplete: { count: 200 },
+          removeOnFail: { count: 500 },
+        },
+      })),
+    );
+  }
+
+  /**
    * Registers the recurring tick that drives Gmail incremental sync
    * (§ROADMAP "Gmail incremental/recurring sync"). Connections are created
    * dynamically per user, so this doesn't enqueue per-connection repeat

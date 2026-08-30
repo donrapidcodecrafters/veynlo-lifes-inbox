@@ -141,6 +141,7 @@ async function bootstrap() {
   // token refresh starts working again) rather than a one-shot backoff that gives up forever.
   const RECOVERABLE_CONNECTOR_HEALTH_STATES = ["rate_limited", "reauth_required", "provider_outage", "degraded"];
   const CONNECTOR_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
+  const CONNECTOR_SCAN_BATCH_LIMIT = 5000;
   const connectorScanWorker = new Worker<ConnectorScanJobData>(
     QUEUE_NAMES.connectorScan,
     async () => {
@@ -167,10 +168,15 @@ async function bootstrap() {
             ),
             isNull(schema.connections.disconnectedAt),
           ),
-        );
-      for (const connection of eligible) {
-        await queueProducer.enqueueConnectorSync({ connectionId: connection.id, kind: "incremental" });
+        )
+        // A tick that found more than this is at real scale — jobId-based dedup means anything left over
+        // just gets picked up on the next 15-minute tick instead of ever being dropped, so this is a
+        // throughput cap, not a correctness one. Logged rather than silently truncated.
+        .limit(CONNECTOR_SCAN_BATCH_LIMIT);
+      if (eligible.length === CONNECTOR_SCAN_BATCH_LIMIT) {
+        logger.warn(`Eligible connections hit the ${CONNECTOR_SCAN_BATCH_LIMIT} batch cap — some will roll to the next tick.`);
       }
+      await queueProducer.enqueueConnectorSyncBulk(eligible.map((connection) => ({ connectionId: connection.id, kind: "incremental" as const })));
     },
     { connection: getRedisConnection(), concurrency: 1 },
   );

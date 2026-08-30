@@ -3,7 +3,14 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import { schema } from "@veynlo/db";
 import type { Database } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { mapWithConcurrency } from "../../common/concurrency";
 import { NotificationDeliveryService } from "./notification-delivery.service";
+
+// A single BullMQ job (concurrency:1 — see worker-main.ts) runs the whole per-user fan-out below. At
+// real scale (hundreds of thousands of users) doing this one user at a time would fall behind its own
+// daily/weekly schedule; bounding concurrency instead of using a bare unbounded Promise.all keeps this
+// from opening as many simultaneous DB/queue round trips as there are eligible users.
+const BRIEF_DISPATCH_CONCURRENCY = 20;
 
 /**
  * §NOT-005/006 — Daily/Weekly Brief. Composes one digest notification per
@@ -28,28 +35,33 @@ export class NotificationDispatchService {
     const today = new Date();
     const todayKey = today.toISOString().slice(0, 10);
 
-    for (const { userId } of eligibleUsers) {
-      const items = await this.db
-        .select()
-        .from(schema.attentionItems)
-        .where(and(eq(schema.attentionItems.ownerUserId, userId), eq(schema.attentionItems.resolved, false)));
+    await mapWithConcurrency(eligibleUsers, BRIEF_DISPATCH_CONCURRENCY, async ({ userId }) => {
+      try {
+        const items = await this.db
+          .select()
+          .from(schema.attentionItems)
+          .where(and(eq(schema.attentionItems.ownerUserId, userId), eq(schema.attentionItems.resolved, false)));
 
-      if (items.length === 0) continue; // no dead "nothing to report" digest — only send when there's something real to say
+        if (items.length === 0) return; // no dead "nothing to report" digest — only send when there's something real to say
 
-      const lines = items
-        .slice(0, 10)
-        .map((i) => `• ${i.reasonText}`)
-        .join("\n");
-      const result = await this.delivery.createAndEnqueue({
-        ownerUserId: userId,
-        dedupeKey: `daily-brief:${todayKey}`,
-        priority: "useful",
-        title: `Your daily brief — ${items.length} thing${items.length === 1 ? "" : "s"} to know`,
-        body: `Here's what needs your attention today:\n\n${lines}`,
-        category: "daily_brief",
-      });
-      if ("notificationId" in result) this.logger.log(`Queued daily brief for ${userId}`);
-    }
+        const lines = items
+          .slice(0, 10)
+          .map((i) => `• ${i.reasonText}`)
+          .join("\n");
+        const result = await this.delivery.createAndEnqueue({
+          ownerUserId: userId,
+          dedupeKey: `daily-brief:${todayKey}`,
+          priority: "useful",
+          title: `Your daily brief — ${items.length} thing${items.length === 1 ? "" : "s"} to know`,
+          body: `Here's what needs your attention today:\n\n${lines}`,
+          category: "daily_brief",
+        });
+        if ("notificationId" in result) this.logger.log(`Queued daily brief for ${userId}`);
+      } catch (err) {
+        // One user's failure must not stop the whole run — every other eligible user still needs their brief today.
+        this.logger.error(`Failed to dispatch daily brief for ${userId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
   }
 
   async dispatchWeeklyBrief(): Promise<void> {
@@ -62,43 +74,47 @@ export class NotificationDispatchService {
     const weekFromNow = new Date(now.getTime() + 7 * 86_400_000);
     const weekKey = `${now.getFullYear()}-W${Math.ceil((now.getDate() + now.getDay()) / 7)}`;
 
-    for (const { userId } of eligibleUsers) {
-      const upcomingEvents = await this.db
-        .select()
-        .from(schema.calendarEvents)
-        .where(
-          and(
-            eq(schema.calendarEvents.ownerUserId, userId),
-            gte(schema.calendarEvents.startSort, now),
-            lte(schema.calendarEvents.startSort, weekFromNow),
-          ),
-        );
-      const upcomingBills = await this.db
-        .select()
-        .from(schema.bills)
-        .where(
-          and(
-            eq(schema.bills.ownerUserId, userId),
-            gte(schema.bills.dueDateSort, now),
-            lte(schema.bills.dueDateSort, weekFromNow),
-          ),
-        );
+    await mapWithConcurrency(eligibleUsers, BRIEF_DISPATCH_CONCURRENCY, async ({ userId }) => {
+      try {
+        const upcomingEvents = await this.db
+          .select()
+          .from(schema.calendarEvents)
+          .where(
+            and(
+              eq(schema.calendarEvents.ownerUserId, userId),
+              gte(schema.calendarEvents.startSort, now),
+              lte(schema.calendarEvents.startSort, weekFromNow),
+            ),
+          );
+        const upcomingBills = await this.db
+          .select()
+          .from(schema.bills)
+          .where(
+            and(
+              eq(schema.bills.ownerUserId, userId),
+              gte(schema.bills.dueDateSort, now),
+              lte(schema.bills.dueDateSort, weekFromNow),
+            ),
+          );
 
-      if (upcomingEvents.length === 0 && upcomingBills.length === 0) continue;
+        if (upcomingEvents.length === 0 && upcomingBills.length === 0) return;
 
-      const lines = [
-        ...upcomingEvents.map((e) => `• ${e.title}`),
-        ...upcomingBills.map((b) => `• Bill due: ${b.billerLabel}`),
-      ].join("\n");
+        const lines = [
+          ...upcomingEvents.map((e) => `• ${e.title}`),
+          ...upcomingBills.map((b) => `• Bill due: ${b.billerLabel}`),
+        ].join("\n");
 
-      await this.delivery.createAndEnqueue({
-        ownerUserId: userId,
-        dedupeKey: `weekly-brief:${weekKey}`,
-        priority: "useful",
-        title: "Your week ahead",
-        body: `Coming up in the next 7 days:\n\n${lines}`,
-        category: "weekly_brief",
-      });
-    }
+        await this.delivery.createAndEnqueue({
+          ownerUserId: userId,
+          dedupeKey: `weekly-brief:${weekKey}`,
+          priority: "useful",
+          title: "Your week ahead",
+          body: `Coming up in the next 7 days:\n\n${lines}`,
+          category: "weekly_brief",
+        });
+      } catch (err) {
+        this.logger.error(`Failed to dispatch weekly brief for ${userId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
   }
 }
