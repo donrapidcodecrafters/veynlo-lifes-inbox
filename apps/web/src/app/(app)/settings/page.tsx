@@ -23,6 +23,13 @@ interface NotificationPreferences {
   privacyLevel: PrivacyLevel;
 }
 
+interface FatigueSuggestion {
+  category: string;
+  sentCount: number;
+  unwantedCount: number;
+  unwantedRate: number;
+}
+
 // Matches the real `category` values IngestionService.fileInboxItem passes when filing each domain
 // (see the `domains.includes(...)` branches in ingestion.service.ts) — the only categories a user
 // could plausibly want to mute individually. Digests have their own dedicated toggles above instead.
@@ -50,6 +57,10 @@ export default function SettingsPage() {
   const { mode, setMode } = useTheme();
   const { user, refresh } = useSession();
   const { data: prefs, mutate } = useSWR<NotificationPreferences>("/v1/notification-preferences", swrFetcher);
+  const { data: fatigueSuggestions, mutate: mutateFatigueSuggestions } = useSWR<FatigueSuggestion[]>(
+    "/v1/notification-preferences/fatigue-suggestions",
+    swrFetcher,
+  );
 
   async function updatePrefs(patch: Partial<NotificationPreferences>) {
     mutate({ ...prefs, ...patch } as NotificationPreferences, false);
@@ -62,6 +73,7 @@ export default function SettingsPage() {
     if (muted) categoryOverrides[category] = "off";
     else delete categoryOverrides[category];
     await updatePrefs({ categoryOverrides });
+    mutateFatigueSuggestions();
   }
 
   async function signOut() {
@@ -215,6 +227,26 @@ export default function SettingsPage() {
             <div className="space-y-3 border-t border-border-subtle pt-4">
               <p className="text-[0.9375rem] font-medium text-primary">By category</p>
               <p className="text-sm text-tertiary">Turn off notifications for a specific kind of thing without changing your overall intensity.</p>
+              {fatigueSuggestions && fatigueSuggestions.length > 0 && (
+                <div className="space-y-2">
+                  {fatigueSuggestions.map((s) => {
+                    const label = NOTIFICATION_CATEGORIES.find((c) => c.key === s.category)?.label ?? s.category;
+                    return (
+                      <div
+                        key={s.category}
+                        className="flex items-center justify-between gap-4 rounded-lg bg-warning-subtle px-3 py-2 text-sm text-warning-subtle-text"
+                      >
+                        <p>
+                          You&apos;ve dismissed {s.unwantedCount} of {s.sentCount} {label.toLowerCase()} notifications recently — mute this category?
+                        </p>
+                        <Button variant="secondary" size="sm" onClick={() => setCategoryMuted(s.category, true)}>
+                          Mute
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-2">
                 {NOTIFICATION_CATEGORIES.map((c) => (
                   <Switch

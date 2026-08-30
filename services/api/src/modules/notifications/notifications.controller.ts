@@ -27,6 +27,11 @@ export class NotificationsController {
     return this.notifications.getPreferences(user.userId);
   }
 
+  @Get("notification-preferences/fatigue-suggestions")
+  fatigueSuggestions(@CurrentUser() user: AuthenticatedUser) {
+    return this.notifications.fatigueSuggestions(user.userId);
+  }
+
   @Put("notification-preferences")
   updatePreferences(@CurrentUser() user: AuthenticatedUser, @Body() patch: Record<string, unknown>) {
     return this.notifications.updatePreferences(user.userId, patch);

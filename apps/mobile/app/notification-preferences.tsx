@@ -16,6 +16,13 @@ interface NotificationPreferences {
   privacyLevel: PrivacyLevel;
 }
 
+interface FatigueSuggestion {
+  category: string;
+  sentCount: number;
+  unwantedCount: number;
+  unwantedRate: number;
+}
+
 // Matches the real `category` values IngestionService.fileInboxItem passes when filing each domain —
 // the only categories a user could plausibly want to mute individually. Digests have their own
 // dedicated toggles below instead.
@@ -47,9 +54,11 @@ const PRIVACY_LEVEL_OPTIONS: Array<{ value: PrivacyLevel; label: string; descrip
 export default function NotificationPreferencesScreen() {
   const { theme } = useAppTheme();
   const [prefs, setPrefs] = useState<NotificationPreferences | undefined>(undefined);
+  const [fatigueSuggestions, setFatigueSuggestions] = useState<FatigueSuggestion[]>([]);
 
   useEffect(() => {
     api.get<NotificationPreferences>("/v1/notification-preferences").then(setPrefs);
+    api.get<FatigueSuggestion[]>("/v1/notification-preferences/fatigue-suggestions").then(setFatigueSuggestions);
   }, []);
 
   async function updatePrefs(patch: Partial<NotificationPreferences>) {
@@ -62,6 +71,7 @@ export default function NotificationPreferencesScreen() {
     if (muted) categoryOverrides[category] = "off";
     else delete categoryOverrides[category];
     updatePrefs({ categoryOverrides });
+    if (muted) setFatigueSuggestions((prev) => prev.filter((s) => s.category !== category));
   }
 
   if (!prefs) {
@@ -162,6 +172,34 @@ export default function NotificationPreferencesScreen() {
             Turn off notifications for a specific kind of thing without changing your overall intensity.
           </Text>
         </View>
+        {fatigueSuggestions.map((s) => {
+          const label = NOTIFICATION_CATEGORIES.find((c) => c.key === s.category)?.label ?? s.category;
+          return (
+            <View
+              key={s.category}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                backgroundColor: theme.colors.warningSubtleBg,
+                borderRadius: theme.radius.md,
+                padding: 12,
+              }}
+            >
+              <Text style={{ flex: 1, fontSize: 13, color: theme.colors.warningSubtleText }}>
+                You&apos;ve dismissed {s.unwantedCount} of {s.sentCount} {label.toLowerCase()} notifications recently — mute this category?
+              </Text>
+              <Text
+                onPress={() => setCategoryMuted(s.category, true)}
+                accessibilityRole="button"
+                style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}
+              >
+                Mute
+              </Text>
+            </View>
+          );
+        })}
         {NOTIFICATION_CATEGORIES.map((c) => (
           <View key={c.key} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Text style={{ fontSize: 14, color: theme.colors.textPrimary }}>{c.label}</Text>

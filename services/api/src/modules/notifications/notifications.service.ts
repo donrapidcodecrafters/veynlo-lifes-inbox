@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -8,6 +8,19 @@ import { DATABASE } from "../../database/database.module";
 // cursor-pagination shape as Documents/Inbox's own `list()` (`before` cursor, fetch PAGE_SIZE+1,
 // slice+nextCursor) for consistency across the app's list endpoints.
 const NOTIFICATIONS_PAGE_SIZE = 30;
+
+// Fatigue-feedback mechanism (§NOT-002 final part): engagement window, minimum sample size, and the
+// "unwanted" threshold that triggers a mute suggestion.
+const FATIGUE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const FATIGUE_MIN_SAMPLE = 5;
+const FATIGUE_UNWANTED_RATE_THRESHOLD = 0.6;
+
+export interface FatigueSuggestion {
+  category: string;
+  sentCount: number;
+  unwantedCount: number;
+  unwantedRate: number;
+}
 
 @Injectable()
 export class NotificationsService {
@@ -89,5 +102,46 @@ export class NotificationsService {
       .values(merged)
       .onConflictDoUpdate({ target: schema.notificationPreferences.userId, set: merged });
     return merged;
+  }
+
+  /** Fatigue-feedback mechanism (§NOT-002 final part): surfaces categories the caller has mostly been
+   * dismissing or ignoring lately, so the UI can offer a one-tap mute. "Unwanted" = actionTaken ===
+   * "dismissed", or never acknowledged at all — both read as "this notification wasn't wanted." Requires
+   * a minimum sample per category so one bad week of a rarely-sent category doesn't trigger a suggestion,
+   * and skips categories already muted since suggesting to mute an already-muted category is pointless. */
+  async fatigueSuggestions(userId: string): Promise<FatigueSuggestion[]> {
+    const since = new Date(Date.now() - FATIGUE_WINDOW_MS);
+    const rows = await this.db
+      .select({ category: schema.notifications.category, actionTaken: schema.notifications.actionTaken, acknowledgedAt: schema.notifications.acknowledgedAt })
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.ownerUserId, userId),
+          isNotNull(schema.notifications.category),
+          eq(schema.notifications.state, "sent"),
+          gte(schema.notifications.sentAt, since),
+        ),
+      );
+
+    const byCategory = new Map<string, { sentCount: number; unwantedCount: number }>();
+    for (const row of rows) {
+      const category = row.category!;
+      const stats = byCategory.get(category) ?? { sentCount: 0, unwantedCount: 0 };
+      stats.sentCount += 1;
+      if (row.actionTaken === "dismissed" || row.acknowledgedAt === null) stats.unwantedCount += 1;
+      byCategory.set(category, stats);
+    }
+
+    const prefs = await this.getPreferences(userId);
+    const suggestions: FatigueSuggestion[] = [];
+    for (const [category, stats] of byCategory) {
+      if (stats.sentCount < FATIGUE_MIN_SAMPLE) continue;
+      if (prefs.categoryOverrides?.[category] === "off") continue;
+      const unwantedRate = stats.unwantedCount / stats.sentCount;
+      if (unwantedRate < FATIGUE_UNWANTED_RATE_THRESHOLD) continue;
+      suggestions.push({ category, sentCount: stats.sentCount, unwantedCount: stats.unwantedCount, unwantedRate });
+    }
+
+    return suggestions.sort((a, b) => b.unwantedRate - a.unwantedRate);
   }
 }
