@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
 import { APP_GUARD } from "@nestjs/core";
+import { loadEnv } from "./config/env";
 import { LoggingModule } from "./logging/logging.module";
 import { DatabaseModule } from "./database/database.module";
 import { QueueModule } from "./queue/queue.module";
@@ -31,7 +33,17 @@ import { SavedItemsModule } from "./modules/saved-items/saved-items.module";
 @Module({
   imports: [
     LoggingModule,
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    // §45.1 rate limiting — previously in-process memory (the @nestjs/throttler default), which silently
+    // multiplies the effective limit by however many API replicas are running behind a load balancer (each
+    // replica tracked its own independent count, so N replicas gave an attacker distributed across them
+    // ~N times the configured limit). Redis-backed so the limit is enforced once, globally, regardless of
+    // which replica handles which request — the same Redis instance BullMQ already depends on.
+    ThrottlerModule.forRootAsync({
+      useFactory: () => ({
+        throttlers: [{ ttl: 60_000, limit: 300 }],
+        storage: new ThrottlerStorageRedisService(loadEnv().REDIS_URL),
+      }),
+    }),
     DatabaseModule,
     QueueModule,
     HealthModule,
