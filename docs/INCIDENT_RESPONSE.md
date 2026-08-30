@@ -94,16 +94,33 @@ Applies to any of: `SESSION_JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`,
    changes are **not** logged yet (see `SECURITY.md`'s audit-coverage
    note) — if the leak vector is one of those, the audit trail won't show
    it, and you're reconstructing from database timestamps/backups instead.
-2. `packages/authz/src/policy.ts`'s `resolveAccess`/`requireAccess` is the
-   single deny-by-default access-control chokepoint — if the leak looks
-   like a broken authorization check rather than a stolen credential, that
-   file (and its one real test, `packages/authz/src/policy.test.ts`) is
-   where to start. Coverage note: this policy is unit-tested for the core
-   owner/household/grant/deny cases, but there's currently no automated
-   test asserting that `search`, `notifications`, `data-export`, or the
-   `admin` module actually *call* it on every code path — that's a real,
-   open gap (see `docs/ROADMAP.md`'s twenty-fifth pass), so a leak via one
-   of those surfaces wouldn't necessarily be caught by existing tests.
+2. There is **no single central authorization chokepoint** — a prior
+   version of this doc claimed `packages/authz/src/policy.ts`'s
+   `resolveAccess`/`requireAccess` was one, but neither function has any
+   real caller anywhere in `services/api` (confirmed independently twice —
+   grep for `requireAccess`/`resolveAccess` outside `policy.ts` itself and
+   its own test). The only export from that file with a real caller is
+   `resolveShareLinkAccess` (used by `services/shared/shared.service.ts`,
+   backing public share-link redemption specifically). Every other
+   resource-scoped module enforces ownership itself, ad hoc, via its own
+   `assertOwned*`/`ownerOrDelegatedHousehold`-style private method —
+   verified present and correct in commerce, documents, schedule,
+   connectors, household, people, saved-items, timeline, and attention (see
+   each module's own service file for its specific check). If the leak
+   looks like a broken authorization check, start with the specific module
+   the leaked resource belongs to and its own ownership check, not
+   `policy.ts` — that file only matters for a share-link-specific leak.
+   One real, confirmed gap in this pattern: `HistoryService.addNote`
+   (`services/api/src/modules/shared/history.service.ts`) does not verify
+   the caller owns `resourceId` before attaching a note to it — low
+   severity (the note is stored under the caller's own `ownerUserId`, so
+   the resource's real owner never sees it), but worth knowing about if
+   investigating a leak that touches object notes specifically.
+   Real, DB-backed cross-user leak tests exist for `search`, `notifications`,
+   `data-export`, `admin`, and `sharing` (`services/api/src/modules/*/*.test.ts`)
+   — if the leak is in one of those five surfaces, check whether the
+   specific code path is covered by those tests already; if not, that's the
+   gap to close first.
 3. Malware/malicious-upload angle: `MalwareScannerService`
    (`services/api/src/modules/documents/malware-scanner.service.ts`) fails
    *closed* — an unscannable file is rejected, not silently accepted — but

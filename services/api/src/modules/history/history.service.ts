@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -73,8 +73,77 @@ export class HistoryService {
     if (!noteText.trim()) {
       throw new BadRequestException({ code: "EMPTY_NOTE", message: "Note can't be empty." });
     }
+    await this.assertResourceOwnership(userId, resourceType, resourceId);
     const id = generateId("objectNote");
     await this.db.insert(schema.objectNotes).values({ id, ownerUserId: userId, resourceType, resourceId, noteText });
     return { id, noteText, createdAt: new Date().toISOString() };
+  }
+
+  /**
+   * Real, previously-missing gap: addNote never verified the caller actually owned `resourceId` before
+   * attaching a note to it — every other resource-scoped module in this codebase enforces ownership
+   * before a mutation, this one didn't. Not a confidentiality leak on its own (the note is stored under
+   * the caller's own ownerUserId, so the resource's real owner never sees it — listNotes/getHistory only
+   * ever query objectNotes scoped to (ownerUserId, resourceType, resourceId)), but it let any authenticated
+   * user attach a note to an arbitrary resourceId, including one they don't own, which could be used to
+   * probe for valid resource IDs. Each resource type needs its own ownership path since not all of them
+   * carry ownerUserId directly (return_case/subscription resolve it through a parent row).
+   */
+  private async assertResourceOwnership(userId: string, resourceType: string, resourceId: string): Promise<void> {
+    const found = await (async () => {
+      switch (resourceType) {
+        case "purchase": {
+          const [row] = await this.db.select({ id: schema.purchases.id }).from(schema.purchases).where(and(eq(schema.purchases.id, resourceId), eq(schema.purchases.ownerUserId, userId))).limit(1);
+          return Boolean(row);
+        }
+        case "bill": {
+          const [row] = await this.db.select({ id: schema.bills.id }).from(schema.bills).where(and(eq(schema.bills.id, resourceId), eq(schema.bills.ownerUserId, userId))).limit(1);
+          return Boolean(row);
+        }
+        case "warranty": {
+          const [row] = await this.db.select({ id: schema.warranties.id }).from(schema.warranties).where(and(eq(schema.warranties.id, resourceId), eq(schema.warranties.ownerUserId, userId))).limit(1);
+          return Boolean(row);
+        }
+        case "return_case": {
+          const [row] = await this.db
+            .select({ id: schema.returnCases.id })
+            .from(schema.returnCases)
+            .innerJoin(schema.purchases, eq(schema.purchases.id, schema.returnCases.purchaseId))
+            .where(and(eq(schema.returnCases.id, resourceId), eq(schema.purchases.ownerUserId, userId)))
+            .limit(1);
+          return Boolean(row);
+        }
+        case "subscription": {
+          const [row] = await this.db
+            .select({ id: schema.subscriptions.id })
+            .from(schema.subscriptions)
+            .innerJoin(schema.recurringStreams, eq(schema.recurringStreams.id, schema.subscriptions.recurringStreamId))
+            .where(and(eq(schema.subscriptions.id, resourceId), eq(schema.recurringStreams.ownerUserId, userId)))
+            .limit(1);
+          return Boolean(row);
+        }
+        case "calendar_event": {
+          const [row] = await this.db
+            .select({ id: schema.calendarEvents.id })
+            .from(schema.calendarEvents)
+            .where(and(eq(schema.calendarEvents.id, resourceId), eq(schema.calendarEvents.ownerUserId, userId)))
+            .limit(1);
+          return Boolean(row);
+        }
+        case "person": {
+          const [row] = await this.db
+            .select({ id: schema.canonicalEntities.id })
+            .from(schema.canonicalEntities)
+            .where(and(eq(schema.canonicalEntities.id, resourceId), eq(schema.canonicalEntities.ownerUserId, userId)))
+            .limit(1);
+          return Boolean(row);
+        }
+        default:
+          return false; // unreachable — VALID_RESOURCE_TYPES already rejected anything else above
+      }
+    })();
+    if (!found) {
+      throw new NotFoundException({ code: "RESOURCE_NOT_FOUND", message: "That item doesn't exist or you don't have access to it." });
+    }
   }
 }
