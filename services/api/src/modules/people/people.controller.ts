@@ -44,6 +44,11 @@ export class PeopleController {
     return this.people.getPerson(id, user.userId);
   }
 
+  @Get(":id/linked-items")
+  linkedItems(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.people.linkedItems(id, user.userId);
+  }
+
   @Post()
   @UsePipes(new ZodValidationPipe(CreatePersonDtoSchema))
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreatePersonDto) {

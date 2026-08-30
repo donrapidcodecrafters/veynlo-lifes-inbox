@@ -166,6 +166,38 @@ export class PeopleService {
     return this.withFacts(person);
   }
 
+  /** PEO-004 "person linkage" — the reverse of CommerceService.setPersonLink/ScheduleService.
+   * setEventPersonLink: everything this user has manually linked to this person, across every resource
+   * type that supports it. Matches DocumentsService.documentsLinkedTo's own approach (fetch this user's
+   * own rows, filter by array membership in application code) rather than a jsonb containment query. */
+  async linkedItems(id: string, userId: string) {
+    await this.assertOwnedPerson(id, userId);
+    const [purchaseRows, billRows, warrantyRows, eventRows] = await Promise.all([
+      this.db
+        .select({ purchase: schema.purchases, merchantName: schema.merchants.displayName })
+        .from(schema.purchases)
+        .leftJoin(schema.merchants, eq(schema.merchants.id, schema.purchases.merchantId))
+        .where(eq(schema.purchases.ownerUserId, userId)),
+      this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)),
+      this.db.select().from(schema.warranties).where(eq(schema.warranties.ownerUserId, userId)),
+      this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.ownerUserId, userId)),
+    ]);
+    return {
+      purchases: purchaseRows
+        .filter((r) => r.purchase.linkedEntityIds.includes(id))
+        .map((r) => ({ id: r.purchase.id, merchantName: r.merchantName, purchaseDate: r.purchase.purchaseDate, totalMinorUnits: r.purchase.totalMinorUnits, totalCurrency: r.purchase.totalCurrency })),
+      bills: billRows
+        .filter((b) => b.linkedEntityIds.includes(id))
+        .map((b) => ({ id: b.id, billerLabel: b.billerLabel, dueDate: b.dueDate, amountDueMinorUnits: b.amountDueMinorUnits, amountDueCurrency: b.amountDueCurrency })),
+      warranties: warrantyRows
+        .filter((w) => w.linkedEntityIds.includes(id))
+        .map((w) => ({ id: w.id, productLabel: w.productLabel, expirationDate: w.expirationDate })),
+      events: eventRows
+        .filter((e) => e.relatedEntityIds.includes(id))
+        .map((e) => ({ id: e.id, title: e.title, start: e.start })),
+    };
+  }
+
   async createPerson(userId: string, householdId: string | null, dto: CreatePersonDto) {
     const id = generateId("entity");
     await this.db.insert(schema.canonicalEntities).values({

@@ -67,6 +67,10 @@ export const purchases = pgTable(
     state: text("state").notNull().default("candidate"),
     confidenceBand: text("confidence_band").notNull(),
     sourceEventId: text("source_event_id"),
+    // PEO-004 "person linkage" — same generic link-to-any-resource pattern as documents.linkedEntityIds,
+    // reused rather than a dedicated join table; always manually added (nothing infers "this purchase was
+    // for Jane" from evidence today).
+    linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -191,6 +195,8 @@ export const bills = pgTable(
     confidenceBand: text("confidence_band"),
     autopayBelieved: boolean("autopay_believed"),
     paymentObservedTransactionId: encryptedText("payment_observed_transaction_id"),
+    // PEO-004 "person linkage" — see purchases.linkedEntityIds' comment.
+    linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -214,6 +220,8 @@ export const warranties = pgTable(
     expirationDateSort: timestamp("expiration_date_sort", { withTimezone: true }),
     confidenceBand: text("confidence_band"),
     registrationConfirmed: boolean("registration_confirmed"),
+    // PEO-004 "person linkage" — see purchases.linkedEntityIds' comment.
+    linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

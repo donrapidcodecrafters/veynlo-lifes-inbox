@@ -136,6 +136,28 @@ export class ScheduleService {
     await this.db.update(schema.calendarEvents).set({ visibility, updatedAt: new Date() }).where(eq(schema.calendarEvents.id, eventId));
   }
 
+  /** PEO-004 "person linkage" — reuses calendarEvents.relatedEntityIds, a column that already existed
+   * with no reader/writer anywhere in the codebase; same mutation standard as setEventVisibility. */
+  async setEventPersonLink(eventId: string, userId: string, personId: string, linked: boolean): Promise<void> {
+    const [person] = await this.db
+      .select({ id: schema.canonicalEntities.id })
+      .from(schema.canonicalEntities)
+      .where(and(eq(schema.canonicalEntities.id, personId), eq(schema.canonicalEntities.type, "person"), eq(schema.canonicalEntities.ownerUserId, userId)))
+      .limit(1);
+    if (!person) throw new NotFoundException({ code: "PERSON_NOT_FOUND", message: "Not found." });
+
+    const [event] = await this.db
+      .select({ ownerUserId: schema.calendarEvents.ownerUserId, relatedEntityIds: schema.calendarEvents.relatedEntityIds })
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.id, eventId))
+      .limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+
+    const next = linked ? [...new Set([...event.relatedEntityIds, personId])] : event.relatedEntityIds.filter((id) => id !== personId);
+    await this.db.update(schema.calendarEvents).set({ relatedEntityIds: next, updatedAt: new Date() }).where(eq(schema.calendarEvents.id, eventId));
+  }
+
   /**
    * SHARE-001 "direct object sharing to a specific household member" — same shape as DocumentsService's
    * identical method. Grants one named household member view access regardless of the event's own

@@ -24,6 +24,16 @@ export class CommerceController {
     return this.commerce.setPurchaseState(id, user.userId, state);
   }
 
+  @Post("purchases/:id/link-person")
+  linkPersonToPurchase(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.commerce.setPersonLink("purchase", id, user.userId, personId, true);
+  }
+
+  @Post("purchases/:id/unlink-person")
+  unlinkPersonFromPurchase(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.commerce.setPersonLink("purchase", id, user.userId, personId, false);
+  }
+
   @Get("returns")
   returns(@CurrentUser() user: AuthenticatedUser) {
     return this.commerce.returns(user.userId);
@@ -59,6 +69,16 @@ export class CommerceController {
     return this.commerce.billDetail(id, user.userId);
   }
 
+  @Post("bills/:id/link-person")
+  linkPersonToBill(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.commerce.setPersonLink("bill", id, user.userId, personId, true);
+  }
+
+  @Post("bills/:id/unlink-person")
+  unlinkPersonFromBill(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.commerce.setPersonLink("bill", id, user.userId, personId, false);
+  }
+
   @Get("warranties")
   warranties(@CurrentUser() user: AuthenticatedUser) {
     return this.commerce.warranties(user.userId);
@@ -67,6 +87,16 @@ export class CommerceController {
   @Get("warranties/:id")
   warrantyDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.commerce.warrantyDetail(id, user.userId);
+  }
+
+  @Post("warranties/:id/link-person")
+  linkPersonToWarranty(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.commerce.setPersonLink("warranty", id, user.userId, personId, true);
+  }
+
+  @Post("warranties/:id/unlink-person")
+  unlinkPersonFromWarranty(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.commerce.setPersonLink("warranty", id, user.userId, personId, false);
   }
 
   @Get("shipments")

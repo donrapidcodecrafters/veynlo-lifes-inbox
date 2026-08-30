@@ -21,6 +21,16 @@ export class ScheduleController {
     return this.schedule.eventDetail(id, user.userId);
   }
 
+  @Post("events/:id/link-person")
+  linkPersonToEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.schedule.setEventPersonLink(id, user.userId, personId, true);
+  }
+
+  @Post("events/:id/unlink-person")
+  unlinkPersonFromEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("personId") personId: string) {
+    return this.schedule.setEventPersonLink(id, user.userId, personId, false);
+  }
+
   @Post("events/:id/push-to-calendar")
   @UsePipes(new ZodValidationPipe(PushEventToCalendarDtoSchema))
   pushEventToCalendar(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: PushEventToCalendarDto = {}) {

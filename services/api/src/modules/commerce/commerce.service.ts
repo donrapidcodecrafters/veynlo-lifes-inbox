@@ -88,6 +88,26 @@ export class CommerceService {
     await this.db.update(schema.purchases).set({ state, updatedAt: new Date() }).where(eq(schema.purchases.id, purchaseId));
   }
 
+  /** PEO-004 "person linkage" — a purchase/bill/warranty is always manually linked to a person (nothing
+   * infers "this purchase was for Jane" from evidence today); reused by PeopleService's reverse
+   * (person -> linked items) lookup. Strict owner-only, matching setPurchaseState's mutation standard. */
+  async setPersonLink(resourceType: "purchase" | "bill" | "warranty", resourceId: string, userId: string, personId: string, linked: boolean): Promise<void> {
+    const [person] = await this.db
+      .select({ id: schema.canonicalEntities.id })
+      .from(schema.canonicalEntities)
+      .where(and(eq(schema.canonicalEntities.id, personId), eq(schema.canonicalEntities.type, "person"), eq(schema.canonicalEntities.ownerUserId, userId)))
+      .limit(1);
+    if (!person) throw new NotFoundException({ code: "PERSON_NOT_FOUND", message: "Not found." });
+
+    const table = resourceType === "purchase" ? schema.purchases : resourceType === "bill" ? schema.bills : schema.warranties;
+    const [row] = await this.db.select({ ownerUserId: table.ownerUserId, linkedEntityIds: table.linkedEntityIds }).from(table).where(eq(table.id, resourceId)).limit(1);
+    if (!row) throw new NotFoundException({ code: "NOT_FOUND", message: "Not found." });
+    if (row.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not yours." });
+
+    const next = linked ? [...new Set([...row.linkedEntityIds, personId])] : row.linkedEntityIds.filter((id) => id !== personId);
+    await this.db.update(table).set({ linkedEntityIds: next, updatedAt: new Date() }).where(eq(table.id, resourceId));
+  }
+
   /** §40.3 return state machine — the real mutation Home's "start_return"/"keep_item" suggested actions
    * (and the return-case detail page's own action buttons) actually call. Strict ownership, not
    * assertCommerceAccess's delegate-allowed read access — matching setPurchaseState's same stricter
