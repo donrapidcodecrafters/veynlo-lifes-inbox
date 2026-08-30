@@ -1385,3 +1385,50 @@ still open:
   Speech API capture in Ask/Inbox; mobile has none — needs either a native on-device STT module or a new
   paid transcription vendor, matching the earlier semantic-search deferral precedent). Both are being
   picked up next, in that order, before re-confirming Phase 1 MVP completion against the spec.
+
+- **Twenty-third gap-closing pass (2026-08-30): native mobile IAP, replacing the Stripe-web-checkout
+  App Store policy risk.** `billing/index.tsx`'s `subscribe()` previously opened a Stripe checkout URL via
+  `Linking.openURL()` on every platform, including iOS — a real App Store Review risk, since Apple
+  requires native In-App Purchase for digital subscriptions (§3.1.1). The server-side RevenueCat webhook
+  handler (`revenuecat.service.ts`) already existed and was already correct, but nothing client-side ever
+  triggered it.
+  1. Added `react-native-purchases@^10.8.1` (RevenueCat's own SDK — the natural fit given the webhook
+     already speaks RevenueCat's schema, and it's the standard unified iOS+Android IAP wrapper, avoiding a
+     second bespoke integration per store). No Expo config plugin needed — plain autolinking.
+  2. New `src/lib/purchases.ts`: configures the SDK from `EXPO_PUBLIC_REVENUECAT_{IOS,ANDROID}_API_KEY`
+     (unset → `isPurchasesAvailable()` false, same graceful "not configured" degradation as every other
+     optional external dependency in this project — never a crash). `purchasePlan(planKey, interval)` looks
+     up `offerings.all[planKey].monthly/.annual`, reusing the exact "offering id == PlanKey" convention
+     `RevenueCatService` already established server-side for `entitlement_ids`, so no new translation table
+     exists to fall out of sync. New `src/components/purchases-sync.tsx` (mirrors the existing Drain
+     component shape) calls `Purchases.logIn(user.id)`/`logOut()` on every auth change — required so
+     RevenueCat's `app_user_id` matches Veynlo's own user id, which is what the webhook uses to attribute a
+     purchase to an account.
+  3. `billing/index.tsx`: `subscribe()` now branches on `Platform.OS !== "web"` — native calls
+     `purchasePlan()` directly (a real native purchase sheet, not a redirect); web keeps the existing Stripe
+     flow unchanged. `manageBilling()` now also branches: a RevenueCat-sourced subscription (checked via the
+     entitlement row's `source` field, already returned by `GET /v1/billing/entitlements` — just not
+     previously typed on the mobile side) has no Stripe customer to open a portal session for, so native
+     deep-links to `itms-apps://apps.apple.com/account/subscriptions` (iOS) or
+     `https://play.google.com/store/account/subscriptions` (Android) instead, per Apple/Google's own
+     subscription-management requirements.
+  4. **Real, unrelated bug found and fixed while wiring this up**: `GET /v1/billing/plans` filtered every
+     row to "has a configured Stripe Price ID" — correct for the web Stripe-checkout path, but wrong for
+     native, where purchasability is gated by RevenueCat/App Store/Play Store config this endpoint has no
+     way to see. A deployment with RevenueCat configured but no Stripe prices would have shown mobile users
+     an empty plan list. Fixed by threading the existing `x-veynlo-platform` request header (already sent
+     by every mobile request, already used the same way in `identity.controller.ts`) into `BillingService
+     .plans()`: native platforms now always get the full plan/interval list (with `priceId` empty, since
+     native never reads it), Stripe-price gating stays exactly as before for web. Confirmed via live curl
+     against a real signed-up user with each `x-veynlo-platform` value — `web` correctly still returns `[]`
+     in this deployment (no Stripe prices configured here), `ios`/`android` correctly return all 4 rows.
+  **Verified live on a real Android build** (rebuilt via `expo prebuild`/`expo run:android` to link the new
+  native module — confirmed present in the Gradle build via its transitive `amazon-appstore-sdk`
+  dependency): signed up a real throwaway account, opened Billing, and got the real Plus/Family plan cards
+  (previously would have been empty — proof the platform-gating fix works, not just the IAP wiring).
+  Tapping Subscribe correctly surfaced "In-app purchases aren't available on this build yet." with no
+  crash — the honest, correct outcome given this sandbox has no real RevenueCat API keys or App Store
+  Connect/Play Console sandbox products configured (an external account dependency no amount of code can
+  close, same category as ClamAV/MinIO/metrics-dashboard earlier in this file). Typecheck/lint clean on
+  `apps/mobile` and `services/api`; full API vitest suite (67 tests) green. Test account deleted after.
+  **Still not started**: mobile voice note capture — the last gap from the fresh spec re-audit.

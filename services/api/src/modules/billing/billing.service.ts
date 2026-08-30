@@ -72,11 +72,16 @@ export class BillingService {
     return { planKey, entitlements: active, capabilities };
   }
 
-  /** §46 — the plan catalog this deployment can actually sell, i.e. only the (plan, interval) combinations
-   * with a real Stripe Price configured. Unconfigured combinations are omitted entirely rather than shown
-   * with a broken "Subscribe" button — same "not configured" degradation as every other optional external
-   * dependency. A plan can be monthly-only, annual-only, or both; the client groups rows by planKey. */
-  plans() {
+  /** §46 — the plan catalog this deployment can actually sell. On web, only (plan, interval) combinations
+   * with a real Stripe Price configured — unconfigured combinations are omitted entirely rather than shown
+   * with a broken "Subscribe" button, same "not configured" degradation as every other optional external
+   * dependency. Native (iOS/Android) purchasability is gated by RevenueCat/store config instead, which this
+   * endpoint has no way to verify (no RevenueCat REST integration here) — so native rows are never
+   * Stripe-price-gated; `purchasePlan()` client-side is the actual source of truth there, failing
+   * gracefully if the store has no matching offering. `priceId` is unused by the client on native (only
+   * the web Stripe-checkout path reads it) and is returned empty in that case. A plan can be monthly-only,
+   * annual-only, or both; the client groups rows by planKey. */
+  plans(isNativePlatform: boolean) {
     const env = loadEnv();
     const rows: Array<{ planKey: PlanKey; interval: "month" | "year"; priceId: string | undefined }> = [
       { planKey: "plus", interval: "month", priceId: env.STRIPE_PRICE_PLUS_MONTHLY },
@@ -85,8 +90,13 @@ export class BillingService {
       { planKey: "family", interval: "year", priceId: env.STRIPE_PRICE_FAMILY_ANNUAL },
     ];
     return rows
-      .filter((row): row is { planKey: PlanKey; interval: "month" | "year"; priceId: string } => Boolean(row.priceId))
-      .map((row) => ({ planKey: row.planKey, interval: row.interval, priceId: row.priceId, capabilities: PLAN_CATALOG[row.planKey] }));
+      .filter((row) => isNativePlatform || Boolean(row.priceId))
+      .map((row) => ({
+        planKey: row.planKey,
+        interval: row.interval,
+        priceId: row.priceId ?? "",
+        capabilities: PLAN_CATALOG[row.planKey],
+      }));
   }
 
   async createCheckoutSession(userId: string, planKey: PlanKey, priceId: string) {

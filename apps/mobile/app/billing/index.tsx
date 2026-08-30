@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Linking, Platform, Pressable, Text, View } from "react-native";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Button } from "@/components/button";
 import { ScreenHeader } from "@/components/screen-header";
+import { purchasePlan, PurchaseCancelledError, PurchasesNotAvailableError } from "@/lib/purchases";
 
 type PlanKey = "free" | "plus" | "family" | "pro_agent";
 type CapabilityValue = number | boolean | null;
@@ -14,7 +15,13 @@ type Interval = "month" | "year";
 interface EntitlementsResponse {
   planKey: PlanKey;
   capabilities: Record<string, CapabilityValue>;
+  entitlements: Array<{ source: string }>;
 }
+
+// App Store/Play Store policy requires digital subscriptions to go through native IAP, not a web
+// checkout — apps/web's Stripe checkout-session flow is only reachable here on Platform.OS === "web"
+// (Expo's browser preview target); a real iOS/Android build always takes the native purchase path.
+const useNativePurchases = Platform.OS !== "web";
 
 interface PlanOption {
   planKey: PlanKey;
@@ -48,13 +55,27 @@ export default function BillingScreen() {
     setError(null);
     setPendingPlan(plan.planKey);
     try {
-      const { url } = await api.post<{ url: string }>("/v1/billing/checkout-session", {
-        planKey: plan.planKey,
-        priceId: plan.priceId,
-      });
-      await Linking.openURL(url);
+      if (useNativePurchases) {
+        await purchasePlan(plan.planKey, plan.interval);
+        // The entitlement grant itself happens async via the RevenueCat webhook — this refresh is
+        // best-effort (it may still show the old plan for a few seconds), same timing gap the Stripe
+        // checkout redirect flow below already has.
+        setEntitlements(await api.get<EntitlementsResponse>("/v1/billing/entitlements"));
+      } else {
+        const { url } = await api.post<{ url: string }>("/v1/billing/checkout-session", {
+          planKey: plan.planKey,
+          priceId: plan.priceId,
+        });
+        await Linking.openURL(url);
+      }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't start checkout. Please try again.");
+      if (err instanceof PurchaseCancelledError) {
+        // User backed out of the native purchase sheet — not an error worth surfacing.
+      } else if (err instanceof PurchasesNotAvailableError) {
+        setError(err.message);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Couldn't complete the purchase. Please try again.");
+      }
     } finally {
       setPendingPlan(null);
     }
@@ -62,6 +83,17 @@ export default function BillingScreen() {
 
   async function manageBilling() {
     setError(null);
+    // A RevenueCat-sourced subscription has no Stripe customer to open a portal session for — Apple/
+    // Google both require subscription management to go through their own native settings surface.
+    const activeSource = entitlements?.entitlements[0]?.source;
+    if (useNativePurchases && activeSource === "revenuecat") {
+      const url =
+        Platform.OS === "ios"
+          ? "itms-apps://apps.apple.com/account/subscriptions"
+          : "https://play.google.com/store/account/subscriptions";
+      await Linking.openURL(url).catch(() => setError("Couldn't open subscription settings."));
+      return;
+    }
     setPortalLoading(true);
     try {
       const { url } = await api.post<{ url: string }>("/v1/billing/portal-session");

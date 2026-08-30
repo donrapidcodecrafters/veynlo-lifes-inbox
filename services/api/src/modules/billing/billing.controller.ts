@@ -22,8 +22,9 @@ export class BillingController {
 
   @Get("plans")
   @UseGuards(AuthGuard)
-  plans() {
-    return this.billing.plans();
+  plans(@Req() req: FastifyRequest) {
+    const platform = String(req.headers["x-veynlo-platform"] ?? "web");
+    return this.billing.plans(platform === "ios" || platform === "android");
   }
 
   @Post("checkout-session")

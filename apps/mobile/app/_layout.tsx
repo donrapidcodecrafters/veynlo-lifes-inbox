@@ -9,6 +9,7 @@ import { LockGate } from "@/components/lock-gate";
 import { PushRegistration } from "@/components/push-registration";
 import { NotificationCaptureDrain } from "@/components/notification-capture-drain";
 import { ShareIntentDrain } from "@/components/share-intent-drain";
+import { PurchasesSync } from "@/components/purchases-sync";
 
 function ThemedStack() {
   const { theme } = useAppTheme();
@@ -18,6 +19,7 @@ function ThemedStack() {
       <PushRegistration />
       <NotificationCaptureDrain />
       <ShareIntentDrain />
+      <PurchasesSync />
       <LockGate>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.bgCanvas } }} />
       </LockGate>
