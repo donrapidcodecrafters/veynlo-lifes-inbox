@@ -138,7 +138,14 @@ export class GoogleTasksAdapter {
 
     await this.db
       .update(schema.connections)
-      .set({ health: classifyPermissionHealth(connection.scopes, TASKS_SCOPES), lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, cursor: syncStartedAt })
+      .set({
+        health: classifyPermissionHealth(connection.scopes, TASKS_SCOPES),
+        lastSuccessfulSyncAt: new Date(),
+        itemsDiscoveredCount: itemCount,
+        cursor: syncStartedAt,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };
@@ -177,6 +184,8 @@ export class GoogleTasksAdapter {
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: syncStartedAt,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
       })
       .where(eq(schema.connections.id, connectionId));
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyConnectorError, classifyPermissionHealth, parseGrantedScopes } from "./connector-errors";
+import { classifyConnectorError, classifyPermissionHealth, parseGrantedScopes, extractRetryAfterMs } from "./connector-errors";
 
 describe("classifyConnectorError", () => {
   it("classifies a 429 as rate_limited", () => {
@@ -60,5 +60,31 @@ describe("classifyPermissionHealth", () => {
 
   it("defaults to healthy when nothing was ever captured — a connection from before this existed, or a token response that omitted scope, has no real signal to act on", () => {
     expect(classifyPermissionHealth([], ["gmail.readonly"])).toBe("healthy");
+  });
+});
+
+describe("extractRetryAfterMs", () => {
+  it("reads a directly-attached retryAfterHeader (the Microsoft adapters' raw-fetch shape)", () => {
+    expect(extractRetryAfterMs({ retryAfterHeader: "30" })).toBe(30_000);
+  });
+
+  it("reads a Headers-like object's retry-after header", () => {
+    const err = { response: { headers: new Headers({ "retry-after": "120" }) } };
+    expect(extractRetryAfterMs(err)).toBe(120_000);
+  });
+
+  it("reads a plain header-map object's retry-after header, case-insensitively", () => {
+    expect(extractRetryAfterMs({ response: { headers: { "Retry-After": "5" } } })).toBe(5_000);
+  });
+
+  it("caps an absurdly large value rather than letting a provider park a connection indefinitely", () => {
+    expect(extractRetryAfterMs({ retryAfterHeader: "999999" })).toBe(60 * 60 * 1000);
+  });
+
+  it("returns null for a missing/non-numeric/zero header rather than fabricating a wait", () => {
+    expect(extractRetryAfterMs({ retryAfterHeader: undefined })).toBeNull();
+    expect(extractRetryAfterMs({ retryAfterHeader: "not-a-number" })).toBeNull();
+    expect(extractRetryAfterMs({ retryAfterHeader: "0" })).toBeNull();
+    expect(extractRetryAfterMs(new Error("network failure"))).toBeNull();
   });
 });

@@ -22,7 +22,7 @@ import {
   type DataExportJobData,
   type DataRetentionScanJobData,
 } from "./queue/queue-names";
-import { classifyConnectorError } from "./modules/connectors/connector-errors";
+import { classifyConnectorError, extractRetryAfterMs } from "./modules/connectors/connector-errors";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { IcsAdapter } from "./modules/connectors/ics.adapter";
@@ -114,9 +114,19 @@ async function bootstrap() {
         // §54.2 launch criteria #6 — classify before recording, so the UI's already-built distinct badges
         // for rate_limited/reauth_required/provider_outage (previously dead states — everything landed on
         // "degraded" regardless of cause) actually reflect what went wrong.
+        const health = classifyConnectorError(err);
+        const retryAfterMs = health === "rate_limited" ? extractRetryAfterMs(err) : null;
         await db
           .update(schema.connections)
-          .set({ health: classifyConnectorError(err), healthDetail: String((err as Error)?.message ?? err) })
+          .set({
+            health,
+            healthDetail: String((err as Error)?.message ?? err),
+            // A real Retry-After only ever pushes the connector-scan recovery tick's eligibility further
+            // out than its flat cooldown would alone — see that query below and extractRetryAfterMs' own
+            // comment. Cleared (not left stale) on any non-rate_limited failure or success.
+            retryNotBeforeAt: retryAfterMs ? new Date(Date.now() + retryAfterMs) : null,
+            updatedAt: new Date(),
+          })
           .where(eq(schema.connections.id, connectionId));
         throw err; // let BullMQ's retry/backoff attempt again before giving up
       }
@@ -164,6 +174,10 @@ async function bootstrap() {
               and(
                 inArray(schema.connections.health, RECOVERABLE_CONNECTOR_HEALTH_STATES),
                 lte(schema.connections.updatedAt, new Date(Date.now() - CONNECTOR_RETRY_COOLDOWN_MS)),
+                // A captured Retry-After (rate_limited only — see the failure handler above) can push
+                // eligibility out further than the flat cooldown alone; null for anything else, which
+                // makes this condition vacuously true and leaves the flat cooldown as the sole gate.
+                or(isNull(schema.connections.retryNotBeforeAt), lte(schema.connections.retryNotBeforeAt, new Date())),
               ),
             ),
             isNull(schema.connections.disconnectedAt),

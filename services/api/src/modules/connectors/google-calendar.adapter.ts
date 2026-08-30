@@ -187,7 +187,14 @@ export class GoogleCalendarAdapter {
 
     await this.db
       .update(schema.connections)
-      .set({ health: classifyPermissionHealth(connection.scopes, CALENDAR_SCOPES), lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, cursor: nextSyncToken ?? null })
+      .set({
+        health: classifyPermissionHealth(connection.scopes, CALENDAR_SCOPES),
+        lastSuccessfulSyncAt: new Date(),
+        itemsDiscoveredCount: itemCount,
+        cursor: nextSyncToken ?? null,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };
@@ -233,6 +240,8 @@ export class GoogleCalendarAdapter {
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: nextSyncToken ?? connection.cursor,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
       })
       .where(eq(schema.connections.id, connectionId));
 

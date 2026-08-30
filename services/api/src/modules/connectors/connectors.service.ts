@@ -128,6 +128,7 @@ export class ConnectorsService {
           enabledCategories: params.enabledCategories,
           health: "initializing",
           healthDetail: null,
+          retryNotBeforeAt: null,
           historyDepthDays: params.historyDepthDays ?? null,
           credentialRef: null,
           updatedAt: new Date(),

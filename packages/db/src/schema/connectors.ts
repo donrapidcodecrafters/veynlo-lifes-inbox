@@ -17,6 +17,10 @@ export const connections = pgTable(
     enabledCategories: jsonb("enabled_categories").$type<string[]>().notNull().default([]),
     health: text("health").notNull().default("initializing"),
     healthDetail: encryptedText("health_detail"),
+    /** Set from a real `Retry-After` response header on a 429 — the connector-scan worker's recovery tick
+     * won't re-include this connection before this time, even if its flat cooldown window would otherwise
+     * allow it. Null when no provider-advertised wait was captured (the flat cooldown alone governs then). */
+    retryNotBeforeAt: timestamp("retry_not_before_at", { withTimezone: true }),
     lastSuccessfulSyncAt: timestamp("last_successful_sync_at", { withTimezone: true }),
     cursor: encryptedText("cursor"),
     historyDepthDays: integer("history_depth_days"),

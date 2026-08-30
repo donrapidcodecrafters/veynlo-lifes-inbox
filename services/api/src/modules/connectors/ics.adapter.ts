@@ -139,7 +139,7 @@ export class IcsAdapter {
 
     await this.db
       .update(schema.connections)
-      .set({ health: "healthy", lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount })
+      .set({ health: "healthy", lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, retryNotBeforeAt: null, updatedAt: new Date() })
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };

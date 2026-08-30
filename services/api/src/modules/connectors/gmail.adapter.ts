@@ -162,6 +162,8 @@ export class GmailAdapter {
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: itemCount,
         cursor: profile.data.historyId ?? null,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
       })
       .where(eq(schema.connections.id, connectionId));
 
@@ -243,6 +245,8 @@ export class GmailAdapter {
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: latestHistoryId,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
       })
       .where(eq(schema.connections.id, connectionId));
 

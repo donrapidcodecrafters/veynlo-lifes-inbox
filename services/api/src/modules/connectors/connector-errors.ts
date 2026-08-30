@@ -56,3 +56,35 @@ export function classifyPermissionHealth(grantedScopes: string[], requiredScopes
 export function parseGrantedScopes(scopeString: string | null | undefined): string[] {
   return scopeString ? scopeString.split(/\s+/).filter(Boolean) : [];
 }
+
+/** Upper bound on how long a single Retry-After can push the connector-scan worker's re-inclusion cooldown
+ * out — a provider returning a bogus or absurdly large value shouldn't be able to park a connection
+ * indefinitely; the user's own reconnect flow is always the real escape hatch regardless. */
+const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
+
+/** A 429's `Retry-After` header, per RFC 9110 §10.2.3, is either a delay in whole seconds or an HTTP-date
+ * — every real rate-limit response this codebase's providers send uses the numeric-seconds form, which is
+ * what this reads; an HTTP-date value (rare in practice for this header) is left unhandled rather than
+ * guessed at. Accepts either a Headers-like object (`.get()`) or a plain header map, since googleapis'
+ * underlying HTTP client and the Microsoft adapters' raw `fetch` responses don't expose the header the
+ * same way. Returns null when there's nothing real to act on — the caller falls back to the existing flat
+ * cooldown, never to a fabricated wait. */
+export function extractRetryAfterMs(err: unknown): number | null {
+  const headers = (err as { retryAfterHeader?: string })?.retryAfterHeader ?? readHeader(err, "retry-after");
+  if (!headers) return null;
+  const seconds = Number(headers);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
+function readHeader(err: unknown, name: string): string | null {
+  const headers = (err as { response?: { headers?: unknown } })?.response?.headers;
+  if (!headers) return null;
+  if (typeof (headers as { get?: unknown }).get === "function") {
+    return (headers as { get(name: string): string | null }).get(name);
+  }
+  const plain = headers as Record<string, string | string[] | undefined>;
+  const key = Object.keys(plain).find((k) => k.toLowerCase() === name.toLowerCase());
+  const value = key ? plain[key] : undefined;
+  return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+}

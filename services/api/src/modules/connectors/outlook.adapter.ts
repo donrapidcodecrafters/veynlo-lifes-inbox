@@ -150,6 +150,8 @@ export class OutlookAdapter {
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: itemCount,
         cursor: deltaLink,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
       })
       .where(eq(schema.connections.id, connectionId));
 
@@ -210,6 +212,8 @@ export class OutlookAdapter {
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: latestDeltaLink,
+        retryNotBeforeAt: null,
+        updatedAt: new Date(),
       })
       .where(eq(schema.connections.id, connectionId));
 
@@ -299,8 +303,9 @@ export class OutlookAdapter {
       response = await fetch(url, { headers: { authorization: `Bearer ${refreshed.accessToken}` } });
     }
     if (!response.ok) {
-      const err = new Error(`Microsoft Graph request failed: ${response.status} ${await response.text()}`) as Error & { status: number };
+      const err = new Error(`Microsoft Graph request failed: ${response.status} ${await response.text()}`) as Error & { status: number; retryAfterHeader?: string };
       err.status = response.status;
+      err.retryAfterHeader = response.headers.get("retry-after") ?? undefined;
       throw err;
     }
     return response.json() as Promise<T>;
