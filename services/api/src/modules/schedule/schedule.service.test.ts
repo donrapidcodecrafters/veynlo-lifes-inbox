@@ -3,6 +3,8 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { generateId } from "@veynlo/core";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { eq, inArray } from "drizzle-orm";
+import { HouseholdService } from "../household/household.service";
+import { SharingService } from "../shared/sharing.service";
 import { ScheduleService } from "./schedule.service";
 
 /**
@@ -14,10 +16,13 @@ import { ScheduleService } from "./schedule.service";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const db: Database = createDbClient(DATABASE_URL);
-const schedule = new ScheduleService(db, {} as never, {} as never, {} as never, {} as never);
+const households = new HouseholdService(db, {} as never, {} as never);
+const sharing = new SharingService(db);
+const schedule = new ScheduleService(db, households, {} as never, {} as never, sharing);
 
 const ownerId = generateId("user");
 const strangerId = generateId("user");
+const memberId = generateId("user");
 const householdId = generateId("household");
 const eventInHouseholdId = generateId("calendarEvent");
 const eventSoloId = generateId("calendarEvent");
@@ -26,8 +31,16 @@ beforeAll(async () => {
   await db.insert(schema.users).values([
     { id: ownerId, displayName: "Owner" },
     { id: strangerId, displayName: "Stranger" },
+    { id: memberId, displayName: "Household member" },
   ]);
   await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerId });
+  await db.insert(schema.householdMemberships).values({
+    id: generateId("membership"),
+    householdId,
+    userId: memberId,
+    role: "adult_member",
+    status: "active",
+  });
   await db.insert(schema.calendarEvents).values([
     {
       id: eventInHouseholdId,
@@ -51,9 +64,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(schema.resourceGrants).where(eq(schema.resourceGrants.resourceId, eventInHouseholdId));
   await db.delete(schema.calendarEvents).where(inArray(schema.calendarEvents.id, [eventInHouseholdId, eventSoloId]));
+  await db.delete(schema.householdMemberships).where(eq(schema.householdMemberships.userId, memberId));
   await db.delete(schema.households).where(eq(schema.households.id, householdId));
-  await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId]));
+  await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId, memberId]));
 });
 
 describe("ScheduleService.setEventVisibility", () => {
@@ -77,5 +92,43 @@ describe("ScheduleService.setEventVisibility", () => {
     await schedule.setEventVisibility(eventInHouseholdId, ownerId, "private");
     [row] = await db.select({ visibility: schema.calendarEvents.visibility }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventInHouseholdId));
     expect(row?.visibility).toBe("private");
+  });
+});
+
+/**
+ * SHARE-001 "direct object sharing to a specific household member" — resource_grants existed and was read
+ * by packages/authz/policy.ts but never written anywhere. Real DB-backed proof of the full loop: grant,
+ * a real access check that only passes because of the grant (the event is "private" — household-wide
+ * delegation would NOT let this member in), then revoke removes access again.
+ */
+describe("ScheduleService — direct object grants (SHARE-001)", () => {
+  it("refuses granting to someone who isn't an active household member", async () => {
+    await expect(schedule.shareEventWithMember(eventInHouseholdId, ownerId, strangerId)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("refuses granting to yourself", async () => {
+    await expect(schedule.shareEventWithMember(eventInHouseholdId, ownerId, ownerId)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("a stranger with no grant cannot see the private event", async () => {
+    expect(await schedule.eventDetail(eventInHouseholdId, strangerId)).toBeNull();
+  });
+
+  it("a real grant lets a specific member see an otherwise-private event, and revoking it removes access again", async () => {
+    // Confirms the event is genuinely private first — otherwise this proves nothing about the grant itself.
+    const [before] = await db.select({ visibility: schema.calendarEvents.visibility }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventInHouseholdId));
+    expect(before?.visibility).toBe("private");
+
+    expect(await schedule.eventDetail(eventInHouseholdId, memberId)).toBeNull();
+
+    const { id: grantId } = await schedule.shareEventWithMember(eventInHouseholdId, ownerId, memberId);
+    const detail = await schedule.eventDetail(eventInHouseholdId, memberId);
+    expect(detail?.event.id).toBe(eventInHouseholdId);
+
+    const grants = await schedule.listEventMemberGrants(eventInHouseholdId, ownerId);
+    expect(grants.map((g) => g.id)).toContain(grantId);
+
+    await schedule.revokeEventMemberAccess(eventInHouseholdId, ownerId, grantId);
+    expect(await schedule.eventDetail(eventInHouseholdId, memberId)).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { randomBytes, createHash } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { generateId, canCreateShareLink, type SensitivityTier } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -109,5 +109,57 @@ export class SharingService {
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.shareLinks.id, shareLinkId), eq(schema.shareLinks.createdByUserId, userId), isNull(schema.shareLinks.revokedAt)));
     await this.recordAudit(userId, "share.revoke", "share_link", shareLinkId);
+  }
+
+  /**
+   * SHARE-001 "direct object sharing to a specific household member" — resource_grants existed and was
+   * READ by packages/authz/policy.ts's resolveAccess, but nothing anywhere ever wrote a row to it; this is
+   * that writer. Distinct from a share link (a long-lived bearer token anyone with the URL can use) — this
+   * grants one specific account real, revocable access. Caller is responsible for its own ownership check
+   * and for validating granteeUserId is a real active member of the resource's household, same "caller
+   * already checked" contract as createShareLink/revokeShareLinks above.
+   */
+  async grantAccess(resourceType: string, resourceId: string, granteeUserId: string, grantedByUserId: string): Promise<{ id: string }> {
+    const id = generateId("resourceGrant");
+    await this.db.insert(schema.resourceGrants).values({ id, resourceType, resourceId, granteeUserId, right: "view", grantedByUserId });
+    await this.recordAudit(grantedByUserId, "share.grant", resourceType, resourceId);
+    return { id };
+  }
+
+  /** Only the grant's original creator can revoke it — mirrors revokeShareLinkById's own creator-scoped shape. */
+  async revokeGrant(grantId: string, userId: string): Promise<void> {
+    await this.db
+      .update(schema.resourceGrants)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(schema.resourceGrants.id, grantId), eq(schema.resourceGrants.grantedByUserId, userId), isNull(schema.resourceGrants.revokedAt)));
+    await this.recordAudit(userId, "share.revoke_grant", "resource_grant", grantId);
+  }
+
+  async listGrants(resourceType: string, resourceId: string) {
+    return this.db
+      .select()
+      .from(schema.resourceGrants)
+      .where(and(eq(schema.resourceGrants.resourceType, resourceType), eq(schema.resourceGrants.resourceId, resourceId), isNull(schema.resourceGrants.revokedAt)));
+  }
+
+  /** The real enforcement side — a domain service's own read-access check calls this alongside its
+   * existing owner/household-delegate checks to decide whether a specific non-owner user can view this
+   * exact resource. */
+  async hasActiveGrant(resourceType: string, resourceId: string, granteeUserId: string): Promise<boolean> {
+    const now = new Date();
+    const [row] = await this.db
+      .select({ id: schema.resourceGrants.id })
+      .from(schema.resourceGrants)
+      .where(
+        and(
+          eq(schema.resourceGrants.resourceType, resourceType),
+          eq(schema.resourceGrants.resourceId, resourceId),
+          eq(schema.resourceGrants.granteeUserId, granteeUserId),
+          isNull(schema.resourceGrants.revokedAt),
+          or(isNull(schema.resourceGrants.expiresAt), gt(schema.resourceGrants.expiresAt, now)),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
   }
 }

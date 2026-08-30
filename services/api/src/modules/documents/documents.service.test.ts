@@ -5,6 +5,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { eq, inArray } from "drizzle-orm";
 import { HouseholdService } from "../household/household.service";
 import { SearchIndexService } from "../search/search-index.service";
+import { SharingService } from "../shared/sharing.service";
 import { DocumentsService } from "./documents.service";
 
 /**
@@ -17,14 +18,17 @@ const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_p
 const db: Database = createDbClient(DATABASE_URL);
 const households = new HouseholdService(db, {} as never, {} as never);
 const searchIndex = new SearchIndexService(db);
-const documents = new DocumentsService(db, {} as never, {} as never, {} as never, households, {} as never, searchIndex, {} as never);
+const sharing = new SharingService(db);
+const documents = new DocumentsService(db, {} as never, {} as never, {} as never, households, sharing, searchIndex, {} as never);
 
 const ownerId = generateId("user");
 const strangerId = generateId("user");
 const delegateId = generateId("user");
+const memberId = generateId("user");
 const householdId = generateId("household");
 const docInHouseholdId = generateId("document");
 const docSoloId = generateId("document");
+const docPrivateId = generateId("document");
 const delegationId = generateId("caregiverDelegation");
 
 beforeAll(async () => {
@@ -32,11 +36,14 @@ beforeAll(async () => {
     { id: ownerId, displayName: "Owner" },
     { id: strangerId, displayName: "Stranger" },
     { id: delegateId, displayName: "Delegate" },
+    { id: memberId, displayName: "Household member" },
   ]);
   await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerId });
+  await db.insert(schema.householdMemberships).values({ id: generateId("membership"), householdId, userId: memberId, role: "adult_member", status: "active" });
   await db.insert(schema.documents).values([
     { id: docInHouseholdId, ownerUserId: ownerId, householdId, documentType: "receipt", title: "Household doc", tags: [], visibility: "household" },
     { id: docSoloId, ownerUserId: ownerId, householdId: null, documentType: "receipt", title: "Solo doc", tags: [] },
+    { id: docPrivateId, ownerUserId: ownerId, householdId, documentType: "receipt", title: "Private doc", tags: [], visibility: "private" },
   ]);
   await db.insert(schema.caregiverDelegations).values({
     id: delegationId,
@@ -48,10 +55,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(schema.resourceGrants).where(eq(schema.resourceGrants.resourceId, docPrivateId));
   await db.delete(schema.caregiverDelegations).where(eq(schema.caregiverDelegations.id, delegationId));
-  await db.delete(schema.documents).where(inArray(schema.documents.id, [docInHouseholdId, docSoloId]));
+  await db.delete(schema.documents).where(inArray(schema.documents.id, [docInHouseholdId, docSoloId, docPrivateId]));
+  await db.delete(schema.householdMemberships).where(eq(schema.householdMemberships.userId, memberId));
   await db.delete(schema.households).where(eq(schema.households.id, householdId));
-  await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId, delegateId]));
+  await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId, delegateId, memberId]));
 });
 
 describe("DocumentsService.setVisibility", () => {
@@ -111,5 +120,40 @@ describe("DocumentsService — read-only delegate cannot mutate (privilege-escal
 
   it("the real owner is completely unaffected by the fix", async () => {
     await expect(documents.updateMetadata(docInHouseholdId, ownerId, { title: "Household doc" })).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * SHARE-001 "direct object sharing to a specific household member" — resource_grants existed and was read
+ * by packages/authz/policy.ts but never written anywhere. Real DB-backed proof of the full loop against a
+ * "private" document — household-wide delegation would NOT let this member in, so success here proves the
+ * grant itself is what's doing the work, not some other access path.
+ */
+describe("DocumentsService — direct object grants (SHARE-001)", () => {
+  it("refuses granting to someone who isn't an active household member", async () => {
+    await expect(documents.shareWithMember(docPrivateId, ownerId, strangerId)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("refuses granting to yourself", async () => {
+    await expect(documents.shareWithMember(docPrivateId, ownerId, ownerId)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("refuses a non-owner trying to grant access to their own document", async () => {
+    await expect(documents.shareWithMember(docPrivateId, memberId, memberId)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("a household member with no grant cannot read the private document", async () => {
+    await expect(documents.listVersions(docPrivateId, memberId)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("a real grant lets a specific member read an otherwise-private document, and revoking it removes access again", async () => {
+    const { id: grantId } = await documents.shareWithMember(docPrivateId, ownerId, memberId);
+    await expect(documents.listVersions(docPrivateId, memberId)).resolves.toBeDefined();
+
+    const grants = await documents.listMemberGrants(docPrivateId, ownerId);
+    expect(grants.map((g) => g.id)).toContain(grantId);
+
+    await documents.revokeMemberAccess(docPrivateId, ownerId, grantId);
+    await expect(documents.listVersions(docPrivateId, memberId)).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

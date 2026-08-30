@@ -88,7 +88,10 @@ export class ScheduleService {
     if (!event) return null;
     if (event.ownerUserId !== userId) {
       const householdIds = event.householdId ? await this.households.delegatedHouseholdIds(userId, "schedule:read") : [];
-      if (!event.householdId || !householdIds.includes(event.householdId) || event.visibility === "private") return null;
+      const householdAllowed = event.householdId && householdIds.includes(event.householdId) && event.visibility !== "private";
+      // SHARE-001 direct object grant — works regardless of visibility/household-delegation, same reasoning
+      // as DocumentsService's identical extension.
+      if (!householdAllowed && !(await this.sharing.hasActiveGrant("calendar_event", eventId, userId))) return null;
     }
     return { event, evidence: await this.evidenceViaInboxItem("calendar_event", eventId) };
   }
@@ -132,6 +135,49 @@ export class ScheduleService {
       });
     }
     await this.db.update(schema.calendarEvents).set({ visibility, updatedAt: new Date() }).where(eq(schema.calendarEvents.id, eventId));
+  }
+
+  /**
+   * SHARE-001 "direct object sharing to a specific household member" — same shape as DocumentsService's
+   * identical method. Grants one named household member view access regardless of the event's own
+   * visibility setting; grantee must be a real active member of the same household.
+   */
+  async shareEventWithMember(eventId: string, userId: string, granteeUserId: string) {
+    const [event] = await this.db
+      .select({ ownerUserId: schema.calendarEvents.ownerUserId, householdId: schema.calendarEvents.householdId })
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.id, eventId))
+      .limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+    if (!event.householdId) {
+      throw new BadRequestException({ code: "NO_HOUSEHOLD", message: "This account isn't part of a household yet, so there's no one to share this with." });
+    }
+    if (granteeUserId === userId) {
+      throw new BadRequestException({ code: "SELF_GRANT", message: "You already have access to your own event." });
+    }
+    const [membership] = await this.db
+      .select({ id: schema.householdMemberships.id })
+      .from(schema.householdMemberships)
+      .where(and(eq(schema.householdMemberships.householdId, event.householdId), eq(schema.householdMemberships.userId, granteeUserId), eq(schema.householdMemberships.status, "active")));
+    if (!membership) {
+      throw new BadRequestException({ code: "NOT_A_MEMBER", message: "That person isn't an active member of your household." });
+    }
+    return this.sharing.grantAccess("calendar_event", eventId, granteeUserId, userId);
+  }
+
+  async revokeEventMemberAccess(eventId: string, userId: string, grantId: string) {
+    const [event] = await this.db.select({ ownerUserId: schema.calendarEvents.ownerUserId }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+    await this.sharing.revokeGrant(grantId, userId);
+  }
+
+  async listEventMemberGrants(eventId: string, userId: string) {
+    const [event] = await this.db.select({ ownerUserId: schema.calendarEvents.ownerUserId }).from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+    return this.sharing.listGrants("calendar_event", eventId);
   }
 
   /**

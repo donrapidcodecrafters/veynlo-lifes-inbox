@@ -46,6 +46,22 @@ export class ScheduleController {
     return { ok: true };
   }
 
+  @Get("events/:id/grants")
+  listEventGrants(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.schedule.listEventMemberGrants(id, user.userId);
+  }
+
+  @Post("events/:id/grants")
+  grantEventMember(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("granteeUserId") granteeUserId: string) {
+    return this.schedule.shareEventWithMember(id, user.userId, granteeUserId);
+  }
+
+  @Post("events/:id/grants/:grantId/revoke")
+  async revokeEventGrant(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Param("grantId") grantId: string) {
+    await this.schedule.revokeEventMemberAccess(id, user.userId, grantId);
+    return { ok: true };
+  }
+
   @Get("schedule/conflicts")
   conflicts(@CurrentUser() user: AuthenticatedUser) {
     return this.schedule.detectConflicts(user.userId);

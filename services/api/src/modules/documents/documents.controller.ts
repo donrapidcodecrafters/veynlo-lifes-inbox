@@ -86,6 +86,22 @@ export class DocumentsController {
     return { ok: true };
   }
 
+  @Get(":id/grants")
+  listGrants(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.documents.listMemberGrants(id, user.userId);
+  }
+
+  @Post(":id/grants")
+  grantMember(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("granteeUserId") granteeUserId: string) {
+    return this.documents.shareWithMember(id, user.userId, granteeUserId);
+  }
+
+  @Post(":id/grants/:grantId/revoke")
+  async revokeGrant(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Param("grantId") grantId: string) {
+    await this.documents.revokeMemberAccess(id, user.userId, grantId);
+    return { ok: true };
+  }
+
   @Post("export")
   async exportPacket(@CurrentUser() user: AuthenticatedUser, @Body("documentIds") documentIds: string[], @Res() res: FastifyReply) {
     if (!Array.isArray(documentIds) || documentIds.length === 0) {

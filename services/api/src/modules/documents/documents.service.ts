@@ -413,6 +413,41 @@ export class DocumentsService {
   }
 
   /**
+   * SHARE-001 "direct object sharing to a specific household member" — distinct from setVisibility's
+   * household-wide toggle: grants exactly one named household member view access, regardless of whether
+   * the document is "private" or "household" visible. Owner-only (assertDocumentOwner), grantee must be a
+   * real active member of the SAME household the document belongs to — sharing outside your own household
+   * isn't offered here (that's what the public share link is for).
+   */
+  async shareWithMember(documentId: string, userId: string, granteeUserId: string) {
+    const document = await this.assertDocumentOwner(documentId, userId);
+    if (!document.householdId) {
+      throw new BadRequestException({ code: "NO_HOUSEHOLD", message: "This account isn't part of a household yet, so there's no one to share this with." });
+    }
+    if (granteeUserId === userId) {
+      throw new BadRequestException({ code: "SELF_GRANT", message: "You already have access to your own document." });
+    }
+    const [membership] = await this.db
+      .select({ id: schema.householdMemberships.id })
+      .from(schema.householdMemberships)
+      .where(and(eq(schema.householdMemberships.householdId, document.householdId), eq(schema.householdMemberships.userId, granteeUserId), eq(schema.householdMemberships.status, "active")));
+    if (!membership) {
+      throw new BadRequestException({ code: "NOT_A_MEMBER", message: "That person isn't an active member of your household." });
+    }
+    return this.sharing.grantAccess("document", documentId, granteeUserId, userId);
+  }
+
+  async revokeMemberAccess(documentId: string, userId: string, grantId: string) {
+    await this.assertDocumentOwner(documentId, userId);
+    await this.sharing.revokeGrant(grantId, userId);
+  }
+
+  async listMemberGrants(documentId: string, userId: string) {
+    await this.assertDocumentOwner(documentId, userId);
+    return this.sharing.listGrants("document", documentId);
+  }
+
+  /**
    * DOC-007 "export packet" — a user-selected ZIP bundle of original files, for insurance/taxes/travel/
    * home-sale/etc. Bounded scope: the original-file bundle only (a "ZIP/PDF index packet" summary document
    * isn't attempted — that would mean generating a real PDF report, a separate, larger feature). Skips
@@ -559,14 +594,13 @@ export class DocumentsService {
   private async assertOwnedDocument(documentId: string, userId: string) {
     const [doc] = await this.db.select().from(schema.documents).where(eq(schema.documents.id, documentId)).limit(1);
     if (!doc) throw new NotFoundException({ code: "DOCUMENT_NOT_FOUND", message: "Not found." });
-    if (doc.ownerUserId !== userId) {
-      const householdIds =
-        doc.householdId && doc.visibility !== "private" ? await this.households.delegatedHouseholdIds(userId, "documents:read") : [];
-      if (!doc.householdId || !householdIds.includes(doc.householdId)) {
-        throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
-      }
-    }
-    return doc;
+    if (doc.ownerUserId === userId) return doc;
+    const householdIds = doc.householdId && doc.visibility !== "private" ? await this.households.delegatedHouseholdIds(userId, "documents:read") : [];
+    if (doc.householdId && householdIds.includes(doc.householdId)) return doc;
+    // SHARE-001 direct object grant — works regardless of visibility/household-delegation, since a specific
+    // named grant is a stronger, more targeted authorization than either of those.
+    if (await this.sharing.hasActiveGrant("document", documentId, userId)) return doc;
+    throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
   }
 
   /**
