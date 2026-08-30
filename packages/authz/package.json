@@ -20,7 +20,7 @@
   "dependencies": {
     "@veynlo/core": "workspace:*",
     "@veynlo/db": "workspace:*",
-    "drizzle-orm": "^0.38.3"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
