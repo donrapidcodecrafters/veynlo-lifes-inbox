@@ -153,7 +153,15 @@ export class MicrosoftCalendarAdapter {
    * push on explicit user action, create-or-update by `providerEventId`, not continuous two-way sync. */
   async pushEvent(
     connectionId: string,
-    event: { providerEventId: string | null; title: string; start: TemporalValue; end: TemporalValue | null; isAllDay: boolean; location: string | null },
+    event: {
+      providerEventId: string | null;
+      title: string;
+      start: TemporalValue;
+      end: TemporalValue | null;
+      isAllDay: boolean;
+      location: string | null;
+      reminderMinutesBefore: number | null;
+    },
   ): Promise<{ providerEventId: string }> {
     const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
     if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
@@ -164,6 +172,8 @@ export class MicrosoftCalendarAdapter {
       start: fromTemporal(event.start, event.isAllDay),
       end: fromTemporal(event.end ?? event.start, event.isAllDay),
       location: event.location ? { displayName: event.location } : undefined,
+      isReminderOn: event.reminderMinutesBefore != null,
+      reminderMinutesBeforeStart: event.reminderMinutesBefore ?? undefined,
     };
     const result = event.providerEventId
       ? await this.graphWrite<{ id: string }>(connection, `${GRAPH_BASE}/me/events/${event.providerEventId}`, "PATCH", body)

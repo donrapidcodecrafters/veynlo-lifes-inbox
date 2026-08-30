@@ -188,7 +188,18 @@ export class ScheduleService {
    * previous push, or because this event was itself synced FROM that same provider) means this updates in
    * place instead of creating a duplicate event on the provider's side.
    */
-  async pushEventToCalendar(eventId: string, userId: string): Promise<{ provider: string; providerEventId: string }> {
+  /** CAL-002 — `destinationProvider` lets the caller choose which connected calendar receives the push
+   * when more than one is connected (previously always silently preferred Google over Microsoft with no
+   * way to choose otherwise); omitted, it falls back to that same Google-first default for backward
+   * compatibility. `reminderMinutesBefore` sets a real alert on the created/updated event — previously
+   * never set at all, so a pushed event relied entirely on the destination calendar's own generic default
+   * (or none), regardless of how time-sensitive the underlying Veynlo item (a return deadline, a bill due
+   * date) actually was. `null`/omitted defers to the destination calendar's own default reminders. */
+  async pushEventToCalendar(
+    eventId: string,
+    userId: string,
+    options: { destinationProvider?: "google_calendar" | "microsoft_calendar"; reminderMinutesBefore?: number | null } = {},
+  ): Promise<{ provider: string; providerEventId: string }> {
     const [event] = await this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
     if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
     if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
@@ -208,6 +219,12 @@ export class ScheduleService {
     if (!googleConnection && !microsoftConnection) {
       throw new BadRequestException({ code: "NO_CALENDAR_CONNECTION", message: "Connect Google or Microsoft Calendar first to push events there." });
     }
+    if (options.destinationProvider === "google_calendar" && !googleConnection) {
+      throw new BadRequestException({ code: "NO_CALENDAR_CONNECTION", message: "Connect Google Calendar first to push events there." });
+    }
+    if (options.destinationProvider === "microsoft_calendar" && !microsoftConnection) {
+      throw new BadRequestException({ code: "NO_CALENDAR_CONNECTION", message: "Connect Microsoft Calendar first to push events there." });
+    }
 
     const pushArgs = {
       providerEventId: event.providerEventId,
@@ -216,9 +233,11 @@ export class ScheduleService {
       end: event.end,
       isAllDay: event.isAllDay,
       location: event.location,
+      reminderMinutesBefore: options.reminderMinutesBefore ?? null,
     };
-    const [provider, result] = googleConnection
-      ? ["google_calendar", await this.googleCalendar.pushEvent(googleConnection.id, pushArgs)]
+    const useGoogle = options.destinationProvider ? options.destinationProvider === "google_calendar" : Boolean(googleConnection);
+    const [provider, result] = useGoogle
+      ? ["google_calendar", await this.googleCalendar.pushEvent(googleConnection!.id, pushArgs)]
       : ["microsoft_calendar", await this.microsoftCalendar.pushEvent(microsoftConnection!.id, pushArgs)];
 
     await this.db.update(schema.calendarEvents).set({ providerEventId: result.providerEventId, updatedAt: new Date() }).where(eq(schema.calendarEvents.id, eventId));

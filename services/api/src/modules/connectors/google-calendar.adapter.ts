@@ -121,7 +121,15 @@ export class GoogleCalendarAdapter {
    */
   async pushEvent(
     connectionId: string,
-    event: { providerEventId: string | null; title: string; start: TemporalValue; end: TemporalValue | null; isAllDay: boolean; location: string | null },
+    event: {
+      providerEventId: string | null;
+      title: string;
+      start: TemporalValue;
+      end: TemporalValue | null;
+      isAllDay: boolean;
+      location: string | null;
+      reminderMinutesBefore: number | null;
+    },
   ): Promise<{ providerEventId: string }> {
     const { calendar } = await this.client(connectionId);
     const body: calendar_v3.Schema$Event = {
@@ -129,6 +137,10 @@ export class GoogleCalendarAdapter {
       location: event.location ?? undefined,
       start: fromTemporal(event.start, event.isAllDay),
       end: fromTemporal(event.end ?? event.start, event.isAllDay),
+      reminders:
+        event.reminderMinutesBefore != null
+          ? { useDefault: false, overrides: [{ method: "popup", minutes: event.reminderMinutesBefore }] }
+          : { useDefault: true },
     };
     if (event.providerEventId) {
       const updated = await calendar.events.update({ calendarId: "primary", eventId: event.providerEventId, requestBody: body });

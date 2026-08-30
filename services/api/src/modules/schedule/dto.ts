@@ -17,3 +17,17 @@ export const UpdateTaskDtoSchema = z.object({
   recurrenceRule: z.string().max(200).nullable().optional(),
 });
 export type UpdateTaskDto = z.infer<typeof UpdateTaskDtoSchema>;
+
+// CAL-002 — both optional: omitted destinationProvider keeps the existing Google-first default when more
+// than one calendar is connected; omitted/null reminderMinutesBefore defers to the destination calendar's
+// own default reminders rather than forcing one. `z.preprocess` normalizes a genuinely bodyless request
+// (Fastify gives `undefined`, not `{}`, when no body/JSON content-type is sent) to an empty object first,
+// so this route stays callable with no payload at all, matching its pre-existing behavior.
+export const PushEventToCalendarDtoSchema = z.preprocess(
+  (value) => value ?? {},
+  z.object({
+    destinationProvider: z.enum(["google_calendar", "microsoft_calendar"]).optional(),
+    reminderMinutesBefore: z.number().int().min(0).max(40320).nullable().optional(), // 40320min = 28 days, Google Calendar's own max
+  }),
+);
+export type PushEventToCalendarDto = z.infer<typeof PushEventToCalendarDtoSchema>;

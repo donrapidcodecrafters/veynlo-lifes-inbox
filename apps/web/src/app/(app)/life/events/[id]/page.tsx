@@ -115,7 +115,10 @@ export default function EventDetailPage() {
     setSyncing(true);
     setSyncMessage(null);
     try {
-      const result = await api.post<{ provider: string; providerEventId: string }>(`/v1/events/${id}/push-to-calendar`);
+      // A pushed event gets a real reminder rather than relying entirely on the destination calendar's
+      // own generic default — the whole point of syncing a Veynlo-tracked event (a return deadline, a
+      // bill due date) is making sure it's not missed.
+      const result = await api.post<{ provider: string; providerEventId: string }>(`/v1/events/${id}/push-to-calendar`, { reminderMinutesBefore: 60 });
       setSyncMessage(`Synced to ${result.provider === "google_calendar" ? "Google Calendar" : "Outlook Calendar"}.`);
       mutate();
     } catch (err) {

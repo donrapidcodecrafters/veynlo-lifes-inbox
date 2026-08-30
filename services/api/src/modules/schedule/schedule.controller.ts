@@ -4,7 +4,7 @@ import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ScheduleService } from "./schedule.service";
-import { CreateTaskDtoSchema, type CreateTaskDto, UpdateTaskDtoSchema, type UpdateTaskDto } from "./dto";
+import { CreateTaskDtoSchema, type CreateTaskDto, UpdateTaskDtoSchema, type UpdateTaskDto, PushEventToCalendarDtoSchema, type PushEventToCalendarDto } from "./dto";
 
 @Controller("v1")
 @UseGuards(AuthGuard)
@@ -22,8 +22,9 @@ export class ScheduleController {
   }
 
   @Post("events/:id/push-to-calendar")
-  pushEventToCalendar(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
-    return this.schedule.pushEventToCalendar(id, user.userId);
+  @UsePipes(new ZodValidationPipe(PushEventToCalendarDtoSchema))
+  pushEventToCalendar(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: PushEventToCalendarDto = {}) {
+    return this.schedule.pushEventToCalendar(id, user.userId, dto);
   }
 
   @Post("events/:id/share")
