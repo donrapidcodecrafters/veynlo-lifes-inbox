@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { swrFetcher, api } from "@/lib/api-client";
+import { useBackfillStatus } from "@/lib/use-backfill-status";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,8 +89,11 @@ const SNOOZE_OPTIONS = [
 const TODAY_KIND_LABEL: Record<TodayItem["kind"], string> = { event: "Event", task: "Task", bill: "Bill" };
 
 export default function HomePage() {
-  const { data, isLoading, mutate } = useSWR<HomeResponse>("/v1/home", swrFetcher);
-  const { data: today } = useSWR<TodayResponse>("/v1/home/today", swrFetcher);
+  const backfilling = useBackfillStatus();
+  const { data, isLoading, mutate } = useSWR<HomeResponse>("/v1/home", swrFetcher, {
+    refreshInterval: backfilling ? 4000 : 0,
+  });
+  const { data: today } = useSWR<TodayResponse>("/v1/home/today", swrFetcher, { refreshInterval: backfilling ? 4000 : 0 });
   const { data: households } = useSWR<HouseholdMembership[]>("/v1/households", swrFetcher);
   const householdId = households?.[0]?.household.id ?? null;
   const { data: members } = useSWR<Member[]>(householdId ? `/v1/households/${householdId}/members` : null, swrFetcher);
@@ -167,6 +171,10 @@ export default function HomePage() {
           Needs You
         </h2>
 
+        {!isLoading && backfilling && data && data.items.length > 0 && (
+          <p className="mb-3 text-sm text-tertiary">Still reading through what you connected — more may appear shortly.</p>
+        )}
+
         {isLoading && (
           <div className="space-y-3">
             {[0, 1].map((i) => (
@@ -175,7 +183,14 @@ export default function HomePage() {
           </div>
         )}
 
-        {!isLoading && data?.caughtUp && (
+        {!isLoading && data?.caughtUp && backfilling && (
+          <EmptyState
+            title="Still going through what you connected."
+            description="Veynlo is reading through your history now — anything worth your attention will show up here automatically as it's found, no need to refresh."
+          />
+        )}
+
+        {!isLoading && data?.caughtUp && !backfilling && (
           <EmptyState
             title={data.degraded ? "Nothing else needs attention from the sources currently available." : "You're caught up."}
             description={

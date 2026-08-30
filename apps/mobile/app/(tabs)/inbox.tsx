@@ -3,6 +3,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native"
 import { useFocusEffect } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
+import { useBackfillStatus } from "@/lib/use-backfill-status";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -114,6 +115,7 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
 
 export default function InboxScreen() {
   const { theme } = useAppTheme();
+  const backfilling = useBackfillStatus();
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -141,6 +143,14 @@ export default function InboxScreen() {
       load();
     }, [load]),
   );
+
+  // §54.2 launch criteria #2 — same rationale as Home: keep the list live while a connection is still
+  // backfilling, since useFocusEffect alone only refetches on tab-switch, not while sitting on this tab.
+  useEffect(() => {
+    if (!backfilling) return;
+    const interval = setInterval(load, 4000);
+    return () => clearInterval(interval);
+  }, [backfilling, load]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -284,11 +294,22 @@ export default function InboxScreen() {
         </Card>
       )}
 
-      {items?.length === 0 && (
+      {items?.length === 0 && backfilling && (
+        <EmptyState
+          title="Still going through what you connected."
+          description="Veynlo is reading through your history now — anything it finds will show up here automatically."
+        />
+      )}
+
+      {items?.length === 0 && !backfilling && (
         <EmptyState
           title="You're caught up."
           description="New receipts, bills, appointments, and other discoveries will show up here for a quick review."
         />
+      )}
+
+      {items && items.length > 0 && backfilling && (
+        <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Still reading through what you connected — more may appear shortly.</Text>
       )}
 
       {items && items.length > 0 && (

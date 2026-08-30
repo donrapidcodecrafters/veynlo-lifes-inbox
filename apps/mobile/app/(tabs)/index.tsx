@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { api } from "@/lib/api-client";
+import { useBackfillStatus } from "@/lib/use-backfill-status";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -81,6 +82,7 @@ const TODAY_KIND_LABEL: Record<TodayItem["kind"], string> = { event: "Event", ta
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();
+  const backfilling = useBackfillStatus();
   const [data, setData] = useState<HomeResponse | null>(null);
   const [today, setToday] = useState<TodayItem[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -108,6 +110,14 @@ export default function HomeScreen() {
       load();
     }, [load]),
   );
+
+  // §54.2 launch criteria #2 — while a connection is still backfilling, new items keep landing here with
+  // no user action; useFocusEffect alone only refetches on tab-switch, not while sitting on this tab.
+  useEffect(() => {
+    if (!backfilling) return;
+    const interval = setInterval(load, 4000);
+    return () => clearInterval(interval);
+  }, [backfilling, load]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -176,7 +186,14 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {data?.caughtUp && (
+      {data?.caughtUp && backfilling && (
+        <EmptyState
+          title="Still going through what you connected."
+          description="Veynlo is reading through your history now — anything worth your attention will show up here automatically, no need to refresh."
+        />
+      )}
+
+      {data?.caughtUp && !backfilling && (
         <EmptyState
           title={data.degraded ? "Nothing else needs attention from the sources currently available." : "You're caught up."}
           description={
@@ -185,6 +202,10 @@ export default function HomeScreen() {
               : "Nothing needs your attention right now. Connect an account or add something to find more."
           }
         />
+      )}
+
+      {data && data.items.length > 0 && backfilling && (
+        <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Still reading through what you connected — more may appear shortly.</Text>
       )}
 
       {data && data.items.length > 0 && (

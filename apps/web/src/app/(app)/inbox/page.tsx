@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import useSWR from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { invalidateDomainCaches, useDomainCacheInvalidation } from "@/lib/cache-invalidation";
+import { useBackfillStatus } from "@/lib/use-backfill-status";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -134,6 +135,7 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
 };
 
 export default function InboxPage() {
+  const backfilling = useBackfillStatus();
   const [filter, setFilter] = useState<FilterTab>("needs_review");
   const [category, setCategory] = useState("");
   const [correctingId, setCorrectingId] = useState<string | null>(null);
@@ -167,6 +169,15 @@ export default function InboxPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // §54.2 launch criteria #2 — while a connection is still backfilling, new items keep landing here with
+  // no user action; without this, the list would sit frozen at whatever it looked like on first render
+  // until the user happens to navigate away and back.
+  useEffect(() => {
+    if (!backfilling) return;
+    const interval = setInterval(refresh, 4000);
+    return () => clearInterval(interval);
+  }, [backfilling, refresh]);
 
   async function loadMore() {
     if (!cursor) return;
@@ -304,11 +315,22 @@ export default function InboxPage() {
         </div>
       )}
 
-      {!isLoading && items.length === 0 && (
+      {!isLoading && items.length === 0 && backfilling && (
+        <EmptyState
+          title="Still going through what you connected."
+          description="Veynlo is reading through your history now — anything it finds will show up here automatically, no need to refresh."
+        />
+      )}
+
+      {!isLoading && items.length === 0 && !backfilling && (
         <EmptyState
           title="You're caught up."
           description="New receipts, bills, appointments, and other discoveries will show up here for a quick review before they're filed."
         />
+      )}
+
+      {!isLoading && items.length > 0 && backfilling && (
+        <p className="text-sm text-tertiary">Still reading through what you connected — more may appear shortly.</p>
       )}
 
       {!isLoading && items.length > 0 && (
