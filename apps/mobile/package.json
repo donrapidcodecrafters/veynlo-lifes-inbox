@@ -32,6 +32,7 @@
     "expo-router": "~57.0.17",
     "expo-secure-store": "~57.0.2",
     "expo-share-extension": "^5.0.6",
+    "expo-share-intent": "^8.0.1",
     "expo-sharing": "~57.0.16",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",

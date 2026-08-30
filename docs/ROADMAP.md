@@ -1327,3 +1327,61 @@ still open:
   Test account deleted afterward. **Not attempted**: distributed tracing (OpenTelemetry spans) and any
   actual dashboard/alerting backend — both are real "which vendor/self-hosted stack" business decisions,
   not a code gap this pass could close on its own, same category as backup/restore strategy.
+
+- **Twenty-second gap-closing pass (2026-08-30): re-audit against the actual spec doc, not this file.**
+  The user correctly called out that a prior "MVP is 100% done" declaration only checked ROADMAP.md's own
+  running tracking against itself, not the real uploaded spec (`spec/Life_Inbox_Master_Spec.txt`). Re-read
+  §52.1 ("MVP — prove the promise", the authoritative 11-row Area/requirement table) and §54.2 (launch
+  acceptance criteria) directly and found four real, previously-uncounted gaps. All four closed and
+  verified this pass:
+  1. **Confidence calibration** (`Domains`/`AI` rows — extraction confidence was a hardcoded `0.82`
+     constant, not a real signal). Added `calibrateConfidence()` in `anthropic-extraction.service.ts`,
+     deriving a real score from two things every domain extraction schema already returns: the fraction of
+     non-`confidenceNotes` fields the model left `null` (it's instructed to null out fields it isn't sure
+     of rather than guess), and whether `confidenceNotes` itself is non-empty (the model explicitly
+     flagging ambiguity). Baseline 0.95, `-nullRatio*0.4`, `-0.25` if uncertainty flagged, clamped to
+     `[0.4, 0.97]`. 6 new vitest cases. No new dependency, no new AI call.
+  2. **Generic bulk import** (`Capture` row, spec §54.1). New `POST /v1/ingestion/import` accepting a
+     blank-line-delimited plain-text file (deliberately not real CSV, to dodge quoting edge cases), capped
+     at 200 items/import for AI-cost-risk reasons, reusing the exact same `ingestManualText` pipeline
+     (dedup, classification, extraction) as every other capture path. Wired into both web
+     (`connections/page.tsx`, a new "Import from elsewhere" card) and mobile (`connections.tsx`, using
+     `expo-document-picker`).
+  3. **Automated accessibility testing** (§54.2 launch criteria — real automated a11y checks, not manual
+     spot-checks). Added `vitest` + `jest-axe` + React Testing Library to `apps/web` for the first time in
+     the repo's history (`vitest.config.ts`, `vitest.setup.ts`, `src/components/ui/accessibility.test.tsx`
+     — 7 tests over Button/Label+Input/Switch/SegmentedControl/Badge). Found and fixed one real violation:
+     `Switch` without an explicit `id` prop produced an unlabeled `button-name` violation — fixed with
+     `useId()` as a stable fallback so every Switch is correctly labeled regardless of caller. Zero CI
+     changes needed — `pnpm -r run test` already runs this.
+  4. **Android share-target** (`Capture` row's "Share sheet" — iOS already had a real dedicated Share
+     Extension; Android had nothing). Added `expo-share-intent@^8.0.1` (Android-scoped only —
+     `androidIntentFilters` in `app.json` — leaving the existing iOS `expo-share-extension` config
+     untouched; verified byte-for-byte via a manual `Info.plist`/`project.pbxproj` diff before/after an
+     Android-scoped `expo prebuild`). New `ShareIntentDrain` component (`src/components/share-intent-drain
+     .tsx`), mirroring `NotificationCaptureDrain`'s drain-a-native-queue-then-clear-it shape: shared URLs go
+     to `POST /v1/ingestion/url`, shared plain text goes to `POST /v1/ingestion/manual`.
+  **Verified live end-to-end on a real Android build** (not just typecheck) — a genuinely new capability
+  for this project, since the standing iOS blocker (CocoaPods/rsync choking on the space in this project's
+  parent folder path) doesn't apply to Android's Gradle toolchain:
+  - `expo prebuild --platform android` → real `android/` project generated (gitignored, confirmed via
+    `git check-ignore` — not source-controlled, safe to regenerate); `AndroidManifest.xml` confirmed to
+    have `singleTask` launch mode and a real `SEND` intent-filter.
+  - First `expo run:android` attempt failed on "Unable to locate a Java Runtime" (no system JDK on this
+    machine) — fixed by pointing `JAVA_HOME` at Android Studio's bundled JetBrains Runtime
+    (`/Applications/Android Studio.app/Contents/jbr/Contents/Home`, a real JDK 21). Full Gradle build then
+    succeeded (`BUILD SUCCESSFUL in 3m 55s`) and installed onto the booted `Medium_Phone_API_36.0` emulator.
+  - Created a real throwaway account (`sharetest@veynlo.dev`) through the actual UI (deleted after), then
+    fired real `adb shell am start -a android.intent.action.SEND` intents at the running app. A shared
+    fake URL correctly surfaced a real `ApiError` toast (proving the intent was received and the API call
+    made — it failed only because the URL wasn't fetchable). A shared plain-text string produced a real,
+    encrypted `source_events` row in Postgres (`kind = manual_entry`, `processing_state = filed`) —
+    confirmed by direct query, not just an API 200.
+  Typecheck and lint both clean on the final `apps/mobile` state.
+  **Still not started** (spec-real, not yet closed): native mobile IAP (billing currently opens a Stripe
+  web checkout via `Linking.openURL()` on both platforms — a real App Store policy risk, since Apple
+  requires native IAP for digital subscriptions; the RevenueCat webhook handler already exists
+  server-side but nothing client-side ever triggers it) and mobile voice note capture (web has real Web
+  Speech API capture in Ask/Inbox; mobile has none — needs either a native on-device STT module or a new
+  paid transcription vendor, matching the earlier semantic-search deferral precedent). Both are being
+  picked up next, in that order, before re-confirming Phase 1 MVP completion against the spec.
