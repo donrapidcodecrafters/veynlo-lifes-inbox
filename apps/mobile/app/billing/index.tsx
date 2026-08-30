@@ -6,7 +6,7 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Button } from "@/components/button";
 import { ScreenHeader } from "@/components/screen-header";
-import { purchasePlan, PurchaseCancelledError, PurchasesNotAvailableError } from "@/lib/purchases";
+import { purchasePlan, restorePurchases, PurchaseCancelledError, PurchasesNotAvailableError } from "@/lib/purchases";
 
 type PlanKey = "free" | "plus" | "family" | "pro_agent";
 type CapabilityValue = number | boolean | null;
@@ -43,6 +43,7 @@ export default function BillingScreen() {
   const [plans, setPlans] = useState<PlanOption[] | undefined>(undefined);
   const [pendingPlan, setPendingPlan] = useState<PlanKey | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [intervalByPlan, setIntervalByPlan] = useState<Partial<Record<PlanKey, Interval>>>({});
 
@@ -111,7 +112,24 @@ export default function BillingScreen() {
     }
   }
 
+  async function restore() {
+    setError(null);
+    setRestoring(true);
+    try {
+      await restorePurchases();
+      setEntitlements(await api.get<EntitlementsResponse>("/v1/billing/entitlements"));
+    } catch (err) {
+      setError(err instanceof PurchasesNotAvailableError ? err.message : "Couldn't restore purchases. Please try again.");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   const currentPlan = entitlements?.planKey ?? "free";
+  // §46.2 "prevent double subscription when user attempts a second channel" — previously only compared
+  // against the exact same plan, so a user already on e.g. Plus could still tap Subscribe on Family (or
+  // the same plan through the other channel) and end up paying for two overlapping subscriptions.
+  const alreadyOnAPaidPlan = currentPlan !== "free";
 
   return (
     <Screen>
@@ -150,6 +168,8 @@ export default function BillingScreen() {
                   <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>{PLAN_LABELS[planKey]}</Text>
                   {currentPlan === planKey ? (
                     <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Current plan</Text>
+                  ) : alreadyOnAPaidPlan ? (
+                    <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Use Manage billing to switch</Text>
                   ) : (
                     <View style={{ minWidth: 120 }}>
                       <Button onPress={() => subscribe(selected)} loading={pendingPlan === planKey}>
@@ -188,6 +208,12 @@ export default function BillingScreen() {
             );
           })}
       </View>
+
+      {useNativePurchases && (
+        <Button variant="secondary" onPress={restore} loading={restoring}>
+          Restore purchases
+        </Button>
+      )}
     </Screen>
   );
 }

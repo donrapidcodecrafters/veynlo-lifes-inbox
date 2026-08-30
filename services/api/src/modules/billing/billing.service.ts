@@ -104,6 +104,22 @@ export class BillingService {
   }
 
   async createCheckoutSession(userId: string, planKey: PlanKey, priceId: string) {
+    // §46.2 "prevent double subscription when user attempts a second channel" — previously unenforced: a
+    // user already on a paid plan through ANY source (Stripe, App Store, Play Store) could still start a
+    // brand-new Stripe checkout and end up paying for two overlapping subscriptions at once.
+    // resolveCapability already takes the higher of multiple simultaneously-active entitlements (so this
+    // was never an access-escalation risk), but it's a real, avoidable way for a user to waste their own
+    // money — worth refusing before Stripe ever processes a charge, which this call fully controls.
+    // Switching plans or updating payment on an EXISTING Stripe subscription goes through
+    // createPortalSession instead, which this doesn't affect.
+    const { planKey: currentPlanKey } = await this.currentEntitlements(userId);
+    if (currentPlanKey !== "free") {
+      throw new BadRequestException({
+        code: "ALREADY_SUBSCRIBED",
+        message: "You already have an active plan. Manage or change it from your existing subscription instead of starting a new one.",
+      });
+    }
+
     const stripe = this.stripe();
     // Backend-robustness "idempotency keys on mutations" — a double-tap on the checkout button or a
     // client retry after a dropped response (nothing here previously guarded against either) would

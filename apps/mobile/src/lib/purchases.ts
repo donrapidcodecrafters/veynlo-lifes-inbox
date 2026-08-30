@@ -67,6 +67,20 @@ export async function purchasePlan(planKey: string, interval: "month" | "year"):
   }
 }
 
+/**
+ * Standard, expected native-app affordance for "I already paid for this on another device/a reinstall" —
+ * previously missing entirely, which meant the only path back to an existing subscription's entitlements
+ * was a fresh purchase, which is exactly what triggers a RevenueCat TRANSFER event server-side (see
+ * RevenueCatService.handleWebhook's comment on that). Making restore easy to find reduces how often that
+ * edge case gets hit in the first place.
+ */
+export async function restorePurchases(): Promise<void> {
+  if (!ensureConfigured()) {
+    throw new PurchasesNotAvailableError("In-app purchases aren't available on this build yet.");
+  }
+  await Purchases.restorePurchases();
+}
+
 function isUserCancelledError(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { userCancelled?: boolean }).userCancelled === true;
 }

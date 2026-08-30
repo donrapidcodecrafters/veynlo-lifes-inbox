@@ -106,6 +106,11 @@ export default function BillingPage() {
   }
 
   const currentPlan = entitlements?.planKey ?? "free";
+  // §46.2 "prevent double subscription when user attempts a second channel" — the backend now refuses a
+  // new checkout session outright for anyone already on a paid plan (createCheckoutSession), but this UI
+  // previously only compared against the exact same plan, so tapping "Subscribe" on a different plan while
+  // already subscribed hit that error instead of never showing the button in the first place.
+  const alreadyOnAPaidPlan = currentPlan !== "free";
 
   return (
     <div className="space-y-6">
@@ -187,6 +192,8 @@ export default function BillingPage() {
                     </div>
                     {currentPlan === planKey ? (
                       <span className="text-sm text-tertiary">Current plan</span>
+                    ) : alreadyOnAPaidPlan ? (
+                      <span className="text-sm text-tertiary">Use Manage billing to switch</span>
                     ) : (
                       <Button onClick={() => subscribe(selected)} loading={pendingPlan === planKey}>
                         Subscribe

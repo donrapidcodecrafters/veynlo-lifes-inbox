@@ -99,6 +99,20 @@ export class RevenueCatService {
         this.logger.warn(`RevenueCat event ${event.id} (${event.type}) had no entitlement_ids matching a known PlanKey.`);
         return;
       }
+      // TRANSFER means the underlying store purchase was reassigned to a different app_user_id than
+      // whoever originally bought it — legitimately common (a user gets a new device, reinstalls, and
+      // Purchases.logIn(realUserId) naturally transfers their subscription to the new install) but also
+      // the one event type that could, in principle, move an entitlement onto an unrelated real account if
+      // a device were ever coerced into logging in as someone else. `userId` here is always a real,
+      // already-existing Veynlo account (entitlements.userId has a real FK to users.id, so this can never
+      // grant to a fabricated/nonexistent account) — the residual risk is narrower: transfer between two
+      // real accounts. Verifying that safely needs a real RevenueCat API call this environment has no live
+      // credentials to test against (the same constraint already noted for Stripe/RevenueCat elsewhere) —
+      // logged distinctly so it's reviewable rather than silently indistinguishable from an ordinary
+      // purchase, without blocking the common legitimate case this environment can't tell apart from it.
+      if (event.type === "TRANSFER") {
+        this.logger.warn(`RevenueCat TRANSFER event ${event.id} granting plan "${planKey}" to user ${userId} — review if unexpected.`);
+      }
       // Close any currently-active entitlement from this source before opening a new one — a RENEWAL/
       // PRODUCT_CHANGE is a state transition, not an additive grant, and leaving the old row open would
       // let currentEntitlements() see two "active" plans from the same source at once.
