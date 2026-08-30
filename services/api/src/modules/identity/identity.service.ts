@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { randomBytes, createHash } from "node:crypto";
 import { and, desc, eq, isNull, ne, gt } from "drizzle-orm";
 import * as argon2 from "argon2";
@@ -94,6 +94,8 @@ export interface SessionIssued {
 
 @Injectable()
 export class IdentityService {
+  private readonly logger = new Logger(IdentityService.name);
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly queue: QueueProducerService,
@@ -148,7 +150,29 @@ export class IdentityService {
       throw new UnauthorizedException({ code: "ACCOUNT_DELETED", message: "This account has been deleted." });
     }
     await this.activatePendingHouseholdInvites(user.id, user.email);
+    await this.sendNewSignInAlert(user.email, deviceInfo);
     return this.issueSession(user.id, deviceInfo);
+  }
+
+  /**
+   * §Account/security "new sign-in alert" — MailerService was already used elsewhere (password reset,
+   * household invites) but nothing ever notified a user that their account was signed into. Best-effort:
+   * a failed send must never fail the sign-in itself, same posture as household invite's mailer.send.
+   * Deliberately NOT called from signUp() or oauthSignIn()'s new-account branch — those are the user's own
+   * first action, not a second sign-in into an already-existing account worth alerting them about.
+   */
+  private async sendNewSignInAlert(email: string | null, deviceInfo: { platform: string }): Promise<void> {
+    if (!email) return; // OAuth accounts that never shared an email have nowhere to send this
+    try {
+      await this.mailer.send({
+        to: email,
+        subject: "New sign-in to your Veynlo account",
+        text: `Your Veynlo account was just signed into from a ${deviceInfo.platform} device.\n\nIf this was you, no action is needed. If it wasn't, change your password immediately and review your active sessions at ${loadEnv().WEB_APP_URL}/settings/sessions.`,
+        html: `<p>Your Veynlo account was just signed into from a <strong>${deviceInfo.platform}</strong> device.</p><p>If this was you, no action is needed. If it wasn't, change your password immediately and review your active sessions at <a href="${loadEnv().WEB_APP_URL}/settings/sessions">${loadEnv().WEB_APP_URL}/settings/sessions</a>.</p>`,
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to send new-sign-in alert to ${email}: ${String(err)}`);
+    }
   }
 
   private async issueSession(
@@ -366,6 +390,7 @@ export class IdentityService {
         throw new UnauthorizedException({ code: "ACCOUNT_DELETED", message: "This account has been deleted." });
       }
       await this.activatePendingHouseholdInvites(user.id, user.email);
+      await this.sendNewSignInAlert(user.email, deviceInfo);
       return this.issueSession(user.id, deviceInfo);
     }
 
@@ -755,6 +780,7 @@ export class IdentityService {
       throw new UnauthorizedException({ code: "ACCOUNT_NOT_FOUND", message: "This account is no longer available." });
     }
     await this.activatePendingHouseholdInvites(user.id, user.email);
+    await this.sendNewSignInAlert(user.email, deviceInfo);
     return this.issueSession(user.id, deviceInfo);
   }
 }
