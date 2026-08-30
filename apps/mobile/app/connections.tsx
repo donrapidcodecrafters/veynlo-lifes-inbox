@@ -3,6 +3,7 @@ import { Linking, Platform, Pressable, RefreshControl, Text, View } from "react-
 import { useFocusEffect } from "expo-router";
 import * as Calendar from "expo-calendar";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
@@ -78,6 +79,31 @@ export default function ConnectionsScreen() {
   const [deviceCalendarMessage, setDeviceCalendarMessage] = useState<string | null>(null);
   const [remindersSyncing, setRemindersSyncing] = useState(false);
   const [remindersMessage, setRemindersMessage] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+
+  /** §Connections "generic import fallback" — mirrors the web Connections page's identical import. */
+  async function handleImportFile() {
+    const result = await DocumentPicker.getDocumentAsync({ type: ["text/plain", "text/csv", "text/comma-separated-values"], copyToCacheDirectory: true });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    setImporting(true);
+    setImportMessage(null);
+    try {
+      const response = await api.upload<{ importedCount: number; skippedCount: number }>(
+        "/v1/ingestion/import",
+        {},
+        { uri: asset.uri, name: asset.name, type: asset.mimeType ?? "text/plain" },
+      );
+      setImportMessage(
+        `Imported ${response.importedCount} item${response.importedCount === 1 ? "" : "s"}${response.skippedCount > 0 ? ` (${response.skippedCount} skipped)` : ""}.`,
+      );
+    } catch (err) {
+      setImportMessage(err instanceof ApiError ? err.message : "Import failed. Please try again.");
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
@@ -353,6 +379,20 @@ export default function ConnectionsScreen() {
           {inboundAlias?.configured && inboundAlias.address && (
             <ForwardingAddress address={inboundAlias.address} onRotate={load} />
           )}
+        </Card>
+
+        <Card style={{ gap: 10 }}>
+          <View>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Import from elsewhere</Text>
+            <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+              Import a plain-text file — one item per paragraph, separated by a blank line — to bring in a batch of
+              things at once, like an exported reminders list.
+            </Text>
+          </View>
+          <Button variant="secondary" onPress={handleImportFile} loading={importing}>
+            Choose a file
+          </Button>
+          {importMessage && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{importMessage}</Text>}
         </Card>
       </View>
 

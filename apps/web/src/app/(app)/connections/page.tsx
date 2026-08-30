@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, FieldError } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 const HISTORY_DEPTH_OPTIONS = [
   { value: "0", label: "New only" },
@@ -115,6 +115,33 @@ export default function ConnectionsPage() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [historyDepthDays, setHistoryDepthDays] = useState<(typeof HISTORY_DEPTH_OPTIONS)[number]["value"]>("90");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+
+  /** §Connections "generic import fallback" — a batch of items pasted/exported from elsewhere, filed
+   * through the same manual-capture pipeline one blank-line-separated block at a time. */
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const result = await api.upload<{ importedCount: number; skippedCount: number }>("/v1/ingestion/import", formData);
+      setImportResult(
+        `Imported ${result.importedCount} item${result.importedCount === 1 ? "" : "s"}${result.skippedCount > 0 ? ` (${result.skippedCount} skipped)` : ""}.`,
+      );
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : "Import failed. Please try again.");
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
+  }
 
   const onboardingIncomplete = Boolean(onboarding && !onboarding.completedAt && !onboarding.skippedAt);
 
@@ -251,6 +278,37 @@ export default function ConnectionsPage() {
             )}
             {inboundAlias?.configured && inboundAlias.address && (
               <ForwardingAddress address={inboundAlias.address} onRotate={() => mutateInboundAlias()} />
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody className="space-y-3">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Import from elsewhere</p>
+              <p className="text-sm text-tertiary">
+                Upload a plain-text file — one item per paragraph, separated by a blank line — to bring in a batch
+                of things at once, like an exported reminders list.
+              </p>
+            </div>
+            <div>
+              <Button variant="secondary" loading={importing} onClick={() => importFileInputRef.current?.click()}>
+                Choose a file
+              </Button>
+              <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".txt,text/plain,.csv,text/csv"
+                className="hidden"
+                onChange={handleImportFile}
+                disabled={importing}
+              />
+            </div>
+            {importResult && <p className="text-sm text-tertiary">{importResult}</p>}
+            {importError && (
+              <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+                {importError}
+              </p>
             )}
           </CardBody>
         </Card>

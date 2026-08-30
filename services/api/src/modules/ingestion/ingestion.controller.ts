@@ -1,5 +1,6 @@
-import { Body, Controller, Post, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Post, Req, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
+import type { FastifyRequest } from "fastify";
 import type { TemporalValue } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
@@ -68,6 +69,23 @@ export class IngestionController {
       fromAddress: finalUrl,
       kind: "url_capture",
     });
+  }
+
+  /**
+   * §Connections "generic import fallback" — upload a plain-text export (an exported reminders list,
+   * notes copied from another app) and have every blank-line-separated block filed as its own capture,
+   * through the exact same manual-capture pipeline. Tighter throttle than the default — a real batch
+   * AI-extraction trigger, same reasoning as the URL-capture route above but for up to 200 items at once.
+   */
+  @Post("import")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async bulkImport(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
+    const file = await req.file();
+    if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No file was uploaded." });
+    const buffer = await file.toBuffer();
+    const text = buffer.toString("utf8");
+    if (!text.trim()) throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
+    return this.ingestion.bulkImport({ ownerUserId: user.userId, householdId: null, text });
   }
 
   /**

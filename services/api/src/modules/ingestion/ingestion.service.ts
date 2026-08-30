@@ -205,6 +205,45 @@ export class IngestionService {
     return { sourceEventId };
   }
 
+  /**
+   * §Connections "generic import fallback" — a real gap found by re-checking against the spec directly
+   * rather than this project's own tracking doc: the "forwarding" half (`inboundEmailAlias`) was built,
+   * but nothing let a user bring in a BATCH of items from outside Veynlo at once (an exported reminders
+   * list, notes copied from another app, etc.) — only one-at-a-time manual/URL capture existed.
+   *
+   * Deliberately plain-text, blank-line-delimited rather than real CSV: hand-rolling correct CSV quoting
+   * (embedded commas/newlines/escaped quotes) has real, easy-to-get-wrong edge cases, and a blank-line-
+   * delimited block format covers the actual use case (pasting/forwarding a batch of items) without that
+   * risk. Each block's first line becomes the subject, the rest becomes the body — the same "first line as
+   * subject" convention the Capture forms already use for a single manual/voice item. Capped at 200 items
+   * per import (§54.1 "AI cost" risk — this is a genuine batch AI-extraction trigger, not a free-form
+   * amount a user could otherwise unintentionally multiply). Each item reuses `ingestManualText` as-is, so
+   * it gets the exact same idempotency-key dedup, classification, and extraction path as any other capture
+   * — nothing about the pipeline itself needed to know this came from a bulk import.
+   */
+  async bulkImport(params: { ownerUserId: string; householdId: string | null; text: string }): Promise<{ importedCount: number; skippedCount: number }> {
+    const blocks = params.text
+      .split(/\n\s*\n/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .slice(0, 200);
+
+    let importedCount = 0;
+    let skippedCount = 0;
+    for (const block of blocks) {
+      const lines = block.split("\n");
+      const subject = lines[0]?.slice(0, 500);
+      const bodyText = lines.slice(1).join("\n").trim() || lines[0] || "";
+      if (!subject) {
+        skippedCount += 1;
+        continue;
+      }
+      await this.ingestManualText({ ownerUserId: params.ownerUserId, householdId: params.householdId, subject, bodyText, kind: "bulk_import" });
+      importedCount += 1;
+    }
+    return { importedCount, skippedCount };
+  }
+
   private async classifyAndExtract(ctx: {
     sourceEventId: string;
     ownerUserId: string;
