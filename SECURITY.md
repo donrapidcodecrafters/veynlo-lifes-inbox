@@ -165,15 +165,20 @@ These are real gaps, not hedging:
   kind of thing Xcode's own Archive → Validate step checks definitively
   against the actual compiled binary, and should be verified there before
   submission rather than assumed correct from static analysis.
-- **Mobile runtime permissions**: `apps/mobile/app.json` declares no
-  `infoPlist` usage-description strings or Android `permissions` array. This
-  is currently correct, not an oversight — the mobile app has no camera,
-  photo library, document picker, push notification, biometric, contacts, or
-  location code today (document upload is web-only; see
-  `docs/ROADMAP.md`). Adding an unused permission string is itself an App
-  Store review flag. If any of those features are added to the mobile client,
-  add the matching Expo module and usage-description string at that time, not
-  ahead of it.
+- **Mobile runtime permissions**: `apps/mobile/app.json` now declares five
+  real iOS `infoPlist` usage-description strings — Face ID (biometric app
+  lock), Camera (receipt/document scanning), Photo Library (attach an
+  existing photo as a document), Calendars, and Reminders (device
+  calendar/reminders read, via the `expo-calendar` plugin, which covers both
+  on iOS) — each backed by a real, wired feature, not a speculative or
+  leftover one. No explicit Android `permissions` array is declared, which is
+  correct as-is: Expo's config-plugin system auto-derives the Android
+  manifest permissions from the plugins actually in use (`expo-image-picker`,
+  `expo-calendar`, etc.) rather than needing a hand-maintained list. If a new
+  native capability is added, add its Expo module and usage-description
+  string at that time, and verify via Xcode's Archive → Validate step (or
+  `eas build`) that only permissions matching real code paths ship — an
+  unused permission string is itself an App Store review flag.
 - **Malware scanning on document uploads**: real, via a ClamAV sidecar
   (`docker compose up -d clamav`) speaking clamd's INSTREAM protocol
   directly — MIME type, size, and content hash are also validated. Optional
@@ -203,8 +208,14 @@ These are real gaps, not hedging:
   rest are moderate/high findings in dev-only build tooling — Next.js/postcss,
   Expo/metro's image parsing — not runtime attack surface for the deployed
   API). Triage and clear these for real before a store submission or pentest;
-  run `pnpm audit` locally for the current list. No SAST or secret-scanning
-  in commits is wired in yet.
+  run `pnpm audit` locally for the current list.
+- **SAST and secret-scanning ARE wired in and blocking** (`.github/workflows/ci.yml`'s
+  `security-scan` job, since 2026-08-28) — gitleaks scans every commit's full
+  history for secrets, and Semgrep runs the security-audit/secrets/OWASP-Top-Ten
+  rulesets against `services/api`, `packages`, `apps/web`, and `apps/admin`.
+  Both are genuinely blocking (no `continue-on-error`), not informational —
+  verified 0 findings against the current codebase before being turned on, so
+  there's no pre-existing debt being silently grandfathered in.
 - **Session refresh-token rotation is not implemented** — sessions are a
   single long-lived JWT re-checked against a revocable DB row per request
   (safe against revocation, not the full rotating-refresh-token flow a

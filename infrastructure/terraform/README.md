@@ -14,8 +14,10 @@ environments/  per-environment composition (prod/, staging/, dev/) —
                same modules, different sizing/tfvars
 ```
 
-Only `modules/networking` and `environments/prod` exist so far. See
-`docs/ROADMAP.md` / `SECURITY.md` for what's still unbuilt.
+All three environments (`prod`, `staging`, `dev`) exist, each composing the
+same modules at different sizing. See `docs/DEPLOYMENT.md` for the
+production-readiness checklist (domain/ACM, ECR image push, remote state)
+and `docs/ROADMAP.md` / `SECURITY.md` for what's still unbuilt.
 
 ## Before this can ever be applied
 
