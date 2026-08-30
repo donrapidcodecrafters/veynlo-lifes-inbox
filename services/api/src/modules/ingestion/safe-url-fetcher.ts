@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
 import { lookup } from "node:dns/promises";
 import { isIPv4, isIPv6 } from "node:net";
+import { Agent } from "undici";
 
 const MAX_REDIRECTS = 5;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -29,7 +30,21 @@ export class SafeUrlFetcher {
       if (current.protocol !== "http:" && current.protocol !== "https:") {
         throw new BadRequestException({ code: "UNSUPPORTED_URL_SCHEME", message: "Only http/https URLs are supported." });
       }
-      await assertHostnameIsPublic(current.hostname);
+      const validatedAddresses = await assertHostnameIsPublic(current.hostname);
+      // DNS-rebinding TOCTOU fix: assertHostnameIsPublic already resolved and validated this hostname, but
+      // a plain `fetch()` would perform its OWN independent DNS resolution moments later — an attacker
+      // controlling DNS for the hostname (their own subdomain, a low TTL) could serve a public IP to the
+      // check above and a private/internal IP to the real connection. Pinning the connector's lookup to
+      // exactly the already-validated address(es) closes that window; TLS SNI/the Host header still use
+      // the original hostname (undici's connector derives servername from the URL passed to fetch, not
+      // from the lookup override), so this doesn't break name-based virtual hosting or certificate checks.
+      const pinnedAgent = new Agent({
+        connect: {
+          lookup: (_hostname, _options, callback) => {
+            callback(null, validatedAddresses.map((address) => ({ address, family: isIPv6(address) ? 6 : 4 })));
+          },
+        },
+      });
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -39,11 +54,15 @@ export class SafeUrlFetcher {
           redirect: "manual",
           signal: controller.signal,
           headers: { "user-agent": "VeynloBot/1.0 (+https://veynlo.app)" },
+          // @ts-expect-error -- `dispatcher` is a real, Node-supported undici extension to fetch's options
+          // that isn't in the standard lib.dom RequestInit type.
+          dispatcher: pinnedAgent,
         });
       } catch {
         throw new BadRequestException({ code: "URL_UNREACHABLE", message: "Couldn't reach that URL. Check it and try again." });
       } finally {
         clearTimeout(timeout);
+        await pinnedAgent.close();
       }
 
       if (response.status >= 300 && response.status < 400) {
@@ -72,7 +91,7 @@ export class SafeUrlFetcher {
   }
 }
 
-async function assertHostnameIsPublic(hostname: string): Promise<void> {
+async function assertHostnameIsPublic(hostname: string): Promise<string[]> {
   let addresses: string[];
   try {
     const results = await lookup(hostname, { all: true, verbatim: true });
@@ -91,6 +110,7 @@ async function assertHostnameIsPublic(hostname: string): Promise<void> {
       throw new BadRequestException({ code: "URL_UNREACHABLE", message: "Couldn't reach that URL. Check it and try again." });
     }
   }
+  return addresses;
 }
 
 export function isPrivateOrReservedIp(address: string): boolean {
