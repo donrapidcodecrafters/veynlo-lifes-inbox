@@ -1539,3 +1539,43 @@ still open:
   runbook doc exists yet, and pen-test/manual-a11y sign-off are inherently not code-verifiable; (f) #13 —
   no marketing/landing page exists in `apps/web` at all (root route is just an auth redirect) — whether one
   is even wanted for MVP is a product call, not an engineering gap.
+
+- **Twenty-sixth gap-closing pass (2026-08-30): a verification-only re-audit, plus the two items picked
+  off the twenty-fifth pass's open-question list.** Ran an independent, skeptical agent specifically to
+  re-verify the twenty-fifth pass's three closed fixes (shipments, refund reconciliation, notification
+  categories) against real source rather than taking the prior pass's own report on faith — all three
+  confirmed genuinely done, no regressions. That agent also re-flagged §54.2 item 5 (an authorization test
+  suite demonstrating no cross-user/household leak) as a real, still-open gap: `packages/authz/src/policy
+  .test.ts` is a real 6-case DB-backed test for the core `resolveAccess` policy, but nothing tested whether
+  `search`, `notifications`, `data-export`, or `admin` actually enforce ownership at their own query layer.
+  1. **Incident-response runbook** (§54.2 #12, user-selected from the open-question list). New
+     `docs/INCIDENT_RESPONSE.md`, same "what's actually here" voice as `SECURITY.md`: real levers
+     (`/health`, `/metrics`, admin connector/model-health endpoints, `audit_events`, admin entitlement
+     grant/revoke, worker process control, secret rotation with the `FIELD_ENCRYPTION_KEY_VERSION`/
+     `_PREVIOUS` mechanism) organized by incident type, each claim checked against the actual route/file
+     before being written down (caught and fixed two of its own draft inaccuracies this way — the real
+     route is `sign-out-everywhere` not `sign-out-all`, and `forgot-password`/`reset-password` are real,
+     not hypothetical). Also surfaces real gaps found *while writing it*, not just restating known ones:
+     there is no admin-side "force revoke this user's sessions" or admin-initiated password reset
+     endpoint at all, and feature flags have a real default-off kill-switch mechanism but **zero actual
+     call sites anywhere in the codebase** (confirmed by grep) — flipping one today changes nothing at
+     runtime.
+  2. **Authorization test coverage** (§54.2 #5, the concrete engineering half of the still-open item —
+     writing real tests isn't a business/product judgment call the way the runbook's own remaining
+     open items are). Added four new DB-backed integration test files, following `policy.test.ts`'s
+     established pattern (real local Postgres, not mocked) rather than a new testing style:
+     `search.service.test.ts` (structured search never returns another owner's document, including the
+     realistic two-owner-with-matching-keyword case — the shape that would actually catch a scoping bug),
+     `notifications.service.test.ts` (list/preferences never cross users), `data-export.service.test.ts`
+     (`downloadUrl` rejects a non-owner with a real `ForbiddenException`, not just by convention),
+     `admin.service.test.ts` (the support-lookup redaction claim in `findUserByEmail`'s own code comment —
+     "never message/document bodies" — checked against the *serialized* response so a future field
+     accidentally leaking title/body content would fail this test, not just checked field-by-field; also
+     verifies every lookup is audited, hit or miss).
+  **Verified live**: all 4 new test files pass against the real local Postgres (77 total tests across the
+  suite now, up from 67, zero regressions). CI already provisions a matching Postgres service with the
+  same `DATABASE_URL` these tests default to (`.github/workflows/ci.yml`), so they run there with no
+  additional wiring — confirmed by reading the workflow file, not assumed. Typecheck/lint clean.
+  **Still open from the twenty-fifth pass's list, deliberately not decided here either**: cross-source
+  fact conflicts + per-domain risk thresholds, streaming-discovery UX, webhook-vs-polling sync semantics,
+  and the marketing/landing page — all remain real judgment calls, not silently built or skipped.
