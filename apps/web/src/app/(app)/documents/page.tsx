@@ -69,6 +69,17 @@ interface DocumentsPageResponse {
   nextCursor: string | null;
 }
 
+interface HouseholdMember {
+  userId: string | null;
+  status: string;
+  displayName: string | null;
+}
+
+interface ResourceGrant {
+  id: string;
+  granteeUserId: string;
+}
+
 export default function DocumentsPage() {
   const [data, setData] = useState<DocumentRow[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -382,6 +393,11 @@ function DocumentEditor({
   onOpenVersion: (id: string, versionId?: string) => void;
 }) {
   const { data: versions, mutate: mutateVersions } = useSWR<DocumentVersion[]>(`/v1/documents/${doc.id}/versions`, swrFetcher);
+  const { data: me } = useSWR<{ id: string }>("/v1/auth/me", swrFetcher);
+  const { data: members } = useSWR<HouseholdMember[]>(doc.householdId ? `/v1/households/${doc.householdId}/members` : null, swrFetcher);
+  const { data: grants, mutate: mutateGrants } = useSWR<ResourceGrant[]>(doc.householdId ? `/v1/documents/${doc.id}/grants` : null, swrFetcher);
+  const [granting, setGranting] = useState(false);
+  const [selectedGranteeId, setSelectedGranteeId] = useState("");
   const versionFileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(doc.title);
   const [documentType, setDocumentType] = useState(doc.documentType);
@@ -422,6 +438,25 @@ function DocumentEditor({
   async function toggleVisibility(visible: boolean) {
     await api.post(`/v1/documents/${doc.id}/visibility`, { visibility: visible ? "household" : "private" });
     onChanged();
+  }
+
+  async function grantMember() {
+    if (!selectedGranteeId) return;
+    setGranting(true);
+    try {
+      await api.post(`/v1/documents/${doc.id}/grants`, { granteeUserId: selectedGranteeId });
+      setSelectedGranteeId("");
+      mutateGrants();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't share with that person. Please try again.");
+    } finally {
+      setGranting(false);
+    }
+  }
+
+  async function revokeGrant(grantId: string) {
+    await api.post(`/v1/documents/${doc.id}/grants/${grantId}/revoke`);
+    mutateGrants();
   }
 
   async function applyRetention(policy: string) {
@@ -611,6 +646,58 @@ function DocumentEditor({
           </div>
         )}
       </div>
+
+      {doc.householdId && (
+        <div className="space-y-2 border-t border-border-subtle pt-3">
+          <p className="text-sm font-medium text-primary">Share with a household member</p>
+          <p className="text-xs text-tertiary">
+            Gives one specific person access to this document, even if it&rsquo;s private and not visible to the whole household.
+          </p>
+          {(() => {
+            const activeMembers = (members ?? []).filter((m) => m.userId && m.status === "active" && m.userId !== me?.id);
+            const grantedIds = new Set((grants ?? []).map((g) => g.granteeUserId));
+            const available = activeMembers.filter((m) => !grantedIds.has(m.userId!));
+            return (
+              <>
+                {available.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={selectedGranteeId}
+                      onChange={(e) => setSelectedGranteeId(e.target.value)}
+                      className="h-9 rounded-lg border border-border-default bg-surface px-3 text-sm text-primary"
+                    >
+                      <option value="">Choose a person…</option>
+                      {available.map((m) => (
+                        <option key={m.userId} value={m.userId!}>
+                          {m.displayName ?? "Household member"}
+                        </option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="secondary" onClick={grantMember} loading={granting} disabled={!selectedGranteeId}>
+                      Share
+                    </Button>
+                  </div>
+                )}
+                {grants && grants.length > 0 && (
+                  <ul className="space-y-1">
+                    {grants.map((g) => {
+                      const member = activeMembers.find((m) => m.userId === g.granteeUserId);
+                      return (
+                        <li key={g.id} className="flex items-center justify-between gap-2 rounded-lg bg-subtle px-3 py-1.5 text-sm">
+                          <span className="text-primary">{member?.displayName ?? "Household member"}</span>
+                          <Button size="sm" variant="ghost" onClick={() => revokeGrant(g.id)}>
+                            Revoke
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       <div className="space-y-2 border-t border-border-subtle pt-3">
         <div className="flex items-center justify-between">

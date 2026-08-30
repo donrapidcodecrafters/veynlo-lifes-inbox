@@ -31,6 +31,17 @@ interface EventDetail {
   evidence: Evidence | null;
 }
 
+interface HouseholdMember {
+  userId: string | null;
+  status: string;
+  displayName: string | null;
+}
+
+interface ResourceGrant {
+  id: string;
+  granteeUserId: string;
+}
+
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, mutate } = useSWR<EventDetail | null>(`/v1/events/${id}`, swrFetcher);
@@ -39,6 +50,12 @@ export default function EventDetailPage() {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [granting, setGranting] = useState(false);
+  const [selectedGranteeId, setSelectedGranteeId] = useState("");
+  const [grantError, setGrantError] = useState<string | null>(null);
+  const { data: me } = useSWR<{ id: string }>("/v1/auth/me", swrFetcher);
+  const { data: members } = useSWR<HouseholdMember[]>(data?.event.householdId ? `/v1/households/${data.event.householdId}/members` : null, swrFetcher);
+  const { data: grants, mutate: mutateGrants } = useSWR<ResourceGrant[]>(data?.event.householdId ? `/v1/events/${id}/grants` : null, swrFetcher);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-xl bg-subtle" />;
   if (!data) return <EmptyState title="Not found" description="This event doesn't exist or you don't have access to it." />;
@@ -72,6 +89,26 @@ export default function EventDetailPage() {
   async function toggleVisibility(visible: boolean) {
     await api.post(`/v1/events/${id}/visibility`, { visibility: visible ? "household" : "private" });
     mutate();
+  }
+
+  async function grantMember() {
+    if (!selectedGranteeId) return;
+    setGranting(true);
+    setGrantError(null);
+    try {
+      await api.post(`/v1/events/${id}/grants`, { granteeUserId: selectedGranteeId });
+      setSelectedGranteeId("");
+      mutateGrants();
+    } catch (err) {
+      setGrantError(err instanceof ApiError ? err.message : "Couldn't share with that person. Please try again.");
+    } finally {
+      setGranting(false);
+    }
+  }
+
+  async function revokeGrant(grantId: string) {
+    await api.post(`/v1/events/${id}/grants/${grantId}/revoke`);
+    mutateGrants();
   }
 
   async function syncToCalendar() {
@@ -139,6 +176,58 @@ export default function EventDetailPage() {
                 label="Visible to household"
                 description="Let household members with schedule access see this event."
               />
+            </div>
+          )}
+          {event.householdId && (
+            <div className="space-y-2 border-t border-border-subtle pt-3">
+              <p className="text-sm font-medium text-primary">Share with a household member</p>
+              <p className="text-xs text-tertiary">
+                Gives one specific person access to this event, even if it&rsquo;s private and not visible to the whole household.
+              </p>
+              {(() => {
+                const activeMembers = (members ?? []).filter((m) => m.userId && m.status === "active" && m.userId !== me?.id);
+                const grantedIds = new Set((grants ?? []).map((g) => g.granteeUserId));
+                const available = activeMembers.filter((m) => !grantedIds.has(m.userId!));
+                return (
+                  <>
+                    {available.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={selectedGranteeId}
+                          onChange={(e) => setSelectedGranteeId(e.target.value)}
+                          className="h-9 rounded-lg border border-border-default bg-surface px-3 text-sm text-primary"
+                        >
+                          <option value="">Choose a person…</option>
+                          {available.map((m) => (
+                            <option key={m.userId} value={m.userId!}>
+                              {m.displayName ?? "Household member"}
+                            </option>
+                          ))}
+                        </select>
+                        <Button size="sm" variant="secondary" onClick={grantMember} loading={granting} disabled={!selectedGranteeId}>
+                          Share
+                        </Button>
+                      </div>
+                    )}
+                    {grantError && <p className="text-sm text-critical">{grantError}</p>}
+                    {grants && grants.length > 0 && (
+                      <ul className="space-y-1">
+                        {grants.map((g) => {
+                          const member = activeMembers.find((m) => m.userId === g.granteeUserId);
+                          return (
+                            <li key={g.id} className="flex items-center justify-between gap-2 rounded-lg bg-subtle px-3 py-1.5 text-sm">
+                              <span className="text-primary">{member?.displayName ?? "Household member"}</span>
+                              <Button size="sm" variant="ghost" onClick={() => revokeGrant(g.id)}>
+                                Revoke
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
           {shareUrl && (

@@ -8,6 +8,7 @@ import * as Sharing from "expo-sharing";
 import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
+import { useAuth } from "@/lib/auth-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
@@ -49,6 +50,17 @@ interface PickedFile {
 interface DocumentsPageResponse {
   items: DocumentRow[];
   nextCursor: string | null;
+}
+
+interface Member {
+  userId: string | null;
+  status: string;
+  displayName: string | null;
+}
+
+interface ResourceGrant {
+  id: string;
+  granteeUserId: string;
 }
 
 const DOCUMENT_TYPES = [
@@ -397,6 +409,7 @@ function DocumentEditor({
   onClose: () => void;
 }) {
   const { theme } = useAppTheme();
+  const { user } = useAuth();
   const [title, setTitle] = useState(doc.title);
   const [documentType, setDocumentType] = useState(doc.documentType);
   const [tags, setTags] = useState(doc.tags.join(", "));
@@ -412,6 +425,34 @@ function DocumentEditor({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [grants, setGrants] = useState<ResourceGrant[]>([]);
+  const [granting, setGranting] = useState(false);
+  const [grantError, setGrantError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!doc.householdId) return;
+    api.get<Member[]>(`/v1/households/${doc.householdId}/members`).then(setMembers);
+    api.get<ResourceGrant[]>(`/v1/documents/${doc.id}/grants`).then(setGrants);
+  }, [doc.householdId, doc.id]);
+
+  async function grantMember(granteeUserId: string) {
+    setGranting(true);
+    setGrantError(null);
+    try {
+      await api.post(`/v1/documents/${doc.id}/grants`, { granteeUserId });
+      setGrants(await api.get<ResourceGrant[]>(`/v1/documents/${doc.id}/grants`));
+    } catch (err) {
+      setGrantError(err instanceof ApiError ? err.message : "Couldn't share with that person. Please try again.");
+    } finally {
+      setGranting(false);
+    }
+  }
+
+  async function revokeGrant(grantId: string) {
+    await api.post(`/v1/documents/${doc.id}/grants/${grantId}/revoke`);
+    setGrants(await api.get<ResourceGrant[]>(`/v1/documents/${doc.id}/grants`));
+  }
 
   async function share() {
     setSharing(true);
@@ -579,6 +620,58 @@ function DocumentEditor({
             <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Let household members with documents access see this document.</Text>
           </View>
           <Switch value={visibility === "household"} onValueChange={toggleVisibility} trackColor={{ false: theme.colors.borderStrong, true: theme.colors.brandDefault }} />
+        </View>
+      )}
+
+      {doc.householdId && (
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Share with a household member</Text>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            Gives one specific person access to this document, even if it&apos;s private and not visible to the whole household.
+          </Text>
+          {(() => {
+            const activeMembers = members.filter((m) => m.userId && m.status === "active" && m.userId !== user?.id);
+            const grantedIds = new Set(grants.map((g) => g.granteeUserId));
+            const available = activeMembers.filter((m) => !grantedIds.has(m.userId!));
+            return (
+              <>
+                {available.length > 0 && (
+                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                    {available.map((m) => (
+                      <Pressable
+                        key={m.userId}
+                        onPress={() => !granting && m.userId && grantMember(m.userId)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Share with ${m.displayName ?? "household member"}`}
+                        style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: theme.colors.bgSubtle }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textPrimary }}>{m.displayName ?? "Household member"}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+                {grantError && <Text style={{ fontSize: 12, color: theme.colors.critical }}>{grantError}</Text>}
+                {grants.length > 0 && (
+                  <View style={{ gap: 6 }}>
+                    {grants.map((g) => {
+                      const member = activeMembers.find((m) => m.userId === g.granteeUserId);
+                      return (
+                        <View
+                          key={g.id}
+                          style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.sm, paddingVertical: 6, paddingHorizontal: 10 }}
+                        >
+                          <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>{member?.displayName ?? "Household member"}</Text>
+                          <Pressable onPress={() => revokeGrant(g.id)} accessibilityRole="button" accessibilityLabel="Revoke access">
+                            <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.critical }}>Revoke</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </>
+            );
+          })()}
         </View>
       )}
 
