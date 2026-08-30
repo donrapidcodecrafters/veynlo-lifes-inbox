@@ -42,7 +42,7 @@ export default function BillDetailScreen() {
         </Text>
       </Card>
       <HistorySection resourceType="bill" resourceId={id} />
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard evidence={evidence} highlightTerms={[bill.billerLabel, amount, due].filter((v): v is string => Boolean(v))} />
     </Screen>
   );
 }

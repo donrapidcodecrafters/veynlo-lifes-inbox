@@ -46,7 +46,7 @@ export default function WarrantyDetailScreen() {
         </Text>
       </Card>
       <HistorySection resourceType="warranty" resourceId={id} />
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard evidence={evidence} highlightTerms={[warranty.productLabel, expires].filter((v): v is string => Boolean(v))} />
     </Screen>
   );
 }

@@ -101,7 +101,10 @@ export default function ShipmentDetailPage() {
 
       <HistorySection resourceType="shipment" resourceId={shipment.id} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard
+        evidence={evidence}
+        highlightTerms={[shipment.carrier, shipment.trackingNumber, estimated].filter((v): v is string => Boolean(v))}
+      />
     </div>
   );
 }

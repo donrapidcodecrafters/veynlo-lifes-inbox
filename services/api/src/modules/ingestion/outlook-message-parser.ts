@@ -12,6 +12,7 @@ export interface GraphMessage {
   body?: { contentType?: "text" | "html" | null; content?: string | null } | null;
   internetMessageHeaders?: Array<{ name?: string | null; value?: string | null }> | null;
   hasAttachments?: boolean | null;
+  webLink?: string | null;
 }
 
 /** MAIL-004 "attachment intelligence" — Graph's file-attachment resource shape from `GET

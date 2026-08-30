@@ -149,7 +149,10 @@ export default function PurchaseDetailPage() {
 
       <HistorySection resourceType="purchase" resourceId={purchase.id} showRelatedKinds={["warranty"]} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard
+        evidence={evidence}
+        highlightTerms={[purchase.merchantName, purchase.orderNumber, total, date].filter((v): v is string => Boolean(v))}
+      />
     </div>
   );
 }

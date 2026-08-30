@@ -52,7 +52,7 @@ export default function SubscriptionDetailScreen() {
         )}
       </Card>
       <HistorySection resourceType="subscription" resourceId={id} />
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard evidence={evidence} highlightTerms={[stream.serviceLabel, amount].filter((v): v is string => Boolean(v))} />
     </Screen>
   );
 }

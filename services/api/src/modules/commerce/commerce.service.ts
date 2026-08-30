@@ -155,6 +155,7 @@ export class CommerceService {
       fromAddress: row.event.fromAddress,
       occurredAt: row.event.occurredAt,
       provider: row.connection?.provider ?? null,
+      rawContentRef: row.event.rawContentRef,
     };
   }
 

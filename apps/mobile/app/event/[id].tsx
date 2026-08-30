@@ -238,7 +238,10 @@ export default function EventDetailScreen() {
         </View>
       </Card>
       <HistorySection resourceType="calendar_event" resourceId={id} />
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard
+        evidence={evidence}
+        highlightTerms={[event.title, event.location, start].filter((v): v is string => Boolean(v))}
+      />
     </Screen>
   );
 }

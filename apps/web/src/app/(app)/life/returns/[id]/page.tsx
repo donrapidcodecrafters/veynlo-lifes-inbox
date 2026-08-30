@@ -99,7 +99,10 @@ export default function ReturnDetailPage() {
 
       <HistorySection resourceType="return_case" resourceId={returnCase.id} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard
+        evidence={evidence}
+        highlightTerms={[purchase.orderNumber, value, deadline].filter((v): v is string => Boolean(v))}
+      />
     </div>
   );
 }

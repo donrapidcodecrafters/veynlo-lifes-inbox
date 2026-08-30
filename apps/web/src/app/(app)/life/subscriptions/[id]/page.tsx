@@ -68,7 +68,7 @@ export default function SubscriptionDetailPage() {
 
       <HistorySection resourceType="subscription" resourceId={subscription.id} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard evidence={evidence} highlightTerms={[stream.serviceLabel, amount].filter((v): v is string => Boolean(v))} />
     </div>
   );
 }

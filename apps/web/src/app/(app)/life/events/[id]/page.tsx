@@ -249,7 +249,10 @@ export default function EventDetailPage() {
 
       <HistorySection resourceType="calendar_event" resourceId={event.id} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard
+        evidence={evidence}
+        highlightTerms={[event.title, event.location, start].filter((v): v is string => Boolean(v))}
+      />
     </div>
   );
 }

@@ -15,7 +15,7 @@ const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/auth
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const OUTLOOK_SCOPES = ["offline_access", "Mail.Read"];
-const MESSAGE_SELECT = "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,internetMessageHeaders,hasAttachments";
+const MESSAGE_SELECT = "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,internetMessageHeaders,hasAttachments,webLink";
 
 interface OutlookCredentials {
   access_token: string;

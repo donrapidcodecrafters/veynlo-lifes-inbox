@@ -82,7 +82,10 @@ export default function ReturnDetailScreen() {
         </Text>
       </Card>
       <HistorySection resourceType="return_case" resourceId={id} />
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard
+        evidence={evidence}
+        highlightTerms={[purchase.orderNumber, value, deadline].filter((v): v is string => Boolean(v))}
+      />
     </Screen>
   );
 }

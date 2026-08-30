@@ -61,7 +61,7 @@ export default function BillDetailPage() {
 
       <HistorySection resourceType="bill" resourceId={bill.id} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard evidence={evidence} highlightTerms={[bill.billerLabel, amount, due].filter((v): v is string => Boolean(v))} />
     </div>
   );
 }

@@ -64,7 +64,7 @@ export default function WarrantyDetailPage() {
 
       <HistorySection resourceType="warranty" resourceId={warranty.id} />
 
-      <EvidenceCard evidence={evidence} />
+      <EvidenceCard evidence={evidence} highlightTerms={[warranty.productLabel, expires].filter((v): v is string => Boolean(v))} />
     </div>
   );
 }

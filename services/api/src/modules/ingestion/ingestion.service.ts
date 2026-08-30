@@ -95,6 +95,7 @@ export class IngestionService {
       providerPrefix: "gmail",
       providerItemId: params.message.id ?? undefined,
       parsed: parseGmailMessage(params.message),
+      rawContentRef: params.message.id ? `https://mail.google.com/mail/u/0/#all/${params.message.id}` : null,
     });
   }
 
@@ -104,6 +105,7 @@ export class IngestionService {
       providerPrefix: "outlook",
       providerItemId: params.message.id ?? undefined,
       parsed: parseOutlookMessage(params.message),
+      rawContentRef: params.message.webLink ?? null,
     });
   }
 
@@ -114,6 +116,7 @@ export class IngestionService {
     providerPrefix: string;
     providerItemId: string | undefined;
     parsed: ParsedEmail;
+    rawContentRef: string | null;
     attachments?: EmailAttachment[];
   }): Promise<void> {
     const { parsed, providerItemId } = params;
@@ -142,6 +145,7 @@ export class IngestionService {
       subjectLine: parsed.subject || null,
       snippet: parsed.snippet || null,
       fromAddress: parsed.fromAddress || null,
+      rawContentRef: params.rawContentRef,
     });
 
     const relevance = evaluateRelevance({
