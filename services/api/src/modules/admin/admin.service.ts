@@ -6,6 +6,7 @@ import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { recordAuditEvent } from "../../common/audit";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CreateAdminDto, GrantEntitlementDto } from "./dto";
 
@@ -402,15 +403,6 @@ export class AdminService {
   }
 
   async recordAccess(actingAdminId: string, action: string, resourceType: string, resourceId: string, afterJson?: unknown): Promise<void> {
-    await this.db.insert(schema.auditEvents).values({
-      id: generateId("auditEvent"),
-      actorType: "support_agent",
-      actorId: actingAdminId,
-      action,
-      resourceType,
-      resourceId,
-      afterJson: afterJson ?? null,
-      result: "success",
-    });
+    await recordAuditEvent(this.db, { actorType: "support_agent", actorId: actingAdminId, action, resourceType, resourceId, afterJson: afterJson ?? null });
   }
 }

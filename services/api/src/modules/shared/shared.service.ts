@@ -1,11 +1,11 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { resolveShareLinkAccess } from "@veynlo/authz";
 import { DATABASE } from "../../database/database.module";
+import { recordAuditEvent } from "../../common/audit";
 import { StorageService } from "../documents/storage.service";
 
 /**
@@ -32,15 +32,7 @@ export class SharedService {
    * token lookup itself failed), so it's logged against the token's own hash instead, which still gives
    * real forensic value for detecting a leaked/brute-forced link. */
   private async recordAccess(action: "share_link.resolve", resourceType: string, resourceId: string, result: "success" | "denied") {
-    await this.db.insert(schema.auditEvents).values({
-      id: generateId("auditEvent"),
-      actorType: "anonymous",
-      actorId: null,
-      action,
-      resourceType,
-      resourceId,
-      result,
-    });
+    await recordAuditEvent(this.db, { actorType: "anonymous", actorId: null, action, resourceType, resourceId, result });
   }
 
   async resolve(token: string) {

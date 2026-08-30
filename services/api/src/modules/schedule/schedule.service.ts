@@ -1,10 +1,11 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, asc, eq, gte, inArray, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, ne } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { generateId, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { ownerOrDelegatedHouseholdCondition } from "../../common/household-scope";
 import { HouseholdService } from "../household/household.service";
 import { GoogleCalendarAdapter } from "../connectors/google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "../connectors/microsoft-calendar.adapter";
@@ -35,9 +36,7 @@ export class ScheduleService {
    */
   private async ownerOrDelegatedHousehold(userId: string, ownerCol: AnyPgColumn, householdCol: AnyPgColumn, visibilityCol?: AnyPgColumn) {
     const householdIds = await this.households.delegatedHouseholdIds(userId, "schedule:read");
-    if (householdIds.length === 0) return eq(ownerCol, userId);
-    const householdCondition = visibilityCol ? and(inArray(householdCol, householdIds), ne(visibilityCol, "private"))! : inArray(householdCol, householdIds);
-    return or(eq(ownerCol, userId), householdCondition)!;
+    return ownerOrDelegatedHouseholdCondition(userId, householdIds, ownerCol, householdCol, visibilityCol);
   }
 
   async upcomingEvents(userId: string) {

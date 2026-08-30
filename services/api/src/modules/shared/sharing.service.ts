@@ -6,6 +6,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv } from "../../config/env";
+import { recordAuditEvent } from "../../common/audit";
 
 const SHARE_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -30,20 +31,9 @@ const STATIC_RESOURCE_SENSITIVITY: Record<string, SensitivityTier> = {
 export class SharingService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  /** SECURITY.md "consumer-side actions aren't all audited yet" — sharing changes were one of the named
-   * gaps. Mirrors HouseholdService.recordAudit's exact shape (actor/action/resource/result), duplicated
-   * rather than shared — this codebase already has two independent copies of this same small helper
-   * (here and in AdminService), not one shared abstraction, and a third follows that established pattern. */
+  /** SECURITY.md "consumer-side actions aren't all audited yet" — sharing changes were one of the named gaps. */
   private async recordAudit(actorUserId: string, action: string, resourceType: string, resourceId: string) {
-    await this.db.insert(schema.auditEvents).values({
-      id: generateId("auditEvent"),
-      actorType: "user",
-      actorId: actorUserId,
-      action,
-      resourceType,
-      resourceId,
-      result: "success",
-    });
+    await recordAuditEvent(this.db, { actorType: "user", actorId: actorUserId, action, resourceType, resourceId });
   }
 
   /**

@@ -4,10 +4,10 @@ import { Logger } from "@nestjs/common";
 import { Logger as PinoLogger } from "nestjs-pino";
 import { Worker } from "bullmq";
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
-import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
 import { AppModule } from "./app.module";
 import { DATABASE } from "./database/database.module";
+import { recordAuditEvent } from "./common/audit";
 import { getRedisConnection } from "./queue/redis-connection";
 import {
   QUEUE_NAMES,
@@ -261,15 +261,7 @@ async function bootstrap() {
       await db.delete(schema.searchDocuments).where(eq(schema.searchDocuments.ownerUserId, userId));
 
       // Not itself a FK to users.id (actorId is a bare string column) — survives the delete above by design.
-      await db.insert(schema.auditEvents).values({
-        id: generateId("auditEvent"),
-        actorType: "system",
-        actorId: userId,
-        action: "account_deletion",
-        resourceType: "user",
-        resourceId: userId,
-        result: "success",
-      });
+      await recordAuditEvent(db, { actorType: "system", actorId: userId, action: "account_deletion", resourceType: "user", resourceId: userId });
 
       for (const { blobRef } of blobs) {
         try {
@@ -345,15 +337,13 @@ async function bootstrap() {
       await db.delete(schema.inboxItems).where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
       await db.delete(schema.sourceEvents).where(inArray(schema.sourceEvents.id, sourceEventIds));
 
-      await db.insert(schema.auditEvents).values({
-        id: generateId("auditEvent"),
+      await recordAuditEvent(db, {
         actorType: "user",
         actorId: ownerUserId,
         action: "connection.delete_derived_data",
         resourceType: "connection",
         resourceId: connectionId,
         beforeJson: { sourceEventCount: sourceEventIds.length, purchaseCount: purchaseIds.length },
-        result: "success",
       });
     },
     { connection: getRedisConnection(), concurrency: 2 },

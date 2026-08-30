@@ -4,6 +4,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { generateId, type TemporalValue } from "@veynlo/core";
 import { DATABASE } from "../../database/database.module";
+import { recordAuditEvent } from "../../common/audit";
 import { temporalToSortDate } from "../ingestion/temporal.util";
 import { extractEmailAddress } from "../intelligence/deterministic-prefilter";
 import type { CorrectInboxItemDto } from "./dto";
@@ -202,15 +203,13 @@ export class InboxService {
     // SECURITY.md "consumer-side actions aren't all audited yet" — corrections were one of the named gaps.
     // One record per correct() call regardless of which linkedResourceType it dispatched to, since the DTO
     // itself (the fields actually being changed) is the meaningful "what changed" payload here.
-    await this.db.insert(schema.auditEvents).values({
-      id: generateId("auditEvent"),
+    await recordAuditEvent(this.db, {
       actorType: "user",
       actorId: userId,
       action: "inbox.correct",
       resourceType: item.linkedResourceType,
       resourceId: item.linkedResourceId,
       afterJson: dto,
-      result: "success",
     });
     return result;
   }

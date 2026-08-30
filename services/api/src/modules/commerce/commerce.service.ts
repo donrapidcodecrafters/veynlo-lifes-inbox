@@ -1,9 +1,10 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { ownerOrDelegatedHouseholdCondition } from "../../common/household-scope";
 import { HouseholdService } from "../household/household.service";
 
 /**
@@ -38,7 +39,7 @@ export class CommerceService {
    */
   private async ownerOrDelegatedHousehold(userId: string, ownerCol: AnyPgColumn, householdCol: AnyPgColumn) {
     const householdIds = await this.households.delegatedHouseholdIds(userId, "commerce:read");
-    return householdIds.length > 0 ? or(eq(ownerCol, userId), inArray(householdCol, householdIds))! : eq(ownerCol, userId);
+    return ownerOrDelegatedHouseholdCondition(userId, householdIds, ownerCol, householdCol);
   }
 
   /** PUR-001/002 — `merchantId` was captured on every purchase since ingestion shipped but never joined

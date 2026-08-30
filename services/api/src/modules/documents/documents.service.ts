@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ZipArchive } from "archiver";
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import heicConvert from "heic-convert";
@@ -10,6 +10,7 @@ import { toTemporalValue, temporalToSortDate } from "../ingestion/temporal.util"
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { ownerOrDelegatedHouseholdCondition } from "../../common/household-scope";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
 import { RiskPolicyService } from "../intelligence/risk-policy.service";
 import { HouseholdService } from "../household/household.service";
@@ -76,8 +77,7 @@ export class DocumentsService {
    */
   private async ownerOrDelegatedHousehold(userId: string, ownerCol: AnyPgColumn, householdCol: AnyPgColumn, visibilityCol: AnyPgColumn) {
     const householdIds = await this.households.delegatedHouseholdIds(userId, "documents:read");
-    if (householdIds.length === 0) return eq(ownerCol, userId);
-    return or(eq(ownerCol, userId), and(inArray(householdCol, householdIds), ne(visibilityCol, "private")))!;
+    return ownerOrDelegatedHouseholdCondition(userId, householdIds, ownerCol, householdCol, visibilityCol);
   }
 
   /**

@@ -5,6 +5,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv } from "../../config/env";
+import { recordAuditEvent } from "../../common/audit";
 import { MailerService } from "../notifications/mailer.service";
 import { BillingService } from "../billing/billing.service";
 import type { CreateDependentDto, CreateHouseholdDto, GrantDelegationDto, InviteMemberDto } from "./dto";
@@ -32,17 +33,7 @@ export class HouseholdService {
     resourceId: string,
     extra: { beforeJson?: unknown; afterJson?: unknown } = {},
   ) {
-    await this.db.insert(schema.auditEvents).values({
-      id: generateId("auditEvent"),
-      actorType: "user",
-      actorId: actorUserId,
-      action,
-      resourceType,
-      resourceId,
-      beforeJson: extra.beforeJson,
-      afterJson: extra.afterJson,
-      result: "success",
-    });
+    await recordAuditEvent(this.db, { actorType: "user", actorId: actorUserId, action, resourceType, resourceId, ...extra });
   }
 
   async create(ownerUserId: string, dto: CreateHouseholdDto) {
