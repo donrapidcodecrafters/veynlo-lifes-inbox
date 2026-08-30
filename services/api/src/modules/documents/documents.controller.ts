@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { DocumentType } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
@@ -106,7 +107,10 @@ export class DocumentsController {
     return this.documents.listVersions(id, user.userId);
   }
 
+  /** Tighter throttle than the default — file upload + OCR/malware-scan pipeline is a real per-call cost,
+   * same reasoning as ingestion's url/import routes. */
   @Post(":id/versions")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async addVersion(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Req() req: FastifyRequest) {
     const file = await req.file();
     if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No file was uploaded." });
@@ -114,7 +118,10 @@ export class DocumentsController {
     return this.documents.addVersion(id, user.userId, { mimeType: file.mimetype, buffer });
   }
 
+  /** Tighter throttle than the default — file upload + OCR/malware-scan pipeline is a real per-call cost,
+   * same reasoning as ingestion's url/import routes. */
   @Post("upload")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async upload(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
     const file = await req.file();
     if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No file was uploaded." });

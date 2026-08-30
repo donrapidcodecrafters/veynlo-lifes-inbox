@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, Text, View } from "react-native";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
+import { useAuth } from "@/lib/auth-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
+import { TextField } from "@/components/text-field";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 
@@ -31,7 +33,10 @@ function formatWhen(iso: string): string {
 
 export default function DataExportScreen() {
   const { theme } = useAppTheme();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<ExportJob[] | undefined>(undefined);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [password, setPassword] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +69,9 @@ export default function DataExportScreen() {
     setRequesting(true);
     setError(null);
     try {
-      await api.post("/v1/data-export");
+      await api.post("/v1/data-export", user?.hasPassword ? { password } : {});
+      setShowConfirm(false);
+      setPassword("");
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start the export. Please try again.");
@@ -94,12 +101,49 @@ export default function DataExportScreen() {
       />
 
       <Card style={{ gap: 12 }}>
-        <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
-          A new export reflects your data as of the moment you request it.
-        </Text>
-        <Button onPress={requestExport} loading={requesting}>
-          Request export
-        </Button>
+        {!showConfirm ? (
+          <>
+            <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+              A new export reflects your data as of the moment you request it.
+            </Text>
+            <Button onPress={() => setShowConfirm(true)}>Request export</Button>
+          </>
+        ) : (
+          <>
+            {user?.hasPassword ? (
+              <TextField
+                label="Confirm your password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoComplete="password"
+              />
+            ) : (
+              <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+                Your account uses Google/Microsoft sign-in with no separate password — confirming here is enough.
+              </Text>
+            )}
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Button onPress={requestExport} loading={requesting}>
+                  Confirm export
+                </Button>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  variant="secondary"
+                  onPress={() => {
+                    setShowConfirm(false);
+                    setPassword("");
+                    setError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </View>
+            </View>
+          </>
+        )}
       </Card>
 
       {error && <Text style={{ color: theme.colors.critical, fontSize: 14 }}>{error}</Text>}

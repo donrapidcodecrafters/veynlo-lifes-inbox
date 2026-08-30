@@ -530,20 +530,30 @@ export class IdentityService {
    * deleted at all, and everything that makes the account immediately unusable, happens synchronously
    * here so the caller gets a definitive answer before the connection closes.
    */
-  async requestDeletion(userId: string, password: string | undefined): Promise<void> {
+  /**
+   * Shared step-up reauth check for any sensitive action gated behind "confirm your password" — used by
+   * account deletion and (data-export.controller.ts) requesting a full data export. An OAuth-only account
+   * (Google/Microsoft sign-in) has no password at all — requiring one would make the gated action
+   * permanently impossible for every such user, so the already-AuthGuard-verified session is this
+   * account's only possible reauth, same as it's the only credential these accounts ever had.
+   */
+  async verifyPassword(userId: string, password: string | undefined): Promise<void> {
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     if (!user) {
       throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect password." });
     }
-    // An OAuth-only account (Google/Microsoft sign-in) has no password at all — requiring one made
-    // self-service deletion permanently impossible for every such user (a real, App-Store-blocking bug:
-    // Apple/Google both require in-app account deletion to work, not just for password-based accounts).
-    // The already-AuthGuard-verified session is this account's only possible reauth, same as it's the
-    // only credential these accounts ever had.
     if (user.passwordHash) {
       if (!password || !(await argon2.verify(user.passwordHash, password))) {
         throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect password." });
       }
+    }
+  }
+
+  async requestDeletion(userId: string, password: string | undefined): Promise<void> {
+    await this.verifyPassword(userId, password);
+    const [user] = await this.db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    if (!user) {
+      throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect password." });
     }
     if (user.status === "deletion_pending" || user.status === "deleted") {
       return; // already in progress/done — idempotent, not an error

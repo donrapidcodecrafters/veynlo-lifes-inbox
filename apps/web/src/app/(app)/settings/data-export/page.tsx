@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import useSWR from "swr";
+import { useSession } from "@/hooks/use-session";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input, Label } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 
 interface ExportJob {
@@ -30,18 +32,24 @@ function formatWhen(iso: string): string {
 }
 
 export default function DataExportPage() {
+  const { user } = useSession();
   const { data, isLoading, mutate } = useSWR<ExportJob[]>("/v1/data-export", swrFetcher, {
     refreshInterval: (latest) => (latest?.some((j) => j.state === "queued" || j.state === "processing") ? 3000 : 0),
   });
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [password, setPassword] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  async function requestExport() {
+  async function requestExport(e: FormEvent) {
+    e.preventDefault();
     setRequesting(true);
     setError(null);
     try {
-      await api.post("/v1/data-export");
+      await api.post("/v1/data-export", user?.hasPassword ? { password } : {});
+      setShowConfirm(false);
+      setPassword("");
       mutate();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start the export. Please try again.");
@@ -77,11 +85,49 @@ export default function DataExportPage() {
       </header>
 
       <Card>
-        <CardBody className="flex items-center justify-between gap-3">
-          <p className="text-sm text-tertiary">A new export reflects your data as of the moment you request it.</p>
-          <Button onClick={requestExport} loading={requesting}>
-            Request export
-          </Button>
+        <CardBody className="space-y-4">
+          {!showConfirm ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-tertiary">A new export reflects your data as of the moment you request it.</p>
+              <Button onClick={() => setShowConfirm(true)}>Request export</Button>
+            </div>
+          ) : (
+            <form onSubmit={requestExport} className="space-y-4" noValidate>
+              {user?.hasPassword ? (
+                <div>
+                  <Label htmlFor="export-password">Confirm your password</Label>
+                  <Input
+                    id="export-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-tertiary">
+                  Your account uses Google/Microsoft sign-in with no separate password — confirming here is enough.
+                </p>
+              )}
+              <div className="flex gap-3">
+                <Button type="submit" loading={requesting}>
+                  Confirm export
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowConfirm(false);
+                    setPassword("");
+                    setError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
         </CardBody>
       </Card>
 
