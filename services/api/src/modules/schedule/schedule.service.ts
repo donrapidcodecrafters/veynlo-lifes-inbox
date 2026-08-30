@@ -109,6 +109,32 @@ export class ScheduleService {
   }
 
   /**
+   * §HH-002 "object-level privacy badge" — real, previously-missing gap: ownerOrDelegatedHousehold above
+   * has correctly excluded `visibility: "private"` events from a delegate's view since that check was
+   * built, but nothing anywhere ever set an event's visibility to anything but "private" at creation —
+   * the whole caregiver-delegation feature (schedule:read scope) was functionally inert because there was
+   * never a real event for a delegate to actually see. "selected_people"/"shared_link" aren't offered
+   * here for the same reason as DocumentsService's identical method — this codebase's actual enforcement
+   * only distinguishes private vs. not-private today.
+   */
+  async setEventVisibility(eventId: string, userId: string, visibility: "private" | "household") {
+    const [event] = await this.db
+      .select({ ownerUserId: schema.calendarEvents.ownerUserId, householdId: schema.calendarEvents.householdId })
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.id, eventId))
+      .limit(1);
+    if (!event) throw new NotFoundException({ code: "EVENT_NOT_FOUND", message: "Not found." });
+    if (event.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your event." });
+    if (visibility === "household" && !event.householdId) {
+      throw new BadRequestException({
+        code: "NO_HOUSEHOLD",
+        message: "This account isn't part of a household yet, so there's no one to share this with.",
+      });
+    }
+    await this.db.update(schema.calendarEvents).set({ visibility, updatedAt: new Date() }).where(eq(schema.calendarEvents.id, eventId));
+  }
+
+  /**
    * CAL-001 "write-back capability" — explicit, user-triggered push (never automatic on every local edit,
    * per the spec's own "gates it behind an explicit write-back toggle"). Picks whichever calendar
    * connection the user has active; if they have both, Google wins arbitrarily since there's no per-event

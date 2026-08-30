@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -29,6 +29,15 @@ export class ScheduleController {
   @Post("events/:id/share")
   shareEvent(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.schedule.createShareLink(id, user.userId);
+  }
+
+  @Post("events/:id/visibility")
+  async setEventVisibility(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("visibility") visibility: string) {
+    if (visibility !== "private" && visibility !== "household") {
+      throw new BadRequestException({ code: "INVALID_VISIBILITY", message: `"${visibility}" isn't a recognized visibility.` });
+    }
+    await this.schedule.setEventVisibility(id, user.userId, visibility);
+    return { ok: true };
   }
 
   @Post("events/:id/share/revoke")

@@ -7,6 +7,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/empty-state";
 
 interface DocumentRow {
@@ -17,6 +18,8 @@ interface DocumentRow {
   tags: string[];
   createdAt: string;
   retentionPolicy: string;
+  householdId: string | null;
+  visibility: string;
 }
 
 const RETENTION_POLICIES = [
@@ -416,6 +419,11 @@ function DocumentEditor({
     setShareUrl(null);
   }
 
+  async function toggleVisibility(visible: boolean) {
+    await api.post(`/v1/documents/${doc.id}/visibility`, { visibility: visible ? "household" : "private" });
+    onChanged();
+  }
+
   async function applyRetention(policy: string) {
     setSavingRetention(true);
     setError(null);
@@ -528,6 +536,18 @@ function DocumentEditor({
           </>
         )}
       </div>
+
+      {doc.householdId && (
+        <div className="border-t border-border-subtle pt-3">
+          <Switch
+            id={`visibility-${doc.id}`}
+            checked={doc.visibility === "household"}
+            onCheckedChange={toggleVisibility}
+            label="Visible to household"
+            description="Let household members with documents access see this document."
+          />
+        </div>
+      )}
 
       <div className="space-y-2 border-t border-border-subtle pt-3">
         <Label htmlFor={`retention-${doc.id}`}>File retention</Label>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Share, Text, View } from "react-native";
+import { Share, Switch, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { api, ApiError } from "@/lib/api-client";
@@ -23,6 +23,8 @@ interface EventDetail {
     location: string | null;
     status: string;
     providerEventId: string | null;
+    householdId: string | null;
+    visibility: string;
   };
   evidence: Evidence | null;
 }
@@ -48,6 +50,11 @@ export default function EventDetailScreen() {
   const start = formatTemporal(event.start);
   const end = formatTemporal(event.end);
   const subtitle = start ? `${start}${end && !event.isAllDay ? ` – ${end}` : ""}${event.isAllDay ? " · All day" : ""}` : undefined;
+
+  async function toggleVisibility(visible: boolean) {
+    await api.post(`/v1/events/${id}/visibility`, { visibility: visible ? "household" : "private" });
+    setData(await api.get<EventDetail>(`/v1/events/${id}`));
+  }
 
   async function syncToCalendar() {
     setSyncing(true);
@@ -99,6 +106,15 @@ export default function EventDetailScreen() {
           {event.providerEventId ? "Sync changes to calendar" : "Sync to Google/Outlook Calendar"}
         </Button>
         {syncMessage && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{syncMessage}</Text>}
+        {event.householdId && (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Visible to household</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Let household members with schedule access see this event.</Text>
+            </View>
+            <Switch value={event.visibility === "household"} onValueChange={toggleVisibility} trackColor={{ true: theme.colors.brandDefault }} />
+          </View>
+        )}
         <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
           {!shareUrl ? (
             <Button variant="ghost" onPress={share} loading={sharing}>

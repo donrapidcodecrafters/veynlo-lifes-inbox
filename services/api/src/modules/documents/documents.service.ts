@@ -355,6 +355,27 @@ export class DocumentsService {
     await this.db.update(schema.documents).set({ retentionPolicy, updatedAt: new Date() }).where(eq(schema.documents.id, documentId));
   }
 
+  /**
+   * §HH-002 "object-level privacy badge" — real, previously-missing gap: ownerOrDelegatedHousehold above
+   * has correctly filtered out `visibility: "private"` documents from a delegate's view since that
+   * check was built, but nothing anywhere ever set a document's visibility to anything but "private" at
+   * creation — the whole caregiver-delegation feature (documents:read scope) was functionally inert
+   * because there was never a real item for a delegate to actually see. "selected_people"/"shared_link"
+   * aren't offered here — this codebase's actual enforcement only distinguishes private vs. not-private
+   * today (see the ne(visibilityCol, "private") check), so offering finer-grained values here would be a
+   * control with no real backing logic yet.
+   */
+  async setVisibility(documentId: string, userId: string, visibility: "private" | "household") {
+    const document = await this.assertOwnedDocument(documentId, userId);
+    if (visibility === "household" && !document.householdId) {
+      throw new BadRequestException({
+        code: "NO_HOUSEHOLD",
+        message: "This account isn't part of a household yet, so there's no one to share this with.",
+      });
+    }
+    await this.db.update(schema.documents).set({ visibility, updatedAt: new Date() }).where(eq(schema.documents.id, documentId));
+  }
+
   /** §Sharing expansion — same shape as AttentionService's identical pair, generalized via SharingService. */
   async createShareLink(documentId: string, userId: string) {
     await this.assertOwnedDocument(documentId, userId);

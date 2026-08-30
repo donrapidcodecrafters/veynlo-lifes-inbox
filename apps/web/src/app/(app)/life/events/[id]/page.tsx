@@ -8,6 +8,7 @@ import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { HistorySection } from "@/components/history-section";
@@ -24,6 +25,8 @@ interface EventDetail {
     status: string;
     source: string;
     providerEventId: string | null;
+    householdId: string | null;
+    visibility: string;
   };
   evidence: Evidence | null;
 }
@@ -64,6 +67,11 @@ export default function EventDetailPage() {
   async function revokeShare() {
     await api.post(`/v1/events/${id}/share/revoke`);
     setShareUrl(null);
+  }
+
+  async function toggleVisibility(visible: boolean) {
+    await api.post(`/v1/events/${id}/visibility`, { visibility: visible ? "household" : "private" });
+    mutate();
   }
 
   async function syncToCalendar() {
@@ -122,6 +130,17 @@ export default function EventDetailPage() {
             )}
             {syncMessage && <p className="text-sm text-tertiary">{syncMessage}</p>}
           </div>
+          {event.householdId && (
+            <div className="border-t border-border-subtle pt-3">
+              <Switch
+                id="event-household-visible"
+                checked={event.visibility === "household"}
+                onCheckedChange={toggleVisibility}
+                label="Visible to household"
+                description="Let household members with schedule access see this event."
+              />
+            </div>
+          )}
           {shareUrl && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg bg-subtle p-2">
               <code className="min-w-0 flex-1 truncate text-sm text-primary">{shareUrl}</code>

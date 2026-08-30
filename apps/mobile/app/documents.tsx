@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, Share, Text, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, Share, Switch, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -23,6 +23,8 @@ interface DocumentRow {
   processingState: string;
   tags: string[];
   retentionPolicy: string;
+  householdId: string | null;
+  visibility: string;
 }
 
 const RETENTION_POLICIES = [
@@ -404,6 +406,7 @@ function DocumentEditor({
   const [replacingFile, setReplacingFile] = useState(false);
   const [versions, setVersions] = useState<DocumentVersion[] | null>(null);
   const [retentionPolicy, setRetentionPolicy] = useState(doc.retentionPolicy);
+  const [visibility, setVisibility] = useState(doc.visibility);
   const [savingRetention, setSavingRetention] = useState(false);
   const [confirmingRetention, setConfirmingRetention] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -434,6 +437,13 @@ function DocumentEditor({
   async function revokeShare() {
     await api.post(`/v1/documents/${doc.id}/share/revoke`);
     setShareUrl(null);
+  }
+
+  async function toggleVisibility(visible: boolean) {
+    const next = visible ? "household" : "private";
+    await api.post(`/v1/documents/${doc.id}/visibility`, { visibility: next });
+    setVisibility(next);
+    await onChanged();
   }
 
   async function applyRetention(policy: string) {
@@ -561,6 +571,16 @@ function DocumentEditor({
           </>
         )}
       </View>
+
+      {doc.householdId && (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Visible to household</Text>
+            <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Let household members with documents access see this document.</Text>
+          </View>
+          <Switch value={visibility === "household"} onValueChange={toggleVisibility} trackColor={{ true: theme.colors.brandDefault }} />
+        </View>
+      )}
 
       <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>
         <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>File retention</Text>

@@ -65,6 +65,15 @@ export class DocumentsController {
     return { ok: true };
   }
 
+  @Post(":id/visibility")
+  async setVisibility(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("visibility") visibility: string) {
+    if (visibility !== "private" && visibility !== "household") {
+      throw new BadRequestException({ code: "INVALID_VISIBILITY", message: `"${visibility}" isn't a recognized visibility.` });
+    }
+    await this.documents.setVisibility(id, user.userId, visibility);
+    return { ok: true };
+  }
+
   @Post(":id/share")
   async share(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.documents.createShareLink(id, user.userId);
