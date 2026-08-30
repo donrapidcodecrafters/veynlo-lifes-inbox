@@ -15,7 +15,7 @@ import type { CreateAdminDto, GrantEntitlementDto } from "./dto";
 const ADMIN_MANAGEABLE_ENTITLEMENT_SOURCES = ["support_granted", "promotional", "grandfathered", "referral", "partner_sponsored"];
 
 /** Strips punctuation/casing/common corporate suffixes so "Amazon.com", "AMAZON MKTPLACE PMTS", and "Amazon, Inc." group together. */
-function normalizeMerchantName(name: string): string {
+export function normalizeMerchantName(name: string): string {
   return name
     .toLowerCase()
     .replace(/\.(com|net|org|co)\b/g, "")

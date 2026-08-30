@@ -11,7 +11,7 @@ const IMPORTANT_DATE_PREDICATE = "important_date";
 
 /** Lowercase, strip punctuation, collapse whitespace — a person's own name has no legal-suffix noise to
  * strip the way a business name does (see AdminService.normalizeMerchantName), so this stays simple. */
-function normalizePersonName(name: string): string {
+export function normalizePersonName(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
