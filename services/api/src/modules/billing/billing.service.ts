@@ -249,25 +249,34 @@ export class BillingService {
         const priceId = subscription.items.data[0]?.price?.id;
         const newPlanKey = priceId ? planKeyForPriceId(priceId) : null;
         if (newPlanKey) {
-          const [current] = await this.db
-            .select({ planKey: schema.entitlements.planKey })
-            .from(schema.entitlements)
-            .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)))
-            .limit(1);
-          if (current && current.planKey !== newPlanKey) {
-            await this.db
-              .update(schema.entitlements)
-              .set({ effectiveTo: new Date() })
-              .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)));
-            await this.db.insert(schema.entitlements).values({
-              id: generateId("entitlement"),
-              userId,
-              planKey: newPlanKey,
-              source: "web_stripe",
-              effectiveFrom: new Date(),
-              effectiveTo: null,
-            });
-          }
+          // Row-locked read-modify-write: Stripe doesn't guarantee strict webhook ordering, so two
+          // near-simultaneous deliveries for the same subscription could otherwise both read the same
+          // "current" plan, both decide it differs, and both close-then-insert — leaving two "active"
+          // entitlement rows for the same user. The FOR UPDATE lock blocks a second concurrent
+          // transaction until the first commits, so it re-reads the now-updated state and correctly
+          // finds nothing left to do.
+          await this.db.transaction(async (tx) => {
+            const [current] = await tx
+              .select({ planKey: schema.entitlements.planKey })
+              .from(schema.entitlements)
+              .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)))
+              .limit(1)
+              .for("update");
+            if (current && current.planKey !== newPlanKey) {
+              await tx
+                .update(schema.entitlements)
+                .set({ effectiveTo: new Date() })
+                .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)));
+              await tx.insert(schema.entitlements).values({
+                id: generateId("entitlement"),
+                userId,
+                planKey: newPlanKey,
+                source: "web_stripe",
+                effectiveFrom: new Date(),
+                effectiveTo: null,
+              });
+            }
+          });
         }
       }
     }

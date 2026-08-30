@@ -162,6 +162,38 @@ describe("BillingService.handleWebhook — plan change via Customer Portal", () 
     const closedOld = await db.select().from(schema.entitlements).where(eq(schema.entitlements.id, before!.id));
     expect(closedOld[0]?.effectiveTo).not.toBeNull();
   });
+
+  it("two concurrent plan-switch deliveries for the same subscription never leave two active entitlements (row-locked read-modify-write)", async () => {
+    const billing = makeService();
+    const userId = await makeUser();
+    await send(billing, {
+      id: `evt_checkout_${userId}`,
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_test", customer: "cus_race_test", metadata: { veynloUserId: userId, planKey: "plus" } } },
+    });
+
+    // Stripe doesn't guarantee strict webhook ordering — two distinct events for the same subscription
+    // (e.g. a retried delivery racing a fresh one) can genuinely arrive concurrently.
+    await Promise.all([
+      send(billing, {
+        id: `evt_upgrade_a_${userId}`,
+        type: "customer.subscription.updated",
+        data: { object: { status: "active", metadata: { veynloUserId: userId }, items: { data: [{ price: { id: PRICE_FAMILY_MONTHLY } }] } } },
+      }),
+      send(billing, {
+        id: `evt_upgrade_b_${userId}`,
+        type: "customer.subscription.updated",
+        data: { object: { status: "active", metadata: { veynloUserId: userId }, items: { data: [{ price: { id: PRICE_FAMILY_MONTHLY } }] } } },
+      }),
+    ]);
+
+    const activeRows = await db
+      .select()
+      .from(schema.entitlements)
+      .where(and(eq(schema.entitlements.userId, userId), isNull(schema.entitlements.effectiveTo)));
+    expect(activeRows.length).toBe(1);
+    expect(activeRows[0]?.planKey).toBe("family");
+  });
 });
 
 describe("BillingService.handleWebhook — refund reconciliation", () => {

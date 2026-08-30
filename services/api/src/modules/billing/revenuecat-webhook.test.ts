@@ -101,6 +101,24 @@ describe("RevenueCatService.handleWebhook — entitlement grant", () => {
     expect(rows.length).toBe(1);
   });
 
+  it("two concurrent grant events for the same user never leave two active entitlements (row-locked read-modify-write)", async () => {
+    const rc = makeService();
+    const userId = await makeUser();
+
+    // RevenueCat doesn't guarantee strict delivery ordering, and its own retries can overlap a fresh
+    // delivery — two distinct grant events for the same user can genuinely arrive concurrently.
+    await Promise.all([
+      rc.handleWebhook(AUTH_HEADER, event({ type: "INITIAL_PURCHASE", app_user_id: userId, entitlement_ids: ["plus"], expiration_at_ms: Date.now() + 60_000, store: "APP_STORE" })),
+      rc.handleWebhook(AUTH_HEADER, event({ type: "RENEWAL", app_user_id: userId, entitlement_ids: ["plus"], expiration_at_ms: Date.now() + 120_000, store: "APP_STORE" })),
+    ]);
+
+    const activeRows = await db
+      .select()
+      .from(schema.entitlements)
+      .where(and(eq(schema.entitlements.userId, userId), eq(schema.entitlements.source, "revenuecat"), or(isNull(schema.entitlements.effectiveTo), gt(schema.entitlements.effectiveTo, new Date()))));
+    expect(activeRows.length).toBe(1);
+  });
+
   it("skips a grant event with no entitlement_ids matching a known plan", async () => {
     const rc = makeService();
     const userId = await makeUser();

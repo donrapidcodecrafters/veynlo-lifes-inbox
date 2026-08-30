@@ -4,6 +4,10 @@ import { z } from "zod";
 import { generateId, PlanKeySchema, type PlanKey } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
+
+/** Either the top-level `Database` or a transaction handle from `Database["transaction"]` — both expose
+ * the same select/update/insert query-builder interface, but only the former carries `$client`. */
+type Executor = Pick<Database, "select" | "update" | "insert" | "delete">;
 import { DATABASE } from "../../database/database.module";
 import { isRevenueCatConfigured, loadEnv } from "../../config/env";
 import { NotificationDeliveryService } from "../notifications/notification-delivery.service";
@@ -115,15 +119,32 @@ export class RevenueCatService {
       }
       // Close any currently-active entitlement from this source before opening a new one — a RENEWAL/
       // PRODUCT_CHANGE is a state transition, not an additive grant, and leaving the old row open would
-      // let currentEntitlements() see two "active" plans from the same source at once.
-      await this.closeActiveRevenueCatEntitlements(userId);
-      await this.db.insert(schema.entitlements).values({
-        id: generateId("entitlement"),
-        userId,
-        planKey,
-        source: "revenuecat",
-        effectiveFrom: new Date(),
-        effectiveTo: event.expiration_at_ms ? new Date(event.expiration_at_ms) : null,
+      // let currentEntitlements() see two "active" plans from the same source at once. Row-locked: two
+      // near-simultaneous grant events for the same user (RevenueCat doesn't guarantee strict delivery
+      // ordering, and its own retries can overlap a fresh delivery) could otherwise both see "nothing
+      // active yet" and both insert, leaving two active rows. The FOR UPDATE lock (on whatever's
+      // currently active, if anything) blocks a second concurrent transaction until the first commits.
+      await this.db.transaction(async (tx) => {
+        await tx
+          .select({ id: schema.entitlements.id })
+          .from(schema.entitlements)
+          .where(
+            and(
+              eq(schema.entitlements.userId, userId),
+              eq(schema.entitlements.source, "revenuecat"),
+              or(isNull(schema.entitlements.effectiveTo), gt(schema.entitlements.effectiveTo, new Date())),
+            ),
+          )
+          .for("update");
+        await this.closeActiveRevenueCatEntitlements(userId, tx);
+        await tx.insert(schema.entitlements).values({
+          id: generateId("entitlement"),
+          userId,
+          planKey,
+          source: "revenuecat",
+          effectiveFrom: new Date(),
+          effectiveTo: event.expiration_at_ms ? new Date(event.expiration_at_ms) : null,
+        });
       });
     }
 
@@ -159,9 +180,9 @@ export class RevenueCatService {
    * verified through /v1/billing/entitlements, didn't), not by typecheck or the schema-level SAST/audit
    * passes that were run before this.
    */
-  private async closeActiveRevenueCatEntitlements(userId: string): Promise<void> {
+  private async closeActiveRevenueCatEntitlements(userId: string, executor: Executor = this.db): Promise<void> {
     const now = new Date();
-    await this.db
+    await executor
       .update(schema.entitlements)
       .set({ effectiveTo: now })
       .where(
