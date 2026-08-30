@@ -76,6 +76,21 @@ interface TodayItem {
   at: string;
 }
 
+interface MoneyAtRiskItem {
+  id: string;
+  title: string;
+  moneyAtStakeMinorUnits: number | null;
+  moneyAtStakeCurrency: string | null;
+  linkedResourceType: string | null;
+  linkedResourceId: string | null;
+}
+
+interface MoneyAtRiskResponse {
+  totalMinorUnits: number;
+  currency: string;
+  items: MoneyAtRiskItem[];
+}
+
 interface HouseholdMembership {
   household: { id: string; name: string };
 }
@@ -106,17 +121,23 @@ export default function HomeScreen() {
   const backfilling = useBackfillStatus();
   const [data, setData] = useState<HomeResponse | null>(null);
   const [today, setToday] = useState<TodayItem[]>([]);
+  const [comingUp, setComingUp] = useState<TodayItem[]>([]);
+  const [moneyAtRisk, setMoneyAtRisk] = useState<MoneyAtRiskResponse | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [home, todayRes, households] = await Promise.all([
+    const [home, todayRes, comingUpRes, moneyAtRiskRes, households] = await Promise.all([
       api.get<HomeResponse>("/v1/home"),
       api.get<{ items: TodayItem[] }>("/v1/home/today").catch(() => ({ items: [] })),
+      api.get<{ items: TodayItem[] }>("/v1/home/coming-up").catch(() => ({ items: [] })),
+      api.get<MoneyAtRiskResponse>("/v1/home/money-at-risk").catch(() => null),
       api.get<HouseholdMembership[]>("/v1/households").catch(() => []),
     ]);
     setData(home);
     setToday(todayRes.items);
+    setComingUp(comingUpRes.items);
+    setMoneyAtRisk(moneyAtRiskRes);
     const householdId = households[0]?.household.id;
     if (householdId) {
       const memberList = await api.get<Member[]>(`/v1/households/${householdId}/members`).catch(() => []);
@@ -211,6 +232,65 @@ export default function HomeScreen() {
                     {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                   </Text>
                 </Pressable>
+              );
+            })}
+          </Card>
+        </View>
+      )}
+
+      {comingUp.length > 0 && (
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Coming Up</Text>
+          <Card style={{ gap: 10 }}>
+            {comingUp.map((item) => {
+              const route = item.kind === "event" ? `/event/${item.id}` : item.kind === "bill" ? `/bill/${item.id}` : "/(tabs)/life";
+              return (
+                <Pressable
+                  key={`${item.kind}-${item.id}`}
+                  onPress={() => router.push(route)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title}, ${TODAY_KIND_LABEL[item.kind]}`}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{item.title}</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                    {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </Card>
+        </View>
+      )}
+
+      {moneyAtRisk && moneyAtRisk.items.length > 0 && (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+            <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Money at Risk</Text>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
+              {formatMoneyMinorUnits(moneyAtRisk.totalMinorUnits, moneyAtRisk.currency)}
+            </Text>
+          </View>
+          <Card style={{ gap: 10 }}>
+            {moneyAtRisk.items.map((item) => {
+              const route = resourceRoute(item.linkedResourceType, item.linkedResourceId);
+              const content = (
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary, flex: 1 }} numberOfLines={1}>
+                    {item.title}
+                  </Text>
+                  {item.moneyAtStakeMinorUnits != null && (
+                    <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+                      {formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency)}
+                    </Text>
+                  )}
+                </View>
+              );
+              return route ? (
+                <Pressable key={item.id} onPress={() => router.push(route)} accessibilityRole="button" accessibilityLabel={item.title}>
+                  {content}
+                </Pressable>
+              ) : (
+                <View key={item.id}>{content}</View>
               );
             })}
           </Card>

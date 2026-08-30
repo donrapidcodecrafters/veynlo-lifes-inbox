@@ -82,6 +82,22 @@ interface TodayResponse {
   items: TodayItem[];
 }
 
+interface MoneyAtRiskItem {
+  id: string;
+  title: string;
+  moneyAtStakeMinorUnits: number | null;
+  moneyAtStakeCurrency: string | null;
+  dueAt: string | null;
+  linkedResourceType: string | null;
+  linkedResourceId: string | null;
+}
+
+interface MoneyAtRiskResponse {
+  totalMinorUnits: number;
+  currency: string;
+  items: MoneyAtRiskItem[];
+}
+
 interface HouseholdMembership {
   household: { id: string; name: string };
   membership: { userId: string | null };
@@ -114,6 +130,8 @@ export default function HomePage() {
     refreshInterval: backfilling ? 4000 : 0,
   });
   const { data: today } = useSWR<TodayResponse>("/v1/home/today", swrFetcher, { refreshInterval: backfilling ? 4000 : 0 });
+  const { data: comingUp } = useSWR<TodayResponse>("/v1/home/coming-up", swrFetcher, { refreshInterval: backfilling ? 4000 : 0 });
+  const { data: moneyAtRisk } = useSWR<MoneyAtRiskResponse>("/v1/home/money-at-risk", swrFetcher, { refreshInterval: backfilling ? 4000 : 0 });
   const { data: households } = useSWR<HouseholdMembership[]>("/v1/households", swrFetcher);
   const householdId = households?.[0]?.household.id ?? null;
   const { data: members } = useSWR<Member[]>(householdId ? `/v1/households/${householdId}/members` : null, swrFetcher);
@@ -184,6 +202,64 @@ export default function HomePage() {
                       </p>
                     </div>
                   </Link>
+                );
+              })}
+            </CardBody>
+          </Card>
+        </section>
+      )}
+
+      {comingUp && comingUp.items.length > 0 && (
+        <section aria-labelledby="coming-up-heading">
+          <h2 id="coming-up-heading" className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">
+            Coming Up
+          </h2>
+          <Card>
+            <CardBody className="divide-y divide-border-subtle p-0">
+              {comingUp.items.map((item) => {
+                const href = item.kind === "event" ? `/life/events/${item.id}` : item.kind === "bill" ? `/life/bills/${item.id}` : "/life";
+                return (
+                  <Link key={`${item.kind}-${item.id}`} href={href} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-subtle">
+                    <div>
+                      <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
+                      <p className="text-sm text-tertiary">
+                        {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </CardBody>
+          </Card>
+        </section>
+      )}
+
+      {moneyAtRisk && moneyAtRisk.items.length > 0 && (
+        <section aria-labelledby="money-at-risk-heading">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 id="money-at-risk-heading" className="text-sm font-semibold uppercase tracking-wide text-tertiary">
+              Money at Risk
+            </h2>
+            <p className="text-sm font-medium text-primary">{formatMoneyMinorUnits(moneyAtRisk.totalMinorUnits, moneyAtRisk.currency)}</p>
+          </div>
+          <Card>
+            <CardBody className="divide-y divide-border-subtle p-0">
+              {moneyAtRisk.items.map((item) => {
+                const href = resourceHref(item.linkedResourceType, item.linkedResourceId);
+                const row = (
+                  <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <p className="text-[0.9375rem] font-medium text-primary">{item.title}</p>
+                    {item.moneyAtStakeMinorUnits != null && (
+                      <p className="text-sm text-tertiary">{formatMoneyMinorUnits(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency)}</p>
+                    )}
+                  </div>
+                );
+                return href ? (
+                  <Link key={item.id} href={href} className="block hover:bg-subtle">
+                    {row}
+                  </Link>
+                ) : (
+                  <div key={item.id}>{row}</div>
                 );
               })}
             </CardBody>

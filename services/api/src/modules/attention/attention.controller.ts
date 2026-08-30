@@ -32,6 +32,16 @@ export class AttentionController {
     return this.attention.today(user.userId);
   }
 
+  @Get("v1/home/coming-up")
+  comingUp(@CurrentUser() user: AuthenticatedUser) {
+    return this.attention.comingUp(user.userId);
+  }
+
+  @Get("v1/home/money-at-risk")
+  moneyAtRisk(@CurrentUser() user: AuthenticatedUser) {
+    return this.attention.moneyAtRisk(user.userId);
+  }
+
   @Post("v1/attention/:id/resolve")
   resolve(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.attention.resolve(id, user.userId);

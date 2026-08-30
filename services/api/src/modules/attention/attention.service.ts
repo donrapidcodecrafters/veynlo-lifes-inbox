@@ -135,6 +135,81 @@ export class AttentionService {
     return { items: merged };
   }
 
+  /**
+   * §52.1 screen inventory item 018 "Coming Up" — same three-domain merge as today() (same scope note
+   * applies: no full timeline-projection service exists yet), windowed from tomorrow through `days` days
+   * out rather than just today. Deliberately excludes today's own items — that's what today() already
+   * shows; this is "what's next," not a duplicate of the Today section.
+   */
+  async comingUp(userId: string, days = 7) {
+    const now = new Date();
+    const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const windowEnd = new Date(startOfTomorrow.getTime() + days * 24 * 60 * 60 * 1000);
+    const inWindow = (col: AnyPgColumn) => and(isNotNull(col), gte(col, startOfTomorrow), lte(col, windowEnd))!;
+
+    const [events, tasks, bills] = await Promise.all([
+      this.db
+        .select({ id: schema.calendarEvents.id, title: schema.calendarEvents.title, at: schema.calendarEvents.startSort })
+        .from(schema.calendarEvents)
+        .where(and(eq(schema.calendarEvents.ownerUserId, userId), inWindow(schema.calendarEvents.startSort))),
+      this.db
+        .select({ id: schema.tasks.id, title: schema.tasks.title, at: schema.tasks.dueSort })
+        .from(schema.tasks)
+        .where(and(eq(schema.tasks.ownerUserId, userId), eq(schema.tasks.state, "open"), inWindow(schema.tasks.dueSort))),
+      this.db
+        .select({ id: schema.bills.id, title: schema.bills.billerLabel, at: schema.bills.dueDateSort })
+        .from(schema.bills)
+        .where(and(eq(schema.bills.ownerUserId, userId), inWindow(schema.bills.dueDateSort))),
+    ]);
+
+    const merged = [
+      ...events.map((e) => ({ kind: "event" as const, id: e.id, title: e.title, at: e.at! })),
+      ...tasks.map((t) => ({ kind: "task" as const, id: t.id, title: t.title, at: t.at! })),
+      ...bills.map((b) => ({ kind: "bill" as const, id: b.id, title: `${b.title} due`, at: b.at! })),
+    ].sort((a, b) => a.at.getTime() - b.at.getTime());
+
+    return { items: merged };
+  }
+
+  /**
+   * §52.1 screen inventory item 019 "Money at Risk" — every unresolved attention item already carries a
+   * real moneyAtStakeMinorUnits (bills' amountDue, return cases' valueAtStake — see the filing branches
+   * below) that scoreFor() already uses for ranking but nothing ever surfaced as its own view. No new
+   * query/data model needed: this is the same unresolved-items set home() already computes, filtered and
+   * summed. Assumes a single currency (every amount currently filed is USD) rather than building real
+   * multi-currency aggregation for a case that doesn't exist yet in this codebase.
+   */
+  async moneyAtRisk(userId: string) {
+    const now = new Date();
+    const items = await this.db
+      .select()
+      .from(schema.attentionItems)
+      .where(
+        and(
+          or(eq(schema.attentionItems.ownerUserId, userId), eq(schema.attentionItems.assignedToUserId, userId)),
+          eq(schema.attentionItems.resolved, false),
+          or(isNull(schema.attentionItems.snoozedUntil), lte(schema.attentionItems.snoozedUntil, now)),
+          isNotNull(schema.attentionItems.moneyAtStakeMinorUnits),
+        ),
+      )
+      .orderBy(asc(schema.attentionItems.dueAtSort));
+
+    const totalMinorUnits = items.reduce((sum, item) => sum + (item.moneyAtStakeMinorUnits ?? 0), 0);
+    return {
+      totalMinorUnits,
+      currency: items[0]?.moneyAtStakeCurrency ?? "USD",
+      items: items.map((item) => ({
+        id: item.id,
+        title: item.reasonText,
+        moneyAtStakeMinorUnits: item.moneyAtStakeMinorUnits,
+        moneyAtStakeCurrency: item.moneyAtStakeCurrency,
+        dueAt: item.dueAtSort,
+        linkedResourceType: item.linkedResourceType,
+        linkedResourceId: item.linkedResourceId,
+      })),
+    };
+  }
+
   async resolve(id: string, userId: string) {
     await this.assertAccess(id, userId);
     await this.db.update(schema.attentionItems).set({ resolved: true, updatedAt: new Date() }).where(eq(schema.attentionItems.id, id));
