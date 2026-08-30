@@ -18,8 +18,10 @@ environments/  per-environment composition (prod/, staging/, dev/) —
 
 All three environments (`prod`, `staging`, `dev`) exist, each composing the
 same modules at different sizing. See `docs/DEPLOYMENT.md` for the
-production-readiness checklist (domain/ACM, ECR image push, remote state)
-and `docs/ROADMAP.md` / `SECURITY.md` for what's still unbuilt.
+production-readiness checklist (domain/ACM, ECR image push, remote state),
+`docs/DISASTER_RECOVERY.md` for the RPO/RTO targets `modules/database`'s
+backup/PITR config is meant to achieve, and `docs/ROADMAP.md` / `SECURITY.md`
+for what's still unbuilt.
 
 ## Before this can ever be applied
 

@@ -14,15 +14,19 @@ Terraform modules.
   development — see the root `README.md`.
 - CI (`.github/workflows/ci.yml`): typecheck, lint, full test suite,
   blocking SAST + secret-scanning (gitleaks + Semgrep, see `SECURITY.md`),
-  and a Docker build of both the `api` and `worker` targets on every PR —
-  build-only, `push: false`, tagged `:ci` locally within the runner. This
-  already catches real Dockerfile breakage (see the comment in `ci.yml`) —
-  it just doesn't ship anywhere yet.
+  `terraform fmt`/`validate` across all three environments plus an
+  informational `checkov` scan, and a Docker build of both the `api` and
+  `worker` targets on every PR — build-only, `push: false`, tagged `:ci`
+  locally within the runner. This already catches real Dockerfile/Terraform
+  breakage (see the comments in `ci.yml`) — it just doesn't ship anywhere
+  yet.
 - `infrastructure/terraform/` composes three environments (`dev`, `staging`,
   `prod`) from shared modules (networking, database, cache, storage,
   ecs-service, alb) — sized differently per environment but otherwise
   identical. See `infrastructure/terraform/README.md` for layout and the
-  `terraform validate`-without-an-AWS-account setup.
+  `terraform validate`-without-an-AWS-account setup, and
+  `docs/DISASTER_RECOVERY.md` for the RPO/RTO targets the database module's
+  backup/PITR config is meant to achieve.
 
 ## What's needed before this can actually run in AWS
 
