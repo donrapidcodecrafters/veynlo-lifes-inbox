@@ -121,7 +121,6 @@ export const EntitlementSchema = z.object({
   source: EntitlementSourceSchema,
   effectiveFrom: z.string().datetime(),
   effectiveTo: z.string().datetime().nullable(),
-  gracePeriodEndsAt: z.string().datetime().nullable(),
   reason: z.string().nullable(), // required for promotional/grandfathered/support_granted
   createdAt: z.string().datetime(),
 });

@@ -14,8 +14,12 @@ export const entitlements = pgTable(
     planKey: text("plan_key").notNull(),
     source: text("source").notNull(),
     effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
+    // No local grace-period timer by design — both Stripe (invoice.payment_failed) and RevenueCat
+    // (BILLING_ISSUE) already run their own retry schedule before a real terminal event (canceled/unpaid,
+    // EXPIRATION) fires; see BillingService/RevenueCatService's payment-failure handlers. A second,
+    // locally-computed grace-period clock would just race against the processor's own and had no reader
+    // or writer anywhere in the codebase — removed rather than left as a misleading unused column.
     effectiveTo: timestamp("effective_to", { withTimezone: true }),
-    gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
     reason: text("reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

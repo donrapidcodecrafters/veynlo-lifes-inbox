@@ -1,0 +1,1 @@
+ALTER TABLE "entitlements" DROP COLUMN "grace_period_ends_at";
