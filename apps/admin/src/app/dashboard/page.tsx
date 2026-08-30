@@ -30,6 +30,25 @@ interface ConnectorHealthSummary {
   byHealth: Record<string, number>;
 }
 
+interface QueueCounts {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}
+
+type JobHealthSummary = Record<string, QueueCounts>;
+
+interface SystemStatus {
+  database: { ok: boolean; error?: string };
+  redis: { ok: boolean; error?: string };
+  connectors: ConnectorHealthSummary | { error: string };
+  models: { totalRuns: number } | { error: string };
+  jobs: JobHealthSummary | { error: string };
+  checkedAt: string;
+}
+
 interface ModelHealthSummary {
   windowDays: number;
   totalRuns: number;
@@ -89,6 +108,25 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** The status endpoint's per-check fields are each either the real payload or `{ error: string }` when
+ * that one check itself threw — a plain `"error" in x` check doesn't narrow cleanly against a broad
+ * Record-shaped success type, so this does the check explicitly instead. */
+function checkError(value: object): string | undefined {
+  return "error" in value && typeof (value as { error: unknown }).error === "string" ? (value as { error: string }).error : undefined;
+}
+
+function StatusPill({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
+  return (
+    <div
+      className={`rounded-lg px-4 py-2 ${ok ? "bg-positive-subtle" : "bg-critical-subtle"}`}
+      title={detail}
+    >
+      <p className={`text-xs ${ok ? "text-positive-subtle-text" : "text-critical-subtle-text"}`}>{label}</p>
+      <p className={`text-sm font-semibold ${ok ? "text-positive-subtle-text" : "text-critical-subtle-text"}`}>{ok ? "Healthy" : "Issue"}</p>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [email, setEmail] = useState("");
   const [lookupResult, setLookupResult] = useState<UserLookupResult | null>(null);
@@ -114,6 +152,8 @@ export default function DashboardPage() {
     refreshInterval: 30_000,
   });
   const { data: modelHealth } = useSWR<ModelHealthSummary>("/v1/admin/model-health", swrFetcher, { refreshInterval: 30_000 });
+  const { data: jobHealth } = useSWR<JobHealthSummary>("/v1/admin/job-health", swrFetcher, { refreshInterval: 30_000 });
+  const { data: status } = useSWR<SystemStatus>("/v1/admin/status", swrFetcher, { refreshInterval: 30_000 });
   const { data: auditEvents } = useSWR<AuditEvent[]>("/v1/admin/audit-events", swrFetcher, { refreshInterval: 15_000 });
   const { data: flags, mutate: mutateFlags } = useSWR<FeatureFlag[]>("/v1/admin/feature-flags", swrFetcher);
   const [flagBusyKey, setFlagBusyKey] = useState<string | null>(null);
@@ -203,6 +243,22 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <Section title="System status">
+        {!status && <p className="text-sm text-tertiary">Loading…</p>}
+        {status && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-3">
+              <StatusPill label="Database" ok={status.database.ok} detail={status.database.error} />
+              <StatusPill label="Redis" ok={status.redis.ok} detail={status.redis.error} />
+              <StatusPill label="Connectors" ok={!checkError(status.connectors)} detail={checkError(status.connectors)} />
+              <StatusPill label="AI models" ok={!checkError(status.models)} detail={checkError(status.models)} />
+              <StatusPill label="Jobs" ok={!checkError(status.jobs)} detail={checkError(status.jobs)} />
+            </div>
+            <p className="text-xs text-tertiary">Checked {new Date(status.checkedAt).toLocaleTimeString()}</p>
+          </div>
+        )}
+      </Section>
+
       <Section title="User lookup">
         <div className="flex gap-2">
           <input
@@ -567,6 +623,36 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+        )}
+      </Section>
+
+      <Section title="Job/queue health">
+        {!jobHealth && <p className="text-sm text-tertiary">Loading…</p>}
+        {jobHealth && (
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-xs uppercase text-tertiary">
+                <th className="pb-2 font-medium">Queue</th>
+                <th className="pb-2 font-medium">Waiting</th>
+                <th className="pb-2 font-medium">Active</th>
+                <th className="pb-2 font-medium">Delayed</th>
+                <th className="pb-2 font-medium">Failed</th>
+                <th className="pb-2 font-medium">Completed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(jobHealth).map(([queueName, counts]) => (
+                <tr key={queueName} className="border-t border-border-subtle">
+                  <td className="py-2 text-primary">{queueName}</td>
+                  <td className="py-2 text-tertiary">{counts.waiting}</td>
+                  <td className="py-2 text-tertiary">{counts.active}</td>
+                  <td className="py-2 text-tertiary">{counts.delayed}</td>
+                  <td className={`py-2 ${counts.failed > 0 ? "text-critical-subtle-text" : "text-tertiary"}`}>{counts.failed}</td>
+                  <td className="py-2 text-tertiary">{counts.completed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </Section>
 

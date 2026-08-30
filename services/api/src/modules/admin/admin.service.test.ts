@@ -3,6 +3,7 @@ import { generateId } from "@veynlo/core";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { eq, inArray } from "drizzle-orm";
 import { AdminService } from "./admin.service";
+import { QueueProducerService } from "../../queue/queue-producer.service";
 
 /**
  * §54.2 launch criteria — real test against local Postgres proving the support-lookup redaction claim
@@ -20,7 +21,7 @@ const SENSITIVE_TITLE = "Extremely private medical bill — do not leak";
 
 beforeAll(async () => {
   db = createDbClient(DATABASE_URL);
-  admin = new AdminService(db, {} as never); // findUserByEmail never touches searchIndex
+  admin = new AdminService(db, {} as never, {} as never); // findUserByEmail never touches searchIndex/queueProducer
   await db.insert(schema.users).values({ id: userId, displayName: "Redaction Test User", email: userEmail });
   await db.insert(schema.documents).values({
     id: generateId("document"),
@@ -112,5 +113,40 @@ describe("AdminService.modelHealthSummary — cost aggregation", () => {
     expect(bucket?.total).toBe(3);
     expect(bucket?.totalCostMinorUnits).toBe(46);
     expect(summary.totalCostMinorUnits).toBeGreaterThanOrEqual(46);
+  });
+});
+
+describe("AdminService — job health and system status", () => {
+  let queueProducer: QueueProducerService;
+  let adminWithQueues: AdminService;
+
+  beforeAll(() => {
+    queueProducer = new QueueProducerService();
+    adminWithQueues = new AdminService(db, {} as never, queueProducer);
+  });
+
+  afterAll(async () => {
+    await queueProducer.onModuleDestroy();
+  });
+
+  it("jobHealthSummary reports real counts for every queue against a real Redis connection", async () => {
+    const counts = await adminWithQueues.jobHealthSummary();
+    // Every queue this app defines shows up, each with real numeric counts (not undefined/missing).
+    expect(Object.keys(counts).length).toBeGreaterThanOrEqual(10);
+    for (const queueCounts of Object.values(counts)) {
+      expect(typeof queueCounts.waiting).toBe("number");
+      expect(typeof queueCounts.active).toBe("number");
+      expect(typeof queueCounts.failed).toBe("number");
+    }
+  });
+
+  it("systemStatus composes real DB, Redis, connector, model, and job checks into one payload", async () => {
+    const status = await adminWithQueues.systemStatus();
+    expect(status.database).toMatchObject({ ok: true });
+    expect(status.redis).toMatchObject({ ok: true });
+    expect(status.connectors).toHaveProperty("total");
+    expect(status.models).toHaveProperty("totalRuns");
+    expect(Object.keys(status.jobs as Record<string, unknown>).length).toBeGreaterThanOrEqual(10);
+    expect(typeof status.checkedAt).toBe("string");
   });
 });

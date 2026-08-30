@@ -206,6 +206,32 @@ export class QueueProducerService implements OnModuleDestroy {
     await this.dataRetentionScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-retention-scan" });
   }
 
+  /** §Operations "job/queue health monitoring" — the admin console previously only had connection-level
+   * (per-connector) and model-level (per-AI-extractor) health, despite the spec explicitly asking for
+   * "connector/job/model health." Reuses these same Queue instances (one already exists per queue for
+   * enqueueing) rather than opening a second redundant connection just to read counts. */
+  async jobCounts(): Promise<Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number }>> {
+    const queues: Record<string, Queue> = {
+      [QUEUE_NAMES.connectorSync]: this.connectorSyncQueue,
+      [QUEUE_NAMES.connectorScan]: this.connectorScanQueue,
+      [QUEUE_NAMES.notificationDispatch]: this.notificationDispatchQueue,
+      [QUEUE_NAMES.notificationDelivery]: this.notificationDeliveryQueue,
+      [QUEUE_NAMES.accountDeletion]: this.accountDeletionQueue,
+      [QUEUE_NAMES.inboxUnsnooze]: this.inboxUnsnoozeQueue,
+      [QUEUE_NAMES.attentionScan]: this.attentionScanQueue,
+      [QUEUE_NAMES.connectionDataDeletion]: this.connectionDataDeletionQueue,
+      [QUEUE_NAMES.dataExport]: this.dataExportQueue,
+      [QUEUE_NAMES.dataRetentionScan]: this.dataRetentionScanQueue,
+    };
+    const entries = await Promise.all(
+      Object.entries(queues).map(async ([name, queue]) => {
+        const counts = await queue.getJobCounts("waiting", "active", "completed", "failed", "delayed");
+        return [name, counts] as const;
+      }),
+    );
+    return Object.fromEntries(entries) as Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number }>;
+  }
+
   async onModuleDestroy() {
     await Promise.all([
       this.connectorSyncQueue.close(),

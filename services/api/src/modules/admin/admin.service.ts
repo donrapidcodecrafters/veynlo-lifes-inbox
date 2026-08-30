@@ -1,13 +1,15 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { and, desc, eq, gte, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, ne, sql } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { recordAuditEvent } from "../../common/audit";
 import { SearchIndexService } from "../search/search-index.service";
+import { QueueProducerService } from "../../queue/queue-producer.service";
+import { getRedisConnection } from "../../queue/redis-connection";
 import type { CreateAdminDto, GrantEntitlementDto } from "./dto";
 
 /** The only sources an admin action is allowed to touch — a real payment processor's entitlement (Stripe/
@@ -30,6 +32,7 @@ export class AdminService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly searchIndex: SearchIndexService,
+    private readonly queueProducer: QueueProducerService,
   ) {}
 
   async findUserByEmail(email: string, actingAdminId: string) {
@@ -226,6 +229,37 @@ export class AdminService {
     const byHealth: Record<string, number> = {};
     for (const c of connections) byHealth[c.health] = (byHealth[c.health] ?? 0) + 1;
     return { total: connections.length, byHealth };
+  }
+
+  /** §Operations "job/queue health monitoring" — see QueueProducerService.jobCounts' own comment for why
+   * this reuses the existing Queue instances rather than opening new ones. */
+  async jobHealthSummary() {
+    return this.queueProducer.jobCounts();
+  }
+
+  /**
+   * A real aggregated status view — previously only a raw GET /health API (up/down only, no detail) and a
+   * markdown runbook existed, no way to see "is everything actually healthy" in one place. Composes the
+   * checks that already exist independently (DB, connector health, model health, job health) plus a real
+   * Redis ping, which nothing anywhere previously checked at all despite BullMQ/rate-limiting depending on
+   * it being up. Each check is independently try/caught so one failing subsystem's error doesn't prevent
+   * reporting on the others.
+   */
+  async systemStatus() {
+    const [database, redis, connectors, models, jobs] = await Promise.all([
+      this.db
+        .execute(sql`select 1`)
+        .then(() => ({ ok: true as const }))
+        .catch((err) => ({ ok: false as const, error: String((err as Error)?.message ?? err) })),
+      getRedisConnection()
+        .ping()
+        .then(() => ({ ok: true as const }))
+        .catch((err) => ({ ok: false as const, error: String((err as Error)?.message ?? err) })),
+      this.connectorHealthSummary().catch((err) => ({ error: String((err as Error)?.message ?? err) })),
+      this.modelHealthSummary(1).catch((err) => ({ error: String((err as Error)?.message ?? err) })),
+      this.jobHealthSummary().catch((err) => ({ error: String((err as Error)?.message ?? err) })),
+    ]);
+    return { database, redis, connectors, models, jobs, checkedAt: new Date().toISOString() };
   }
 
   async recentAuditEvents(limit = 50) {

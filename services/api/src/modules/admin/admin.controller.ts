@@ -109,6 +109,18 @@ export class AdminController {
     return this.admin.modelHealthSummary();
   }
 
+  @Get("job-health")
+  @UseGuards(AdminGuard)
+  jobHealth() {
+    return this.admin.jobHealthSummary();
+  }
+
+  @Get("status")
+  @UseGuards(AdminGuard)
+  status() {
+    return this.admin.systemStatus();
+  }
+
   @Get("audit-events")
   @UseGuards(AdminGuard)
   auditEvents() {
