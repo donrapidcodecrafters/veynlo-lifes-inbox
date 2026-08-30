@@ -1,6 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { eq } from "drizzle-orm";
-import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -9,6 +8,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorsService } from "./connectors.service";
 
 const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
@@ -52,6 +52,7 @@ export class MicrosoftTodoAdapter {
     private readonly vault: CredentialVault,
     private readonly ingestion: IngestionService,
     private readonly queue: QueueProducerService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   isConfigured(): boolean {
@@ -81,16 +82,13 @@ export class MicrosoftTodoAdapter {
     if (!this.isConfigured()) throw new ConnectorNotConfiguredError("microsoft_todo");
     const tokens = await this.exchangeCode(params.code, params.redirectUri);
 
-    const connectionId = generateId("connection");
-    await this.db.insert(schema.connections).values({
-      id: connectionId,
+    const { connectionId } = await this.connectors.upsertConnectionForConnect({
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
       provider: "microsoft_todo",
       feasibilityClass: "direct_api",
       scopes: TASKS_SCOPES,
       enabledCategories: ["tasks"],
-      health: "initializing",
       historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(

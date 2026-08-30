@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeAll, afterAll, afterEach } from "vitest";
 import { generateId } from "@veynlo/core";
 import { createDbClient, schema, type Database } from "@veynlo/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ConnectorsService } from "./connectors.service";
 import { CredentialVault } from "../../common/credential-vault";
 
@@ -89,5 +89,73 @@ describe("ConnectorsService.disconnect — real credential deletion + best-effor
 
     const remaining = await db.select().from(schema.connectionCredentials).where(eq(schema.connectionCredentials.id, credentialRef));
     expect(remaining).toHaveLength(0);
+  });
+});
+
+describe("ConnectorsService.upsertConnectionForConnect — reconnect repairs in place, doesn't duplicate", () => {
+  it("a fresh connect (no existing row) creates a new connection", async () => {
+    const result = await connectors.upsertConnectionForConnect({
+      ownerUserId,
+      householdId: null,
+      provider: "microsoft_calendar",
+      feasibilityClass: "direct_api",
+      scopes: ["offline_access"],
+      enabledCategories: ["appointments"],
+      historyDepthDays: 90,
+    });
+    expect(result.isReconnect).toBe(false);
+
+    const [connection] = await db.select().from(schema.connections).where(eq(schema.connections.id, result.connectionId));
+    expect(connection?.provider).toBe("microsoft_calendar");
+    expect(connection?.health).toBe("initializing");
+  });
+
+  it("reconnecting the same owner+provider repairs the existing row instead of creating a duplicate, and deletes the old credential", async () => {
+    const { connectionId: firstId, credentialRef: firstCredentialRef } = await makeConnection("google_tasks");
+    await db.update(schema.connections).set({ health: "reauth_required" }).where(eq(schema.connections.id, firstId));
+
+    const result = await connectors.upsertConnectionForConnect({
+      ownerUserId,
+      householdId: null,
+      provider: "google_tasks",
+      feasibilityClass: "direct_api",
+      scopes: ["https://www.googleapis.com/auth/tasks"],
+      enabledCategories: ["tasks"],
+      historyDepthDays: 90,
+    });
+
+    expect(result.isReconnect).toBe(true);
+    expect(result.connectionId).toBe(firstId); // repaired the SAME row, not a new one
+
+    const allGoogleTasksConnections = await db
+      .select()
+      .from(schema.connections)
+      .where(and(eq(schema.connections.ownerUserId, ownerUserId), eq(schema.connections.provider, "google_tasks")));
+    expect(allGoogleTasksConnections).toHaveLength(1); // still exactly one row for this owner+provider, not two
+
+    const [repaired] = allGoogleTasksConnections;
+    expect(repaired!.health).toBe("initializing"); // reset from reauth_required
+    expect(repaired!.credentialRef).toBeNull(); // caller stores the new credential itself, after this call
+
+    const oldCredential = await db.select().from(schema.connectionCredentials).where(eq(schema.connectionCredentials.id, firstCredentialRef));
+    expect(oldCredential).toHaveLength(0); // the stale credential was deleted, not left orphaned
+  });
+
+  it("a genuinely disconnected connection does not block a fresh connect from creating a new row", async () => {
+    const { connectionId: oldId } = await makeConnection("microsoft_todo");
+    await db.update(schema.connections).set({ disconnectedAt: new Date(), health: "disconnected" }).where(eq(schema.connections.id, oldId));
+
+    const result = await connectors.upsertConnectionForConnect({
+      ownerUserId,
+      householdId: null,
+      provider: "microsoft_todo",
+      feasibilityClass: "direct_api",
+      scopes: ["offline_access"],
+      enabledCategories: ["tasks"],
+      historyDepthDays: 90,
+    });
+
+    expect(result.isReconnect).toBe(false);
+    expect(result.connectionId).not.toBe(oldId); // a real new connection, the old disconnected one is left alone
   });
 });

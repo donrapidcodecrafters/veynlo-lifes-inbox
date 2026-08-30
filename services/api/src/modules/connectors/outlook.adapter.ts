@@ -1,6 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { eq } from "drizzle-orm";
-import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -10,6 +9,7 @@ import { IngestionService } from "../ingestion/ingestion.service";
 import type { GraphMessage, GraphAttachment } from "../ingestion/outlook-message-parser";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorsService } from "./connectors.service";
 
 const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
@@ -38,6 +38,7 @@ export class OutlookAdapter {
     private readonly vault: CredentialVault,
     private readonly ingestion: IngestionService,
     private readonly queue: QueueProducerService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   isConfigured(): boolean {
@@ -68,16 +69,13 @@ export class OutlookAdapter {
 
     const tokens = await this.exchangeCode(params.code, params.redirectUri);
 
-    const connectionId = generateId("connection");
-    await this.db.insert(schema.connections).values({
-      id: connectionId,
+    const { connectionId } = await this.connectors.upsertConnectionForConnect({
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
       provider: "outlook",
       feasibilityClass: "direct_api",
       scopes: OUTLOOK_SCOPES,
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
-      health: "initializing",
       historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(

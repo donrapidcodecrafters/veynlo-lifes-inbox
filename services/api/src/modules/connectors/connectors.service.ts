@@ -1,5 +1,6 @@
 import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, eq, inArray, isNull } from "drizzle-orm";
+import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -84,6 +85,70 @@ export class ConnectorsService {
     if (deleteDerivedData) {
       await this.queueProducer.enqueueConnectionDataDeletion({ connectionId, ownerUserId: userId });
     }
+  }
+
+  /**
+   * §43.2 reauthorize() — previously every adapter's OAuth callback unconditionally inserted a brand-new
+   * connections row, so reconnecting after e.g. reauth_required left the old stuck row orphaned forever
+   * (never cleaned up, never merged) while creating a duplicate — silently consuming the user's
+   * connector-count entitlement quota with rows they'd have no reason to know still existed. Now repairs
+   * the existing, still-active (non-disconnected) connection of the same owner+provider in place instead of
+   * creating a second one; only a genuinely new connect (no such row, or the old one was fully disconnected
+   * first) creates a fresh row. The caller still stores the new credential and sets credentialRef itself
+   * afterward — this only owns the connections row.
+   */
+  async upsertConnectionForConnect(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    provider: string;
+    feasibilityClass: string;
+    scopes: string[];
+    enabledCategories: string[];
+    historyDepthDays?: number | null;
+  }): Promise<{ connectionId: string; isReconnect: boolean }> {
+    const [existing] = await this.db
+      .select({ id: schema.connections.id, credentialRef: schema.connections.credentialRef })
+      .from(schema.connections)
+      .where(
+        and(
+          eq(schema.connections.ownerUserId, params.ownerUserId),
+          eq(schema.connections.provider, params.provider),
+          isNull(schema.connections.disconnectedAt),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      if (existing.credentialRef) await this.vault.delete(existing.credentialRef); // about to be replaced by the caller
+      await this.db
+        .update(schema.connections)
+        .set({
+          householdId: params.householdId,
+          scopes: params.scopes,
+          enabledCategories: params.enabledCategories,
+          health: "initializing",
+          healthDetail: null,
+          historyDepthDays: params.historyDepthDays ?? null,
+          credentialRef: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.connections.id, existing.id));
+      return { connectionId: existing.id, isReconnect: true };
+    }
+
+    const connectionId = generateId("connection");
+    await this.db.insert(schema.connections).values({
+      id: connectionId,
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      provider: params.provider,
+      feasibilityClass: params.feasibilityClass,
+      scopes: params.scopes,
+      enabledCategories: params.enabledCategories,
+      health: "initializing",
+      historyDepthDays: params.historyDepthDays ?? null,
+    });
+    return { connectionId, isReconnect: false };
   }
 
   async assertOwnership(connectionId: string, userId: string) {

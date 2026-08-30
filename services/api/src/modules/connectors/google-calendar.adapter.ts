@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { google, type calendar_v3 } from "googleapis";
 import { eq } from "drizzle-orm";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import type { TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -10,6 +10,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorsService } from "./connectors.service";
 
 // CAL-001 "write-back capability" — narrowed to events-only read/write (not full `calendar`, which also
 // grants calendar-list creation/deletion this app never needs) rather than the previous read-only scope.
@@ -50,6 +51,7 @@ export class GoogleCalendarAdapter {
     private readonly vault: CredentialVault,
     private readonly ingestion: IngestionService,
     private readonly queue: QueueProducerService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   private oauthClient(redirectUri: string) {
@@ -78,16 +80,13 @@ export class GoogleCalendarAdapter {
     const client = this.oauthClient(params.redirectUri);
     const { tokens } = await client.getToken(params.code);
 
-    const connectionId = generateId("connection");
-    await this.db.insert(schema.connections).values({
-      id: connectionId,
+    const { connectionId } = await this.connectors.upsertConnectionForConnect({
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
       provider: "google_calendar",
       feasibilityClass: "direct_api",
       scopes: CALENDAR_SCOPES,
       enabledCategories: ["appointments"],
-      health: "initializing",
       historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(

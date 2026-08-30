@@ -1,7 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { google } from "googleapis";
 import { eq } from "drizzle-orm";
-import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -12,6 +11,7 @@ import { QueueProducerService } from "../../queue/queue-producer.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 import { extractGmailAttachmentRefs } from "../ingestion/gmail-message-parser";
 import type { gmail_v1 } from "googleapis";
+import { ConnectorsService } from "./connectors.service";
 
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 
@@ -30,6 +30,7 @@ export class GmailAdapter {
     private readonly vault: CredentialVault,
     private readonly ingestion: IngestionService,
     private readonly queue: QueueProducerService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   private oauthClient(redirectUri: string) {
@@ -67,16 +68,13 @@ export class GmailAdapter {
     const client = this.oauthClient(params.redirectUri);
     const { tokens } = await client.getToken(params.code);
 
-    const connectionId = generateId("connection");
-    await this.db.insert(schema.connections).values({
-      id: connectionId,
+    const { connectionId } = await this.connectors.upsertConnectionForConnect({
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
       provider: "gmail",
       feasibilityClass: "direct_api",
       scopes: GMAIL_SCOPES,
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
-      health: "initializing",
       historyDepthDays: params.historyDepthDays,
     });
     const credentialRef = await this.vault.store(
