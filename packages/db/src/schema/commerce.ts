@@ -194,7 +194,7 @@ export const bills = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("bills_due_date_idx").on(t.dueDateSort)],
+  (t) => [index("bills_due_date_idx").on(t.dueDateSort), index("bills_owner_idx").on(t.ownerUserId)],
 );
 
 export const warranties = pgTable(
@@ -217,7 +217,7 @@ export const warranties = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("warranties_expiration_date_idx").on(t.expirationDateSort)],
+  (t) => [index("warranties_expiration_date_idx").on(t.expirationDateSort), index("warranties_owner_idx").on(t.ownerUserId)],
 );
 
 export const priceObservations = pgTable("price_observations", {

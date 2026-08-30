@@ -1,22 +1,27 @@
-import { pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { users } from "./identity";
 import { households } from "./household";
 import { encryptedJsonb } from "./encrypted-type";
 
-export const entitlements = pgTable("entitlements", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
-  planKey: text("plan_key").notNull(),
-  source: text("source").notNull(),
-  effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
-  effectiveTo: timestamp("effective_to", { withTimezone: true }),
-  gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
-  reason: text("reason"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const entitlements = pgTable(
+  "entitlements",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
+    planKey: text("plan_key").notNull(),
+    source: text("source").notNull(),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
+    effectiveTo: timestamp("effective_to", { withTimezone: true }),
+    gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Read on nearly every plan-gated request (every /v1/ask, upload, connect) -- the single hottest lookup path in the app.
+  (t) => [index("entitlements_user_idx").on(t.userId)],
+);
 
 /** Normalized ledger of raw store/processor billing events, source-of-truth reconciliation input (§46.2). */
 export const billingEvents = pgTable(

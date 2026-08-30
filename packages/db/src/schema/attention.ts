@@ -30,7 +30,8 @@ export const inboxItems = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("inbox_items_owner_state_idx").on(t.ownerUserId, t.reviewState)],
+  // Trailing createdAt lets cursor pagination (order by createdAt desc) walk the index in order instead of an extra sort.
+  (t) => [index("inbox_items_owner_state_idx").on(t.ownerUserId, t.reviewState, t.createdAt)],
 );
 
 export const attentionItems = pgTable(

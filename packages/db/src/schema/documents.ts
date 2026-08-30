@@ -31,7 +31,10 @@ export const documents = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("documents_owner_idx").on(t.ownerUserId)],
+  // Composite (ownerUserId, createdAt) also serves owner-only lookups via its leftmost column, so it
+  // replaces the old owner-only index rather than sitting alongside it — cursor pagination (order by
+  // createdAt desc) can walk this index in order instead of doing an extra sort.
+  (t) => [index("documents_owner_created_idx").on(t.ownerUserId, t.createdAt)],
 );
 
 export const documentVersions = pgTable("document_versions", {

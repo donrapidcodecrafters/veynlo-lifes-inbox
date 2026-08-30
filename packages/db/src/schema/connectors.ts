@@ -27,7 +27,8 @@ export const connections = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
   },
-  (t) => [index("connections_owner_idx").on(t.ownerUserId)],
+  // The recurring connectorScanWorker scan filters on health + disconnectedAt across the whole table every 15 minutes.
+  (t) => [index("connections_owner_idx").on(t.ownerUserId), index("connections_health_disconnected_idx").on(t.health, t.disconnectedAt)],
 );
 
 /**
