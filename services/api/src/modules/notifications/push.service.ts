@@ -11,12 +11,19 @@ export class PushService {
   private readonly logger = new Logger(PushService.name);
   private readonly expo = new Expo();
 
-  async send(pushToken: string, title: string, body: string): Promise<boolean> {
+  async send(pushToken: string, title: string, body: string, options?: { categoryId?: string; data?: Record<string, unknown> }): Promise<boolean> {
     if (!Expo.isExpoPushToken(pushToken)) {
       this.logger.warn("Skipping push delivery to a malformed Expo push token");
       return false;
     }
-    const message: ExpoPushMessage = { to: pushToken, title, body, sound: "default" };
+    const message: ExpoPushMessage = {
+      to: pushToken,
+      title,
+      body,
+      sound: "default",
+      ...(options?.categoryId ? { categoryId: options.categoryId } : {}),
+      ...(options?.data ? { data: options.data } : {}),
+    };
     try {
       const tickets = await this.expo.sendPushNotificationsAsync([message]);
       const ticket = tickets[0];

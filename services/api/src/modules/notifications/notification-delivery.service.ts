@@ -126,7 +126,17 @@ export class NotificationDeliveryService {
         .orderBy(desc(schema.devices.lastActiveAt))
         .limit(1);
       if (device?.pushToken) {
-        const sent = await this.push.send(device.pushToken, notification.title, notification.body);
+        const sent = await this.push.send(
+          device.pushToken,
+          notification.title,
+          notification.body,
+          notification.linkedAttentionItemId
+            ? {
+                categoryId: "attention_actionable",
+                data: { notificationId: notification.id, linkedAttentionItemId: notification.linkedAttentionItemId },
+              }
+            : undefined,
+        );
         if (sent) {
           await this.db
             .update(schema.notifications)

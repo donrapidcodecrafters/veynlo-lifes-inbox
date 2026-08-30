@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, lt } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -26,6 +26,23 @@ export class NotificationsService {
     const items = hasMore ? rows.slice(0, NOTIFICATIONS_PAGE_SIZE) : rows;
     const last = items[items.length - 1];
     return { items, nextCursor: hasMore && last ? last.scheduledFor.toISOString() : null };
+  }
+
+  /** OS-level notification action buttons and plain taps both funnel through this — the acknowledgment-
+   * tracking substrate a later escalation ladder/fatigue-feedback mechanism builds on. Overwrites cleanly
+   * on repeat calls (e.g. a tap after an earlier action button), so it's safe to call more than once. */
+  async acknowledge(notificationId: string, userId: string, action: "opened" | "resolved" | "dismissed" | "snoozed"): Promise<void> {
+    const [notification] = await this.db
+      .select({ id: schema.notifications.id })
+      .from(schema.notifications)
+      .where(and(eq(schema.notifications.id, notificationId), eq(schema.notifications.ownerUserId, userId)))
+      .limit(1);
+    if (!notification) throw new NotFoundException({ code: "NOTIFICATION_NOT_FOUND", message: "Not found." });
+
+    await this.db
+      .update(schema.notifications)
+      .set({ acknowledgedAt: new Date(), actionTaken: action })
+      .where(eq(schema.notifications.id, notificationId));
   }
 
   async getPreferences(userId: string) {

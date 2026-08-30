@@ -267,6 +267,13 @@
       "when": 1788123345382,
       "tag": "0037_neat_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788127365847,
+      "tag": "0038_wild_synch",
+      "breakpoints": true
     }
   ]
 }

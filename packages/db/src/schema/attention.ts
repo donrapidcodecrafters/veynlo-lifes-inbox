@@ -87,6 +87,11 @@ export const notifications = pgTable(
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     openedAt: timestamp("opened_at", { withTimezone: true }),
+    // Acknowledgment-tracking substrate for OS-level notification action buttons — actionTaken is a
+    // free-form small string ("opened"/"resolved"/"dismissed"/"snoozed"), same loose-string style as
+    // state/suppressionReason above rather than a DB enum.
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    actionTaken: text("action_taken"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("notifications_dedupe_idx").on(t.ownerUserId, t.dedupeKey)],
