@@ -112,13 +112,19 @@ Applies to any of: `SESSION_JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`,
    upload as the vector.
 4. Feature flags exist (`GET`/`POST /v1/admin/feature-flags`,
    default-*disabled* for any key with no row — a real kill-switch
-   convention) but **nothing in the codebase currently calls
-   `FeatureFlagsService.isEnabled()` anywhere** (confirmed by grep — zero
-   call sites outside the service itself). Flipping a flag today changes
-   nothing at runtime. If a leak is traced to a specific feature, the
-   actual mitigation is a code change + deploy, or stopping the affected
-   process (see below) — not a flag flip, until real call sites are wired
-   in.
+   convention) and now have real call sites, both server- and client-side:
+   `android_notification_capture` (checked client-side by the mobile app
+   via `GET /v1/feature-flags` before any native SMS/RCS capture code
+   runs — `apps/mobile/src/lib/notification-capture.ts`),
+   `ai_extraction_disabled` (checked server-side in `IngestionService`
+   before any AI classification/extraction call — a real cost/incident
+   kill switch for the single most expensive code path in the pipeline),
+   and `connector_sync_${provider}_disabled` (checked in the worker's
+   connector-sync job processor, per provider — e.g.
+   `connector_sync_gmail_disabled`). Flipping one of these now genuinely
+   changes runtime behavior on the next request/job, not just after a
+   redeploy. Flags with no call site still exist as inert config rows —
+   check the specific key before assuming it does something.
 
 ## Incident: a background job or connector sync is misbehaving
 

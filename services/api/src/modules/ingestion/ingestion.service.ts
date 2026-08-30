@@ -23,6 +23,8 @@ import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser
 import { toTemporalValue, temporalToSortDate } from "./temporal.util";
 import { DocumentsService } from "../documents/documents.service";
 import { SearchIndexService } from "../search/search-index.service";
+import { FeatureFlagsService } from "../feature-flags/feature-flags.service";
+import { RiskPolicyService } from "../intelligence/risk-policy.service";
 
 interface EmailAttachment {
   filename: string;
@@ -46,9 +48,24 @@ interface IngestOutlookParams {
   attachments?: EmailAttachment[];
 }
 
-const RISK_THRESHOLDS = { reviewThreshold: 0.55, highThreshold: 0.85 };
 /** MAIL-004 "attachment intelligence" — the OCR-capable subset of DocumentsService's own ALLOWED_MIME_TYPES (excludes text/plain: a .txt attachment has no OCR step to run and isn't the "PDF/image attachment as evidence" the spec means). */
 const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic"]);
+
+/** §54.2 launch criteria #4 "conflicts are surfaced" — a materially different amount for what was matched
+ * as the same real-world record (a corrected invoice total, two different bills that happened to match
+ * the same biller/date window) previously either silently overwrote the old value or silently kept it,
+ * with no signal to the user either way. Exact equality, not a tolerance band — a currency-conversion or
+ * rounding-noise false positive is far less costly than a real amount discrepancy going unflagged. */
+export function amountsConflict(existingMinorUnits: number | null, incomingMinorUnits: number | null): boolean {
+  return existingMinorUnits != null && incomingMinorUnits != null && existingMinorUnits !== incomingMinorUnits;
+}
+
+/** Same idea for dates — a >1-day gap, not same-instant, so timezone/precision noise between two
+ * extractions of the same underlying date doesn't read as a real conflict. */
+export function datesConflict(existingSort: Date | null, incomingSort: Date | null): boolean {
+  if (!existingSort || !incomingSort) return false;
+  return Math.abs(existingSort.getTime() - incomingSort.getTime()) > 24 * 60 * 60 * 1000;
+}
 
 /**
  * Orchestrates pipeline stages 0-5 for a single source event (§39.1):
@@ -67,6 +84,8 @@ export class IngestionService {
     private readonly notifications: NotificationDeliveryService,
     private readonly documents: DocumentsService,
     private readonly searchIndex: SearchIndexService,
+    private readonly featureFlags: FeatureFlagsService,
+    private readonly riskPolicy: RiskPolicyService,
   ) {}
 
   async ingestGmailMessage(params: IngestGmailParams): Promise<void> {
@@ -273,6 +292,18 @@ export class IngestionService {
       return;
     }
 
+    // §Operations "feature flags" / AI cost risk (§54.1) — a real global kill switch for the single most
+    // expensive, most incident-prone code path in the pipeline. Every domain's extractX method requires a
+    // real AI call for field-level extraction regardless of how the domain was classified (there is no
+    // fully-deterministic extraction path today — see each extractX's own `this.ai.isConfigured()` guard),
+    // so this has to short-circuit the whole event exactly like the per-user opt-out above rather than
+    // just skip the classifier call — gating only the classifier would still let a known-sender/rule match
+    // fall through into a real (still-billed) extraction call.
+    if (await this.featureFlags.isEnabled("ai_extraction_disabled")) {
+      await this.markProcessed(ctx.sourceEventId, "filed");
+      return;
+    }
+
     const known = matchKnownSender(ctx.parsed.fromAddress, `${ctx.parsed.subject}\n${ctx.parsed.snippet}`);
     let domains: string[];
 
@@ -400,7 +431,7 @@ export class IngestionService {
 
     const merchantName = knownMerchantName ?? result.data.merchantName ?? "Unknown merchant";
     const merchantId = await this.findOrCreateMerchant(merchantName);
-    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("purchase"));
     const purchaseDate = toTemporalValue(result.data.purchaseDate);
 
     // §40.1 "Auto-merge exact order IDs" — a second email about the same order (payment confirmation
@@ -415,6 +446,14 @@ export class IngestionService {
       : await this.findExistingPurchaseByAmountAndDate(ctx.ownerUserId, merchantId, result.data.totalAmountMinorUnits, temporalToSortDate(purchaseDate));
 
     const purchaseId = existing?.id ?? generateId("purchase");
+    // §54.2 launch criteria #4 "conflicts are surfaced" — the fill-gaps-don't-clobber policy below is
+    // still correct (a lower-quality later extraction shouldn't overwrite an already-confirmed total),
+    // but it previously meant a genuinely different total for the *same order number* — two receipts
+    // that disagree, not just one filling in what the other left blank — was silently discarded with no
+    // signal at all. Only reachable via the exact-orderNumber match path: the amount/date fallback match
+    // already requires the amount to agree to be considered "the same purchase" in the first place.
+    const hasConflict = Boolean(existing) && amountsConflict(existing!.totalMinorUnits, result.data.totalAmountMinorUnits);
+    const finalConfidenceBand = hasConflict ? "conflicting" : confidenceBand;
     if (existing) {
       await this.db
         .update(schema.purchases)
@@ -423,6 +462,7 @@ export class IngestionService {
           totalMinorUnits: existing.totalMinorUnits ?? result.data.totalAmountMinorUnits,
           taxMinorUnits: existing.taxMinorUnits ?? result.data.taxMinorUnits,
           shippingMinorUnits: existing.shippingMinorUnits ?? result.data.shippingMinorUnits,
+          confidenceBand: finalConfidenceBand,
           updatedAt: new Date(),
         })
         .where(eq(schema.purchases.id, purchaseId));
@@ -499,14 +539,16 @@ export class IngestionService {
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "purchase",
-      summary: existing
-        ? `${merchantName} order updated — ${result.data.orderNumber}`
-        : `${merchantName} — ${result.data.lineItems[0]?.productLabel ?? "purchase"} detected`,
+      summary: hasConflict
+        ? `${merchantName} order ${result.data.orderNumber} has a conflicting total from a different source — review needed`
+        : existing
+          ? `${merchantName} order updated — ${result.data.orderNumber}`
+          : `${merchantName} — ${result.data.lineItems[0]?.productLabel ?? "purchase"} detected`,
       linkedResourceType: "purchase",
       linkedResourceId: purchaseId,
       sourceEventId: ctx.sourceEventId,
-      suggestedActions: existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
-      confidenceBand,
+      suggestedActions: hasConflict ? ["correct", "dismiss"] : existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
+      confidenceBand: finalConfidenceBand,
       isDuplicate: Boolean(existing),
     });
 
@@ -532,7 +574,7 @@ export class IngestionService {
     if (!result || !result.data.trackingNumber) return false;
 
     const carrier = knownCarrierName ?? result.data.carrier ?? "Unknown carrier";
-    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("shipment"));
     const estimatedDelivery = toTemporalValue(result.data.estimatedDelivery);
 
     // Best-effort link to the purchase this shipment belongs to — a carrier email rarely restates the
@@ -683,7 +725,7 @@ export class IngestionService {
     });
     if (!result || !result.data.billerName) return false;
 
-    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("bill"));
     const dueDate = toTemporalValue(result.data.dueDate);
     const dueDateSort = temporalToSortDate(dueDate);
 
@@ -692,6 +734,13 @@ export class IngestionService {
     // ambiguity handling as findExistingPurchaseByAmountAndDate: more than one candidate means no match.
     const existing = await this.findExistingBill(ctx.ownerUserId, result.data.billerName, dueDateSort);
     const billId = existing?.id ?? generateId("bill");
+    // §54.2 launch criteria #4 "conflicts are surfaced" — this used to unconditionally overwrite the due
+    // date/amount on any re-match, silently discarding whichever value was right if two emails about the
+    // same bill genuinely disagreed (a corrected invoice vs. a stale duplicate, not just a normal update).
+    const hasConflict =
+      Boolean(existing) &&
+      (amountsConflict(existing!.amountDueMinorUnits, result.data.amountDueMinorUnits) || datesConflict(existing!.dueDateSort, dueDateSort));
+    const finalConfidenceBand = hasConflict ? "conflicting" : confidenceBand;
     if (existing) {
       await this.db
         .update(schema.bills)
@@ -700,6 +749,7 @@ export class IngestionService {
           dueDate,
           dueDateSort,
           autopayBelieved: result.data.autopayMentioned ?? existing.autopayBelieved,
+          confidenceBand: finalConfidenceBand,
           updatedAt: new Date(),
         })
         .where(eq(schema.bills.id, billId));
@@ -730,12 +780,16 @@ export class IngestionService {
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "bill",
-      summary: existing ? `${result.data.billerName} bill updated` : `${result.data.billerName} bill detected`,
+      summary: hasConflict
+        ? `${result.data.billerName} bill has conflicting amounts/dates from different sources — review needed`
+        : existing
+          ? `${result.data.billerName} bill updated`
+          : `${result.data.billerName} bill detected`,
       linkedResourceType: "bill",
       linkedResourceId: billId,
       sourceEventId: ctx.sourceEventId,
-      suggestedActions: existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
-      confidenceBand,
+      suggestedActions: hasConflict ? ["correct", "dismiss"] : existing ? ["confirm", "dismiss"] : ["confirm", "correct", "dismiss"],
+      confidenceBand: finalConfidenceBand,
       isDuplicate: Boolean(existing),
     });
     return true;
@@ -781,7 +835,7 @@ export class IngestionService {
     });
     if (!result || !result.data.serviceLabel) return false;
 
-    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("subscription"));
     // Unlike extractReceipt's merchant resolution, this is best-effort only — a subscription email doesn't
     // always name the billing merchant separately from the service itself (e.g. "Netflix" is both).
     const merchantId = result.data.merchantName ? await this.findOrCreateMerchant(result.data.merchantName) : null;
@@ -848,7 +902,7 @@ export class IngestionService {
     });
     if (!result) return false;
 
-    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("appointment"));
     const start = toTemporalValue(result.data.startDate, result.data.timezone);
     const startSort = temporalToSortDate(start);
 
@@ -947,7 +1001,7 @@ export class IngestionService {
     });
     if (!result || !result.data.productLabel) return false;
 
-    const confidenceBand = confidenceToBand(result.confidenceScore, RISK_THRESHOLDS);
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("warranty"));
     const expirationDate = toTemporalValue(result.data.warrantyExpirationDate);
     const warrantyId = generateId("warranty");
     // §40.1 entity resolution, applied to the one real cross-extractor case this app has today: a

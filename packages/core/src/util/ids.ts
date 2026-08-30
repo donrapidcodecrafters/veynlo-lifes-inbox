@@ -65,6 +65,7 @@ export const ID_PREFIXES = {
   passkey: "pky",
   searchDocument: "srd",
   askQueryLog: "aql",
+  riskPolicy: "rpol",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

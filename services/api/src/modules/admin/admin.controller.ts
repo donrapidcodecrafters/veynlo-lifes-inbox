@@ -7,6 +7,7 @@ import { SuperAdminGuard } from "./super-admin.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminService } from "./admin.service";
 import { FeatureFlagsService } from "../feature-flags/feature-flags.service";
+import { RiskPolicyService } from "../intelligence/risk-policy.service";
 import { CurrentAdmin } from "./current-admin.decorator";
 import type { AuthenticatedAdmin } from "./admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -15,6 +16,13 @@ import { CreateAdminDtoSchema, GrantEntitlementDtoSchema, type CreateAdminDto, t
 
 const SetFeatureFlagDtoSchema = z.object({ enabled: z.boolean(), description: z.string().min(1).max(500).optional() });
 type SetFeatureFlagDto = z.infer<typeof SetFeatureFlagDtoSchema>;
+
+const SetRiskPolicyDtoSchema = z.object({
+  reviewThreshold: z.number().min(0).max(1),
+  autoAcceptThreshold: z.number().min(0).max(1),
+  policyVersion: z.string().min(1).max(50),
+});
+type SetRiskPolicyDto = z.infer<typeof SetRiskPolicyDtoSchema>;
 
 const ADMIN_SESSION_COOKIE = "veynlo_admin_session";
 
@@ -30,6 +38,7 @@ export class AdminController {
     private readonly admin: AdminService,
     private readonly adminAuth: AdminAuthService,
     private readonly flags: FeatureFlagsService,
+    private readonly riskPolicy: RiskPolicyService,
   ) {}
 
   // Stricter than the global 300/60s default — admin credentials are the highest-value target in the
@@ -168,5 +177,23 @@ export class AdminController {
     const result = await this.flags.setEnabled(key, dto.enabled, dto.description);
     await this.admin.recordAccess(admin.id, dto.enabled ? "admin.feature_flag_enable" : "admin.feature_flag_disable", "feature_flag", key);
     return result;
+  }
+
+  // §54.2 launch criteria #4 "critical dates/amounts never present as certain below configured domain
+  // threshold" — real per-domain configuration, replacing the single hardcoded constant every domain
+  // previously shared regardless of the schema's own per-domain column.
+  @Get("risk-policies")
+  @UseGuards(AdminGuard)
+  listRiskPolicies() {
+    return this.riskPolicy.list();
+  }
+
+  @Post("risk-policies/:domain")
+  @UseGuards(AdminGuard)
+  @UsePipes(new ZodValidationPipe(SetRiskPolicyDtoSchema))
+  async setRiskPolicy(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("domain") domain: string, @Body() dto: SetRiskPolicyDto) {
+    await this.riskPolicy.setThresholds(domain, dto.reviewThreshold, dto.autoAcceptThreshold, dto.policyVersion);
+    await this.admin.recordAccess(admin.id, "admin.risk_policy_update", "risk_policy", domain);
+    return { domain, ...dto };
   }
 }

@@ -4,13 +4,14 @@ import { IdentityModule } from "../identity/identity.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { DocumentsModule } from "../documents/documents.module";
 import { SearchModule } from "../search/search.module";
+import { FeatureFlagsModule } from "../feature-flags/feature-flags.module";
 import { IngestionController } from "./ingestion.controller";
 import { InboundEmailController } from "./inbound-email.controller";
 import { IngestionService } from "./ingestion.service";
 import { SafeUrlFetcher } from "./safe-url-fetcher";
 
 @Module({
-  imports: [IntelligenceModule, IdentityModule, NotificationsModule, DocumentsModule, SearchModule],
+  imports: [IntelligenceModule, IdentityModule, NotificationsModule, DocumentsModule, SearchModule, FeatureFlagsModule],
   controllers: [IngestionController, InboundEmailController],
   providers: [IngestionService, SafeUrlFetcher],
   exports: [IngestionService],

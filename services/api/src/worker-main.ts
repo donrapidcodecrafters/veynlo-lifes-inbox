@@ -35,6 +35,7 @@ import { StorageService } from "./modules/documents/storage.service";
 import { AttentionService } from "./modules/attention/attention.service";
 import { QueueProducerService } from "./queue/queue-producer.service";
 import { DataExportService } from "./modules/data-export/data-export.service";
+import { FeatureFlagsService } from "./modules/feature-flags/feature-flags.service";
 
 const logger = new Logger("Worker");
 
@@ -66,6 +67,7 @@ async function bootstrap() {
   const attention = appContext.get(AttentionService);
   const queueProducer = appContext.get(QueueProducerService);
   const dataExport = appContext.get(DataExportService);
+  const featureFlags = appContext.get(FeatureFlagsService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -78,6 +80,16 @@ async function bootstrap() {
           .where(eq(schema.connections.id, connectionId))
           .limit(1);
         if (!connection) throw new Error(`Connection ${connectionId} not found`);
+        // §Operations "feature flags" — real per-provider emergency kill switch: unconfigured (no row)
+        // means the flag is off, which for a "_disabled" key means sync runs normally. An admin flipping
+        // `connector_sync_${provider}_disabled` to true (e.g. mid-incident, a provider API is misbehaving
+        // or a partner relationship needs a pause) makes every subsequent sync job for that provider a
+        // silent no-op rather than retrying into an outage. Job still completes (not thrown), so BullMQ
+        // doesn't treat a deliberate pause as a failure needing retry/backoff.
+        if (await featureFlags.isEnabled(`connector_sync_${connection.provider}_disabled`)) {
+          logger.warn(`Skipping sync for connection ${connectionId} — connector_sync_${connection.provider}_disabled is on.`);
+          return;
+        }
         const adapter =
           connection.provider === "outlook"
             ? outlookAdapter
