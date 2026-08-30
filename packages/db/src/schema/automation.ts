@@ -9,7 +9,7 @@ export const automationRules = pgTable("automation_rules", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
-  name: text("name").notNull(),
+  name: encryptedText("name").notNull(),
   naturalLanguageSource: encryptedText("natural_language_source"),
   triggerDescriptor: encryptedText("trigger_descriptor").notNull(),
   actionDescriptor: encryptedText("action_descriptor").notNull(),
