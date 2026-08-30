@@ -47,6 +47,14 @@ export const SetDisabledMailCategoriesDtoSchema = z.object({
 });
 export type SetDisabledMailCategoriesDto = z.infer<typeof SetDisabledMailCategoriesDtoSchema>;
 
+// CAP-005 "permitted-senders allowlist mode" — each entry is either a full address ("jane@example.com")
+// or a domain, written "@example.com". An empty array (the default) means "accept from anyone" — this
+// never makes the forwarding alias stricter than the existing DMARC check unless the user opts in.
+export const SetPermittedInboundSendersDtoSchema = z.object({
+  senders: z.array(z.string().trim().toLowerCase().min(3).max(254)).max(100),
+});
+export type SetPermittedInboundSendersDto = z.infer<typeof SetPermittedInboundSendersDtoSchema>;
+
 // PRIV-001 "retention policy settings beyond Documents" — a large-but-finite bound (730 days) stands in
 // for "keep as long as possible short of forever," same reasoning as connectors' 3650-day "All history"
 // option; `null` means keep forever (the default, unchanged behavior for every existing user).

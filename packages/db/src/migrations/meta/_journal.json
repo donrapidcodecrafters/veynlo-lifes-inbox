@@ -253,6 +253,13 @@
       "when": 1788121733896,
       "tag": "0035_good_dreadnoughts",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788122123165,
+      "tag": "0036_optimal_micromax",
+      "breakpoints": true
     }
   ]
 }

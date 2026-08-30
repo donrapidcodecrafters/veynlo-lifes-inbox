@@ -22,6 +22,7 @@ import {
   NativeOAuthSignInDtoSchema,
   PasskeyRegisterDtoSchema,
   PasskeyAuthenticateDtoSchema,
+  SetPermittedInboundSendersDtoSchema,
   type DeleteAccountDto,
   type SignInDto,
   type SignUpDto,
@@ -34,6 +35,7 @@ import {
   type NativeOAuthSignInDto,
   type PasskeyRegisterDto,
   type PasskeyAuthenticateDto,
+  type SetPermittedInboundSendersDto,
 } from "./dto";
 
 const SESSION_COOKIE = "veynlo_session";
@@ -275,6 +277,19 @@ export class IdentityController {
   @UseGuards(AuthGuard)
   async rotateInboundAlias(@CurrentUser() user: AuthenticatedUser) {
     return this.identity.rotateInboundAlias(user.userId);
+  }
+
+  @Get("inbound-alias/permitted-senders")
+  @UseGuards(AuthGuard)
+  async permittedInboundSenders(@CurrentUser() user: AuthenticatedUser) {
+    return { senders: await this.identity.getPermittedInboundSenders(user.userId) };
+  }
+
+  @Post("inbound-alias/permitted-senders")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(SetPermittedInboundSendersDtoSchema))
+  async setPermittedInboundSenders(@CurrentUser() user: AuthenticatedUser, @Body() dto: SetPermittedInboundSendersDto) {
+    return { senders: await this.identity.setPermittedInboundSenders(user.userId, dto.senders) };
   }
 
   @Get("sessions")

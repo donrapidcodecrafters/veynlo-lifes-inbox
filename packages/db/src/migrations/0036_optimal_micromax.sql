@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "permitted_inbound_senders" jsonb DEFAULT '[]'::jsonb NOT NULL;

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Linking, Platform, Pressable, RefreshControl, Text, View } from "react-native";
+import { Linking, Platform, Pressable, RefreshControl, Text, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as Calendar from "expo-calendar";
 import * as Clipboard from "expo-clipboard";
@@ -70,6 +70,7 @@ export default function ConnectionsScreen() {
   const { theme } = useAppTheme();
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [inboundAlias, setInboundAlias] = useState<InboundAliasInfo | null>(null);
+  const [permittedSenders, setPermittedSenders] = useState<string[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -108,6 +109,8 @@ export default function ConnectionsScreen() {
   const load = useCallback(async () => {
     setConnections(await api.get<Connection[]>("/v1/connectors"));
     setInboundAlias(await api.get<InboundAliasInfo>("/v1/auth/inbound-alias"));
+    const { senders } = await api.get<{ senders: string[] }>("/v1/auth/inbound-alias/permitted-senders");
+    setPermittedSenders(senders);
   }, []);
 
   useFocusEffect(
@@ -379,7 +382,10 @@ export default function ConnectionsScreen() {
             <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Email forwarding isn&apos;t configured on this deployment yet.</Text>
           )}
           {inboundAlias?.configured && inboundAlias.address && (
-            <ForwardingAddress address={inboundAlias.address} onRotate={load} />
+            <>
+              <ForwardingAddress address={inboundAlias.address} onRotate={load} />
+              {permittedSenders && <PermittedSendersEditor senders={permittedSenders} onSaved={load} />}
+            </>
           )}
         </Card>
 
@@ -560,6 +566,109 @@ function ForwardingAddress({ address, onRotate }: { address: string; onRotate: (
               Confirm
             </Button>
             <Button variant="ghost" onPress={() => setConfirmingRotate(false)}>
+              Cancel
+            </Button>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** CAP-005 "permitted-senders allowlist mode" — optional per-user restriction on who can route mail
+ * through the forwarding address above; empty (the default) accepts anyone who passes the existing DMARC
+ * check. Each line is either a full address ("jane@example.com") or a domain ("@company.com"). */
+function PermittedSendersEditor({ senders, onSaved }: { senders: string[]; onSaved: () => Promise<void> }) {
+  const { theme } = useAppTheme();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEditing() {
+    setText(senders.join("\n"));
+    setError(null);
+    setEditing(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const list = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      await api.post("/v1/auth/inbound-alias/permitted-senders", { senders: list });
+      await onSaved();
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save the allowlist.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 10 }}>
+      <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary }}>Permitted senders (optional)</Text>
+      {!editing && senders.length === 0 && (
+        <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+          Accepting mail from anyone.{" "}
+          <Text style={{ color: theme.colors.brandDefault, fontWeight: "600" }} onPress={startEditing}>
+            Restrict to specific senders
+          </Text>
+        </Text>
+      )}
+      {!editing && senders.length > 0 && (
+        <View style={{ gap: 6 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            {senders.map((sender) => (
+              <Text
+                key={sender}
+                style={{ fontSize: 11, color: theme.colors.textPrimary, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.sm, paddingHorizontal: 8, paddingVertical: 4 }}
+              >
+                {sender}
+              </Text>
+            ))}
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }} onPress={startEditing}>
+            Edit
+          </Text>
+        </View>
+      )}
+      {editing && (
+        <View style={{ gap: 8 }}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder={"jane@example.com\n@company.com"}
+            placeholderTextColor={theme.colors.textTertiary}
+            accessibilityLabel="Permitted senders, one per line"
+            multiline
+            numberOfLines={3}
+            style={{
+              minHeight: 72,
+              textAlignVertical: "top",
+              borderRadius: theme.radius.md,
+              borderWidth: 1,
+              borderColor: theme.colors.borderDefault,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              fontSize: 14,
+              color: theme.colors.textPrimary,
+              backgroundColor: theme.colors.bgSurface,
+            }}
+          />
+          <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>
+            One per line — a full address, or a domain written like @company.com. Leave empty to accept from anyone.
+          </Text>
+          {error && <Text style={{ fontSize: 12, color: theme.colors.critical }}>{error}</Text>}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button onPress={save} loading={saving}>
+              Save
+            </Button>
+            <Button variant="ghost" onPress={() => setEditing(false)}>
               Cancel
             </Button>
           </View>

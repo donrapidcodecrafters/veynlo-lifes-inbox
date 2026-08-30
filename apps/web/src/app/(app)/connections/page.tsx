@@ -282,7 +282,10 @@ export default function ConnectionsPage() {
               <p className="text-sm text-tertiary">Email forwarding isn&apos;t configured on this deployment yet.</p>
             )}
             {inboundAlias?.configured && inboundAlias.address && (
-              <ForwardingAddress address={inboundAlias.address} onRotate={() => mutateInboundAlias()} />
+              <>
+                <ForwardingAddress address={inboundAlias.address} onRotate={() => mutateInboundAlias()} />
+                <PermittedSendersEditor />
+              </>
             )}
           </CardBody>
         </Card>
@@ -502,6 +505,92 @@ function ForwardingAddress({ address, onRotate }: { address: string; onRotate: (
           <Button variant="ghost" size="sm" onClick={() => setConfirmingRotate(false)}>
             Cancel
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** CAP-005 "permitted-senders allowlist mode" — optional per-user restriction on who can route mail
+ * through the forwarding address above; empty (the default) accepts anyone who passes the existing DMARC
+ * check. Each line is either a full address ("jane@example.com") or a domain ("@company.com"). */
+function PermittedSendersEditor() {
+  const { data, mutate } = useSWR<{ senders: string[] }>("/v1/auth/inbound-alias/permitted-senders", swrFetcher);
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEditing() {
+    setText((data?.senders ?? []).join("\n"));
+    setError(null);
+    setEditing(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const senders = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      await api.post("/v1/auth/inbound-alias/permitted-senders", { senders });
+      await mutate();
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save the allowlist.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!data) return null;
+
+  return (
+    <div className="space-y-2 border-t border-border-subtle pt-3">
+      <p className="text-sm font-medium text-primary">Permitted senders (optional)</p>
+      {!editing && data.senders.length === 0 && (
+        <p className="text-sm text-tertiary">
+          Accepting mail from anyone.{" "}
+          <button type="button" onClick={startEditing} className="font-medium text-brand hover:underline">
+            Restrict to specific senders
+          </button>
+        </p>
+      )}
+      {!editing && data.senders.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-1.5">
+            {data.senders.map((sender) => (
+              <code key={sender} className="rounded-lg bg-subtle px-2 py-1 text-xs text-primary">
+                {sender}
+              </code>
+            ))}
+          </div>
+          <button type="button" onClick={startEditing} className="text-sm font-medium text-brand hover:underline">
+            Edit
+          </button>
+        </div>
+      )}
+      {editing && (
+        <div className="space-y-2">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={"jane@example.com\n@company.com"}
+            rows={3}
+            className="w-full rounded-lg border border-border-default bg-surface px-3 py-2 text-sm text-primary placeholder:text-tertiary"
+          />
+          <p className="text-xs text-tertiary">One per line — a full address, or a domain written like @company.com. Leave empty to accept from anyone.</p>
+          {error && <p className="text-sm text-critical">{error}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" onClick={save} loading={saving}>
+              Save
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
         </div>
       )}
     </div>

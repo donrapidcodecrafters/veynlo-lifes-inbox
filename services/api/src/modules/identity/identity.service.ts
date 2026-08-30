@@ -510,6 +510,17 @@ export class IdentityService {
     return this.inboundAliasInfo(userId);
   }
 
+  async getPermittedInboundSenders(userId: string): Promise<string[]> {
+    const [user] = await this.db.select({ permittedInboundSenders: schema.users.permittedInboundSenders }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    return user?.permittedInboundSenders ?? [];
+  }
+
+  async setPermittedInboundSenders(userId: string, senders: string[]): Promise<string[]> {
+    const deduped = [...new Set(senders)];
+    await this.db.update(schema.users).set({ permittedInboundSenders: deduped, updatedAt: new Date() }).where(eq(schema.users.id, userId));
+    return deduped;
+  }
+
   /** Resolves the inbound-email webhook's "To" address back to an owning user. Returns null for any
    * unrecognized/rotated-away alias — the webhook logs and no-ops rather than erroring, since a provider
    * will otherwise retry a bounced/stale forward indefinitely. */

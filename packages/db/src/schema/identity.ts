@@ -32,6 +32,11 @@ export const users = pgTable("users", {
   // the inbound webhook must look a sender up by exact match on this column, and AES-GCM's non-
   // deterministic IV rules out an encrypted column for equality lookups (same reasoning as `email` above).
   inboundEmailAlias: text("inbound_email_alias").unique(),
+  // CAP-005 "permitted-senders allowlist mode" — optional; empty (the default) means the forwarding alias
+  // accepts mail from anyone who passes the existing DMARC check, matching every existing user's current
+  // behavior. Each entry is either a full address ("jane@example.com") or a domain, written "@example.com",
+  // matching any sender at that domain.
+  permittedInboundSenders: jsonb("permitted_inbound_senders").$type<string[]>().notNull().default([]),
   // MAIL-002 "category privacy controls" — life domains (receipt/shipment/bill/subscription/calendar_event/
   // warranty) the user has opted OUT of extracting from mail entirely. Checked in the same
   // IngestionService.classifyAndExtract chokepoint as aiProcessingEnabled above, but per-category rather

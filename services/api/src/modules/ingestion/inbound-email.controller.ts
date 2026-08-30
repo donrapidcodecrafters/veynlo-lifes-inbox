@@ -2,6 +2,7 @@ import { Body, Controller, Headers, Logger, Post, ServiceUnavailableException, U
 import { Throttle } from "@nestjs/throttler";
 import { loadEnv, isInboundEmailConfigured } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { extractEmailAddress } from "../intelligence/deterministic-prefilter";
 import { IdentityService } from "../identity/identity.service";
 import { IngestionService } from "./ingestion.service";
 import { InboundEmailWebhookDtoSchema, type InboundEmailWebhookDto } from "./dto";
@@ -34,6 +35,16 @@ function dmarcVerdict(headers: Array<{ Name: string; Value: string }> | undefine
   const verdict = match[1]?.toLowerCase();
   if (!verdict) return null;
   return verdict === "pass" || verdict === "fail" ? verdict : "none";
+}
+
+/** CAP-005 "permitted-senders allowlist mode" — an empty list (the default) never makes this stricter
+ * than the existing DMARC check; a non-empty list is opt-in per-user. Each entry is either a full address
+ * (exact match) or a domain written "@example.com" (matches any address at that domain). */
+export function isSenderPermitted(fromAddress: string, permittedSenders: string[]): boolean {
+  if (permittedSenders.length === 0) return true;
+  const from = extractEmailAddress(fromAddress);
+  const fromDomain = from.slice(from.indexOf("@"));
+  return permittedSenders.some((entry) => (entry.startsWith("@") ? fromDomain === entry : from === entry));
 }
 
 /**
@@ -79,6 +90,12 @@ export class InboundEmailController {
     if (dmarcVerdict(body.Headers) === "fail") {
       this.logger.warn(`Inbound email to alias "${alias}" failed DMARC — dropped as likely spoofed.`);
       return { received: true, routed: false, reason: "auth_failed" };
+    }
+
+    const permittedSenders = await this.identity.getPermittedInboundSenders(ownerUserId);
+    if (!isSenderPermitted(body.From, permittedSenders)) {
+      this.logger.warn(`Inbound email to alias "${alias}" from a sender not on the permitted-senders allowlist — dropped.`);
+      return { received: true, routed: false, reason: "sender_not_permitted" };
     }
 
     const { sourceEventId } = await this.ingestion.ingestManualText({
