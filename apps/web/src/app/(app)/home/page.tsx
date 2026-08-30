@@ -19,11 +19,26 @@ interface AttentionItem {
   dueAt: TemporalValueLike | null;
   moneyAtStakeMinorUnits: number | null;
   moneyAtStakeCurrency: string | null;
+  confidenceBand: string;
   primaryActions: string[];
   assignedToUserId: string | null;
   linkedResourceType: string | null;
   linkedResourceId: string | null;
 }
+
+const RESOURCE_TYPE_LABEL: Record<string, string> = {
+  bill: "Bill",
+  return_case: "Return",
+  warranty: "Warranty",
+  person: "Person",
+};
+
+const DISMISS_REASONS = [
+  { value: "not_relevant", label: "Not relevant" },
+  { value: "already_handled", label: "Already handled" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "incorrect_info", label: "Incorrect info" },
+] as const;
 
 /** HOME-001 "open" action — attention items were entirely un-clickable before this; a card told you
  * something needed attention with no way to actually get to it. Maps the linked resource onto its real
@@ -103,8 +118,13 @@ export default function HomePage() {
     mutate();
   }
 
-  async function handleDismiss(id: string) {
-    await api.post(`/v1/attention/${id}/dismiss`, { reason: "not_relevant" });
+  async function handleDismiss(id: string, reason: string) {
+    await api.post(`/v1/attention/${id}/dismiss`, { reason });
+    mutate();
+  }
+
+  async function handleReturnState(id: string, state: "return_started" | "kept") {
+    await api.post(`/v1/returns/${id}/state`, { state });
     mutate();
   }
 
@@ -216,9 +236,10 @@ export default function HomePage() {
                 item={item}
                 members={members?.filter((m) => m.userId && m.status === "active") ?? []}
                 onResolve={() => handleResolve(item.id)}
-                onDismiss={() => handleDismiss(item.id)}
+                onDismiss={(reason) => handleDismiss(item.id, reason)}
                 onSnooze={(ms) => handleSnooze(item.id, ms)}
                 onDelegate={(assigneeUserId) => handleDelegate(item.id, assigneeUserId)}
+                onReturnState={(state) => item.linkedResourceId && handleReturnState(item.linkedResourceId, state)}
               />
             ))}
           </ul>
@@ -235,15 +256,17 @@ function AttentionItemCard({
   onDismiss,
   onSnooze,
   onDelegate,
+  onReturnState,
 }: {
   item: AttentionItem;
   members: Member[];
   onResolve: () => void;
-  onDismiss: () => void;
+  onDismiss: (reason: string) => void;
   onSnooze: (ms: number) => void;
   onDelegate: (assigneeUserId: string) => void;
+  onReturnState: (state: "return_started" | "kept") => void;
 }) {
-  const [expanded, setExpanded] = useState<"snooze" | "delegate" | null>(null);
+  const [expanded, setExpanded] = useState<"snooze" | "delegate" | "dismiss" | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -268,7 +291,15 @@ function AttentionItemCard({
         <CardBody className="space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1.5">
-              <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
+                {RESOURCE_TYPE_LABEL[item.linkedResourceType ?? ""] && (
+                  <Badge tone="neutral">{RESOURCE_TYPE_LABEL[item.linkedResourceType ?? ""]}</Badge>
+                )}
+                {item.confidenceBand && item.confidenceBand !== "verified" && (
+                  <Badge tone="warning">{item.confidenceBand.replace(/_/g, " ")}</Badge>
+                )}
+              </div>
               <p className="text-[0.9375rem] font-medium text-primary">{item.reasonText}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-tertiary">
                 {due && <span>Due {due}</span>}
@@ -285,18 +316,38 @@ function AttentionItemCard({
                 </Button>
               </Link>
             )}
+            {item.linkedResourceType === "return_case" && item.primaryActions.includes("start_return") && (
+              <Button size="sm" onClick={() => onReturnState("return_started")}>
+                Start return
+              </Button>
+            )}
+            {item.linkedResourceType === "return_case" && item.primaryActions.includes("keep_item") && (
+              <Button size="sm" variant="secondary" onClick={() => onReturnState("kept")}>
+                Keep item
+              </Button>
+            )}
             <Button size="sm" onClick={onResolve}>
               Mark handled
             </Button>
             <DropdownMenu
               items={[
-                { label: "Dismiss", onSelect: onDismiss },
+                { label: "Dismiss", onSelect: () => setExpanded(expanded === "dismiss" ? null : "dismiss") },
                 { label: "Snooze", onSelect: () => setExpanded(expanded === "snooze" ? null : "snooze") },
                 ...(members.length > 0 ? [{ label: "Delegate", onSelect: () => setExpanded(expanded === "delegate" ? null : "delegate") }] : []),
                 { label: "Share", onSelect: handleShare },
               ]}
             />
           </div>
+
+          {expanded === "dismiss" && (
+            <div className="flex flex-wrap gap-2 rounded-lg bg-subtle p-2">
+              {DISMISS_REASONS.map((r) => (
+                <Button key={r.value} size="sm" variant="secondary" onClick={() => onDismiss(r.value)}>
+                  {r.label}
+                </Button>
+              ))}
+            </div>
+          )}
 
           {expanded === "snooze" && (
             <div className="flex flex-wrap gap-2 rounded-lg bg-subtle p-2">

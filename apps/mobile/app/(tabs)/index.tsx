@@ -20,9 +20,25 @@ interface AttentionItem {
   dueAt: TemporalValueLike | null;
   moneyAtStakeMinorUnits: number | null;
   moneyAtStakeCurrency: string | null;
+  confidenceBand: string;
+  primaryActions: string[];
   linkedResourceType: string | null;
   linkedResourceId: string | null;
 }
+
+const RESOURCE_TYPE_LABEL: Record<string, string> = {
+  bill: "Bill",
+  return_case: "Return",
+  warranty: "Warranty",
+  person: "Person",
+};
+
+const DISMISS_REASONS = [
+  { value: "not_relevant", label: "Not relevant" },
+  { value: "already_handled", label: "Already handled" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "incorrect_info", label: "Incorrect info" },
+] as const;
 
 /** HOME-001 "open" action — same missing-navigation fix as web's Home page. */
 function resourceRoute(type: string | null, id: string | null): string | null {
@@ -133,8 +149,13 @@ export default function HomeScreen() {
     load();
   }
 
-  async function dismiss(id: string) {
-    await api.post(`/v1/attention/${id}/dismiss`, { reason: "not_relevant" });
+  async function dismiss(id: string, reason: string) {
+    await api.post(`/v1/attention/${id}/dismiss`, { reason });
+    load();
+  }
+
+  async function setReturnState(returnCaseId: string, state: "return_started" | "kept") {
+    await api.post(`/v1/returns/${returnCaseId}/state`, { state });
     load();
   }
 
@@ -221,9 +242,10 @@ export default function HomeScreen() {
               item={item}
               members={members}
               onResolve={() => resolve(item.id)}
-              onDismiss={() => dismiss(item.id)}
+              onDismiss={(reason) => dismiss(item.id, reason)}
               onSnooze={(ms) => snooze(item.id, ms)}
               onDelegate={(userId) => delegate(item.id, userId)}
+              onReturnState={(state) => item.linkedResourceId && setReturnState(item.linkedResourceId, state)}
             />
           ))}
         </View>
@@ -239,16 +261,18 @@ function AttentionItemCard({
   onDismiss,
   onSnooze,
   onDelegate,
+  onReturnState,
 }: {
   item: AttentionItem;
   members: Member[];
   onResolve: () => void;
-  onDismiss: () => void;
+  onDismiss: (reason: string) => void;
   onSnooze: (ms: number) => void;
   onDelegate: (userId: string) => void;
+  onReturnState: (state: "return_started" | "kept") => void;
 }) {
   const { theme } = useAppTheme();
-  const [expanded, setExpanded] = useState<"snooze" | "delegate" | null>(null);
+  const [expanded, setExpanded] = useState<"snooze" | "delegate" | "dismiss" | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -270,7 +294,11 @@ function AttentionItemCard({
   return (
     <Card style={{ gap: 12 }}>
       <View style={{ gap: 6 }}>
-        <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
+        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+          <Badge tone={URGENCY_TONE[item.urgency]}>{item.urgency}</Badge>
+          {RESOURCE_TYPE_LABEL[item.linkedResourceType ?? ""] && <Badge tone="neutral">{RESOURCE_TYPE_LABEL[item.linkedResourceType ?? ""]}</Badge>}
+          {item.confidenceBand && item.confidenceBand !== "verified" && <Badge tone="warning">{item.confidenceBand.replace(/_/g, " ")}</Badge>}
+        </View>
         <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>{item.reasonText}</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
           {due && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Due {due}</Text>}
@@ -285,6 +313,18 @@ function AttentionItemCard({
             </Button>
           </View>
         )}
+        {item.linkedResourceType === "return_case" && item.primaryActions.includes("start_return") && (
+          <View style={{ flex: 1, minWidth: 110 }}>
+            <Button onPress={() => onReturnState("return_started")}>Start return</Button>
+          </View>
+        )}
+        {item.linkedResourceType === "return_case" && item.primaryActions.includes("keep_item") && (
+          <View style={{ flex: 1, minWidth: 90 }}>
+            <Button variant="secondary" onPress={() => onReturnState("kept")}>
+              Keep item
+            </Button>
+          </View>
+        )}
         <View style={{ flex: 1, minWidth: 110 }}>
           <Button variant="secondary" onPress={onResolve}>
             Mark handled
@@ -292,13 +332,29 @@ function AttentionItemCard({
         </View>
         <ActionMenu
           items={[
-            { label: "Dismiss", onSelect: onDismiss },
+            { label: "Dismiss", onSelect: () => setExpanded(expanded === "dismiss" ? null : "dismiss") },
             { label: "Snooze", onSelect: () => setExpanded(expanded === "snooze" ? null : "snooze") },
             ...(members.length > 0 ? [{ label: "Delegate", onSelect: () => setExpanded(expanded === "delegate" ? null : "delegate") }] : []),
             { label: "Share", onSelect: handleShare },
           ]}
         />
       </View>
+
+      {expanded === "dismiss" && (
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 8 }}>
+          {DISMISS_REASONS.map((r) => (
+            <Pressable
+              key={r.value}
+              onPress={() => onDismiss(r.value)}
+              accessibilityRole="button"
+              accessibilityLabel={`Dismiss: ${r.label}`}
+              style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: theme.colors.bgSurface }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textPrimary }}>{r.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       {expanded === "snooze" && (
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 8 }}>

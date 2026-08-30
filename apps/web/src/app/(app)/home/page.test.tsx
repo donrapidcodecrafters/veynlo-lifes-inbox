@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor, within } from "@testing-library/react";
+import { cleanup, render, waitFor, within, fireEvent } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { SWRConfig } from "swr";
 import HomePage from "./page";
@@ -21,15 +21,14 @@ function renderIsolated(ui: ReactElement) {
  * renders and gets scanned exactly as a browser would produce it, not a hand-assembled fixture.
  */
 function mockFetchJson(routes: Record<string, unknown>) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const match = Object.entries(routes).find(([path]) => url.includes(path));
-      const body = match ? match[1] : [];
-      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
-    }),
-  );
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const match = Object.entries(routes).find(([path]) => url.includes(path));
+    const body = match ? match[1] : [];
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 afterEach(() => {
@@ -53,6 +52,7 @@ describe("Home page — automated accessibility", () => {
             dueAt: { date: new Date().toISOString().slice(0, 10) },
             moneyAtStakeMinorUnits: 12345,
             moneyAtStakeCurrency: "USD",
+            confidenceBand: "verified",
             primaryActions: ["resolve"],
             assignedToUserId: null,
             linkedResourceType: "bill",
@@ -67,6 +67,81 @@ describe("Home page — automated accessibility", () => {
     await waitFor(() => expect(within(container).getByText("Your electric bill is due soon")).toBeInTheDocument());
 
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("a return_case item's real primary actions call the real setReturnCaseState endpoint", async () => {
+    const fetchMock = mockFetchJson({
+      "/v1/home/today": { items: [] },
+      "/v1/home": {
+        caughtUp: false,
+        degraded: false,
+        unhealthyConnections: [],
+        items: [
+          {
+            id: "att_2",
+            reasonText: "Return window for Acme closes in 3 days",
+            urgency: "important",
+            dueAt: null,
+            moneyAtStakeMinorUnits: null,
+            moneyAtStakeCurrency: null,
+            confidenceBand: "verified",
+            primaryActions: ["start_return", "keep_item"],
+            assignedToUserId: null,
+            linkedResourceType: "return_case",
+            linkedResourceId: "return_1",
+          },
+        ],
+      },
+      "/v1/households": [],
+    });
+
+    const { container } = renderIsolated(<HomePage />);
+    await waitFor(() => expect(within(container).getByText("Return window for Acme closes in 3 days")).toBeInTheDocument());
+    expect(within(container).getByText("Return")).toBeInTheDocument(); // resource-type badge
+
+    fireEvent.click(within(container).getByText("Start return"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/v1/returns/return_1/state"), expect.objectContaining({ method: "POST" })));
+  });
+
+  it("dismissing an item opens a real reason picker and posts the chosen reason", async () => {
+    const fetchMock = mockFetchJson({
+      "/v1/home/today": { items: [] },
+      "/v1/home": {
+        caughtUp: false,
+        degraded: false,
+        unhealthyConnections: [],
+        items: [
+          {
+            id: "att_3",
+            reasonText: "Your gas bill is due soon",
+            urgency: "useful",
+            dueAt: null,
+            moneyAtStakeMinorUnits: null,
+            moneyAtStakeCurrency: null,
+            confidenceBand: "verified",
+            primaryActions: [],
+            assignedToUserId: null,
+            linkedResourceType: "bill",
+            linkedResourceId: "bill_2",
+          },
+        ],
+      },
+      "/v1/households": [],
+    });
+
+    const { container } = renderIsolated(<HomePage />);
+    await waitFor(() => expect(within(container).getByText("Your gas bill is due soon")).toBeInTheDocument());
+
+    fireEvent.click(within(container).getByText("More"));
+    fireEvent.click(within(container).getByText("Dismiss"));
+    fireEvent.click(within(container).getByText("Duplicate"));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/v1/attention/att_3/dismiss"),
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ reason: "duplicate" }) }),
+      ),
+    );
   });
 
   it("the caught-up empty state has no violations", async () => {
