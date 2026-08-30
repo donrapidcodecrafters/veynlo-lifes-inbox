@@ -77,6 +77,22 @@ Terraform modules.
   `docs/ROADMAP.md`) — a schema migration is forward-only in practice;
   budget a manual rollback runbook before the first real production
   migration, not after.
+- **Two existing migrations lock hard against a populated table** and would
+  cause real write-blocking downtime if replayed against real production
+  data: `0020_wooden_iron_fist.sql` (a full backfill+delete+`SET NOT NULL`+
+  non-concurrent index on `shipments`) and `0027_search_documents_fts.sql`
+  (a `STORED` generated column, which rewrites the entire table under an
+  `ACCESS EXCLUSIVE` lock — on `search_documents`, which mirrors nearly
+  every row in the system). Both are harmless today only because every
+  environment's tables are still empty — they are NOT being rewritten
+  retroactively (a migration is a historical record, not something to edit
+  after the fact). The actual fix is a going-forward practice: once any
+  environment has real data, author new schema changes as
+  `CREATE INDEX CONCURRENTLY` (outside a transaction) and multi-step
+  backfills (add nullable → backfill in batches → add the constraint),
+  not as single blocking statements. Every `CREATE INDEX` in this repo so
+  far is non-concurrent for the same reason — fine on empty tables, a real
+  outage risk once they aren't.
 - `docker-build`'s CI job builds off every PR, which is the right moment to
   add a real staging deploy step once (4)/(5) above exist — build once,
   promote the same immutable image through staging → prod rather than
