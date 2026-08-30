@@ -23,9 +23,12 @@ export class SearchIndexService {
     householdId: string | null;
     title: string;
     bodyText: string;
-    /** No resource type this indexes has its own sensitivity column today — "sensitive" mirrors the one
-     * established default in the codebase (documents.sensitivity), a conservative default until a real
-     * per-type value exists to read instead of guess. */
+    /** Callers with a real per-row sensitivity column (documents.sensitivity) should pass it through
+     * rather than let this default kick in. Every such column is currently hardcoded to "sensitive" at
+     * write time itself (no domain computes a real per-item tier yet — see §45.4's sensitivity-tier
+     * design gap, tracked separately as a larger policy-engine buildout), so this is forward-compatible
+     * wiring rather than a behavior change today: once a domain starts varying its own sensitivity, the
+     * search index picks it up automatically instead of needing another change here. */
     sensitivity?: string;
   }): Promise<void> {
     const sensitivity = params.sensitivity ?? "sensitive";

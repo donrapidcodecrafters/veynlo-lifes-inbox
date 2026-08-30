@@ -301,6 +301,7 @@ export class DocumentsService {
       householdId: row.document.householdId,
       title: row.document.title,
       bodyText: row.version?.ocrText ?? "",
+      sensitivity: row.document.sensitivity,
     });
   }
 
