@@ -27,9 +27,25 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Added when the first real test to touch Redis (AdminService's job-health/system-status tests)
+      # surfaced that CI never had one at all — every prior test constructed services directly rather than
+      # bootstrapping the full Nest app, so nothing here had ever actually exercised the Redis dependency
+      # rate-limiting (@nest-lab/throttler-storage-redis) and BullMQ both have in production. Those two
+      # tests weren't slow, they hung indefinitely retrying a connection to a Redis that didn't exist —
+      # no timeout value would have fixed that.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       DATABASE_URL: postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo
+      REDIS_URL: redis://localhost:6379
 
     steps:
       - uses: actions/checkout@v4
