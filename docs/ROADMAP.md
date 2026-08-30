@@ -40,7 +40,7 @@ this repository, not an aspirational plan.
 | Desktop (macOS/Windows) | ✅ Built (`apps/desktop`, Tauri 2). A native window loading the real `apps/web` app — no duplicated frontend. A Rust toolchain was installed (none was available at the start of this project) and both `tauri dev` and a real unsigned `tauri build` (.app + .dmg, ad-hoc signed) were run successfully. Not yet: production signing/notarization, Windows build (only macOS/arm64 built here), auto-update, system tray/native menu bar. |
 | Browser extension | ✅ Built (`apps/browser-extension`, Manifest V3, Chromium-based browsers). Sign-in/out, save-page and save-selection via popup and right-click context menu, options page. Verified live via Playwright loading the real unpacked extension against the real API. Not yet: packaged/signed store build, real designed icons (placeholders are solid-color PNGs), Firefox (MV3 support differs). |
 | CI/CD | ✅ `.github/workflows/ci.yml` runs typecheck/lint/test on push. This row was stale (said "not started") until corrected 2026-08-28 — the "Immediate next priorities" section below already listed CI as done; verify against the actual repo before trusting a status line rather than the other way around. |
-| Observability (structured logs/metrics/tracing) | 🟡 Structured logs done — `nestjs-pino` replaces Nest's default console logger (`services/api/src/logging/logging.module.ts`): JSON lines in production (one object per log entry, ready for any real aggregator), pretty-printed only in development, with `Authorization`/`Cookie`/password fields redacted so a secret never lands in a log line. Both processes (`main.ts`'s HTTP server and `worker-main.ts`'s background jobs) route through the same logger — every pre-existing `new Logger(ClassName.name)` call site across the app needed zero changes, since Nest's built-in `Logger` delegates to whatever's registered via `useLogger()`. Verified live in both modes: dev shows colorized pretty output including automatic per-request access logs (method/url/status/responseTime/request id); a real production-mode run emitted raw newline-delimited JSON with the same redaction confirmed on a request carrying real-looking `Authorization`/`Cookie` header values. **Not done**: metrics and tracing (Prometheus/OpenTelemetry or similar) — deliberately left for a separate pass, since that needs a real infra/backend decision (what collects and stores the metrics) rather than just an app-level dependency swap. |
+| Observability (structured logs/metrics/tracing) | ✅ Structured logs — `nestjs-pino` replaces Nest's default console logger (`services/api/src/logging/logging.module.ts`): JSON lines in production (one object per log entry, ready for any real aggregator), pretty-printed only in development, with `Authorization`/`Cookie`/password fields redacted so a secret never lands in a log line. Both processes (`main.ts`'s HTTP server and `worker-main.ts`'s background jobs) route through the same logger. Verified live in both modes: dev shows colorized pretty output including automatic per-request access logs; a real production-mode run emitted raw newline-delimited JSON with redaction confirmed on a request carrying real-looking `Authorization`/`Cookie` header values. **Metrics now built too** — real Prometheus-format `GET /metrics` (`services/api/src/metrics/`): an `http_request_duration_seconds` histogram + `http_requests_total` counter labeled by method/route-template/status code, plus Node process defaults (CPU, heap, event-loop lag), recorded via a Fastify `onResponse` hook so the real post-exception-filter status code is captured. Verified live with real requests, including a real 401 correctly recorded. **Still not done**: distributed tracing (OpenTelemetry spans) and any actual dashboard/alerting backend — both are a real "which vendor/self-hosted stack" business decision to make separately, not an app-level gap. |
 
 ## Immediate next priorities (in order)
 
@@ -1289,3 +1289,41 @@ still open:
   entitlements) all stayed green throughout. Test accounts and every seeded row (documents, versions,
   connections, ask_query_log, entitlements) cleaned up afterward — confirmed cascaded away correctly via
   the account-deletion worker, not left orphaned.
+
+- **Twenty-first gap-closing pass (2026-08-29): real metrics — the Observability row's last open item.**
+  Structured JSON logging (`nestjs-pino`) has always been real, but nothing exposed actual metrics
+  (request rates, latency, error rates) anywhere — `config/env.ts` had only a comment saying this needed
+  "a real infra decision." Made that decision the same way ClamAV/MinIO/Mailhog were handled earlier in
+  this project: a real, self-hosted, zero-new-paid-account mechanism rather than picking a SaaS vendor,
+  which stays a genuine follow-up (WHERE the resulting metrics get scraped/dashboarded/alerted-on).
+  1. Added `prom-client` and a `MetricsService` (`services/api/src/metrics/`) exposing a real
+     `http_request_duration_seconds` histogram and `http_requests_total` counter (both labeled by method,
+     ROUTE TEMPLATE — `/v1/documents/:id`, never the resolved id, which would blow up cardinality — and
+     status code), plus Node process-level defaults (CPU, heap, event-loop lag) via
+     `collectDefaultMetrics()`.
+  2. Recorded via a Fastify `onResponse` hook (`metrics.hook.ts`), not a Nest interceptor — same reasoning
+     as the Stripe-webhook raw-body `preParsing` hook already in `main.ts`: it needs to fire after
+     `GlobalExceptionFilter` has actually finalized the response, so a thrown exception's real mapped
+     status code (a 403 `PLAN_LIMIT_REACHED`, a 500) gets recorded, not whatever status existed while the
+     exception was still propagating through an interceptor chain.
+  3. New unauthenticated `GET /metrics` (`@SkipThrottle()`, matching `/health/*` — a scraper hitting this
+     every ~15-30s must never count against the general rate limit) returning real Prometheus exposition
+     format.
+  4. **Fixed a real, unrelated dependency-resolution issue found while installing `prom-client`**: the
+     `pnpm add` temporarily produced a second, differently-peer-resolved copy of `drizzle-orm` in the
+     lockfile (surfaced as a wall of "private property `shouldInlineParams`"-style structural-type errors
+     in two completely unrelated files, `auth.guard.ts`/`credential-vault.ts`) — a plain `pnpm install`
+     (not `add`) immediately reconciled it back to a single instance; confirmed by rerunning typecheck
+     clean. A separate, genuine bug in this pass's own new code: explicitly importing `FastifyRequest`/
+     `FastifyReply` from `"fastify"` directly (rather than through `@nestjs/platform-fastify`) resolved to
+     a second, incompatible copy of Fastify's types in this monorepo — fixed by using a minimal duck-typed
+     interface for just the two fields the hook actually reads, avoiding the cross-package identity issue
+     entirely (the same reason the pre-existing `preParsing` hook already left its own callback
+     unannotated).
+  **Verified live**: real requests (`/v1/auth/me`, `/health/live`, a full sign-up → document-list →
+  account-deletion smoke test) produced correctly-labeled entries in `GET /metrics` — including a real
+  401 status code recorded for a rejected auth check, confirming the post-exception-filter hook timing
+  works as intended, not just a stubbed 200. Typecheck/lint/vitest (61 tests) all green after the fix.
+  Test account deleted afterward. **Not attempted**: distributed tracing (OpenTelemetry spans) and any
+  actual dashboard/alerting backend — both are real "which vendor/self-hosted stack" business decisions,
+  not a code gap this pass could close on its own, same category as backup/restore strategy.

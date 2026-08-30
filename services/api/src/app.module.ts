@@ -5,6 +5,7 @@ import { LoggingModule } from "./logging/logging.module";
 import { DatabaseModule } from "./database/database.module";
 import { QueueModule } from "./queue/queue.module";
 import { HealthModule } from "./modules/health/health.module";
+import { MetricsModule } from "./metrics/metrics.module";
 import { IdentityModule } from "./modules/identity/identity.module";
 import { HouseholdModule } from "./modules/household/household.module";
 import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
@@ -34,6 +35,7 @@ import { SavedItemsModule } from "./modules/saved-items/saved-items.module";
     DatabaseModule,
     QueueModule,
     HealthModule,
+    MetricsModule,
     IdentityModule,
     HouseholdModule,
     IntelligenceModule,

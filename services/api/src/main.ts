@@ -8,6 +8,7 @@ import fastifyHelmet from "@fastify/helmet";
 import { AppModule } from "./app.module";
 import { loadEnv } from "./config/env";
 import { GlobalExceptionFilter } from "./common/http-exception.filter";
+import { registerMetricsHook } from "./metrics/metrics.hook";
 
 async function bootstrap() {
   const env = loadEnv();
@@ -59,6 +60,7 @@ async function bootstrap() {
   // working fine over curl (same-origin tooling never triggers a preflight at all).
   app.enableCors({ origin: corsOrigin, credentials: true, methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] });
   app.useGlobalFilters(new GlobalExceptionFilter());
+  registerMetricsHook(app);
 
   await app.listen(env.PORT, "0.0.0.0");
   app.get(Logger).log(`Veynlo API listening on port ${env.PORT} (${env.NODE_ENV})`);
