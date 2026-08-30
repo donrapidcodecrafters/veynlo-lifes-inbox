@@ -3,13 +3,21 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
-import { swrFetcher } from "@/lib/api-client";
+import { api, swrFetcher } from "@/lib/api-client";
+import { invalidateDomainCaches } from "@/lib/cache-invalidation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
+
+const MARKABLE_STATES = [
+  { value: "return_started", label: "Start return" },
+  { value: "returned", label: "Mark returned" },
+  { value: "kept", label: "Keep item" },
+];
 
 interface ReturnDetail {
   returnCase: {
@@ -26,7 +34,7 @@ interface ReturnDetail {
 
 export default function ReturnDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useSWR<ReturnDetail | null>(`/v1/returns/${id}`, swrFetcher);
+  const { data, isLoading, mutate } = useSWR<ReturnDetail | null>(`/v1/returns/${id}`, swrFetcher);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-xl bg-subtle" />;
   if (!data) return <EmptyState title="Not found" description="This return doesn't exist or you don't have access to it." />;
@@ -35,6 +43,12 @@ export default function ReturnDetailPage() {
   const deadline = formatTemporal(returnCase.deadline);
   const value = formatMoneyMinorUnits(returnCase.valueAtStakeMinorUnits, returnCase.valueAtStakeCurrency);
   const days = daysUntil(returnCase.deadline);
+
+  async function markState(state: string) {
+    await api.post(`/v1/returns/${returnCase.id}/state`, { state });
+    mutate();
+    invalidateDomainCaches();
+  }
 
   return (
     <div className="space-y-6">
@@ -73,6 +87,13 @@ export default function ReturnDetailPage() {
               </>
             )}
           </dl>
+          <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3">
+            {MARKABLE_STATES.map((s) => (
+              <Button key={s.value} size="sm" variant={returnCase.state === s.value ? "primary" : "secondary"} onClick={() => markState(s.value)}>
+                {s.label}
+              </Button>
+            ))}
+          </div>
         </CardBody>
       </Card>
 

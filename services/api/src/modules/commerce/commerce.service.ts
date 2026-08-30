@@ -13,6 +13,15 @@ import { HouseholdService } from "../household/household.service";
  */
 const USER_SETTABLE_PURCHASE_STATES = new Set(["kept", "return_started", "gifted", "sold", "disposed"]);
 
+/**
+ * §40.3 return state machine — previously a total stub: returnCases.state was written once at creation
+ * ("eligible") and never updated by anything, with no mutation endpoint at all, despite Home's own
+ * "start_return"/"keep_item" suggested actions (AttentionService.scanAndFileDeadlines) pointing at a
+ * return_case as if there were something real to do about it. "eligible" itself isn't user-settable —
+ * it's the only state a return case is ever created in.
+ */
+const USER_SETTABLE_RETURN_CASE_STATES = new Set(["return_started", "kept", "returned"]);
+
 @Injectable()
 export class CommerceService {
   constructor(
@@ -76,6 +85,28 @@ export class CommerceService {
     if (!purchase) throw new NotFoundException({ code: "PURCHASE_NOT_FOUND", message: "Not found." });
     if (purchase.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your purchase." });
     await this.db.update(schema.purchases).set({ state, updatedAt: new Date() }).where(eq(schema.purchases.id, purchaseId));
+  }
+
+  /** §40.3 return state machine — the real mutation Home's "start_return"/"keep_item" suggested actions
+   * (and the return-case detail page's own action buttons) actually call. Strict ownership, not
+   * assertCommerceAccess's delegate-allowed read access — matching setPurchaseState's same stricter
+   * standard for state-changing actions, not just viewing. */
+  async setReturnCaseState(returnCaseId: string, userId: string, state: string) {
+    if (!USER_SETTABLE_RETURN_CASE_STATES.has(state)) {
+      throw new BadRequestException({
+        code: "INVALID_RETURN_CASE_STATE",
+        message: `"${state}" isn't a state you can set directly. Allowed: ${[...USER_SETTABLE_RETURN_CASE_STATES].join(", ")}.`,
+      });
+    }
+    const [row] = await this.db
+      .select({ ownerUserId: schema.purchases.ownerUserId })
+      .from(schema.returnCases)
+      .innerJoin(schema.purchases, eq(schema.purchases.id, schema.returnCases.purchaseId))
+      .where(eq(schema.returnCases.id, returnCaseId))
+      .limit(1);
+    if (!row) throw new NotFoundException({ code: "RETURN_CASE_NOT_FOUND", message: "Not found." });
+    if (row.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your return." });
+    await this.db.update(schema.returnCases).set({ state, updatedAt: new Date() }).where(eq(schema.returnCases.id, returnCaseId));
   }
 
   /**

@@ -34,6 +34,11 @@ export class CommerceController {
     return this.commerce.returnDetail(id, user.userId);
   }
 
+  @Post("returns/:id/state")
+  setReturnCaseState(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("state") state: string) {
+    return this.commerce.setReturnCaseState(id, user.userId, state);
+  }
+
   @Get("subscriptions")
   subscriptions(@CurrentUser() user: AuthenticatedUser) {
     return this.commerce.subscriptions(user.userId);

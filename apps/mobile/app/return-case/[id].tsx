@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -11,6 +11,12 @@ import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { HistorySection } from "@/components/history-section";
 import { formatMoneyMinorUnits, formatTemporal, daysUntil, type TemporalValueLike } from "@/lib/format";
+
+const MARKABLE_STATES = [
+  { value: "return_started", label: "Start return" },
+  { value: "returned", label: "Mark returned" },
+  { value: "kept", label: "Keep item" },
+];
 
 interface ReturnDetail {
   returnCase: { state: string; deadline: TemporalValueLike; valueAtStakeMinorUnits: number | null; valueAtStakeCurrency: string | null; trackingNumber: string | null };
@@ -36,6 +42,11 @@ export default function ReturnDetailScreen() {
   const value = formatMoneyMinorUnits(returnCase.valueAtStakeMinorUnits, returnCase.valueAtStakeCurrency);
   const days = daysUntil(returnCase.deadline);
 
+  async function markState(state: string) {
+    await api.post(`/v1/returns/${id}/state`, { state });
+    setData(await api.get<ReturnDetail>(`/v1/returns/${id}`));
+  }
+
   return (
     <Screen>
       <ScreenHeader title={`Return for order ${purchase.orderNumber ?? purchase.id}`} subtitle={deadline ? `Deadline ${deadline}` : undefined} />
@@ -44,6 +55,28 @@ export default function ReturnDetailScreen() {
         {value && <Text style={{ fontSize: 20, fontWeight: "700", color: theme.colors.textPrimary }}>{value}</Text>}
         <Text style={{ fontSize: 13, color: theme.colors.textTertiary, textTransform: "capitalize" }}>{returnCase.state.replace("_", " ")}</Text>
         {returnCase.trackingNumber && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Tracking: {returnCase.trackingNumber}</Text>}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 10 }}>
+          {MARKABLE_STATES.map((s) => {
+            const active = returnCase.state === s.value;
+            return (
+              <Pressable
+                key={s.value}
+                onPress={() => markState(s.value)}
+                accessibilityRole="button"
+                accessibilityLabel={s.label}
+                accessibilityState={{ selected: active }}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: theme.radius.sm,
+                  backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textPrimary }}>{s.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <Text style={{ fontSize: 13, color: theme.colors.brandDefault }} onPress={() => router.push(`/purchase/${purchase.id}`)}>
           View order →
         </Text>
