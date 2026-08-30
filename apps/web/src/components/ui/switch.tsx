@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { cn } from "@/lib/cn";
 
 interface SwitchProps {
@@ -15,18 +16,26 @@ interface SwitchProps {
  * Binary settings use a switch, never a checkbox (product requirement).
  * Built as `role="switch"` on a real button — the ARIA-correct pattern —
  * rather than a checkbox, for consistent cross-browser styling.
+ *
+ * Caught by a real automated-accessibility test, not assumed: `id` used to be optional with no fallback,
+ * so a call site that forgot to pass one produced a switch with NO accessible name at all (the visible
+ * `<label>` had no `for`, and the button itself has no text content beyond an `aria-hidden` thumb) — a
+ * real `button-name` violation. `useId()` guarantees a stable id exists either way, so this can never
+ * regress to an unlabeled control again regardless of what a future call site does.
  */
 export function Switch({ checked, onCheckedChange, disabled, label, description, id }: SwitchProps) {
+  const generatedId = useId();
+  const switchId = id ?? generatedId;
   return (
     <div className="flex items-center justify-between gap-4 py-1">
       <div className="min-w-0">
-        <label htmlFor={id} className="block text-[0.9375rem] font-medium text-primary">
+        <label htmlFor={switchId} className="block text-[0.9375rem] font-medium text-primary">
           {label}
         </label>
         {description && <p className="mt-0.5 text-sm text-tertiary">{description}</p>}
       </div>
       <button
-        id={id}
+        id={switchId}
         type="button"
         role="switch"
         aria-checked={checked}
