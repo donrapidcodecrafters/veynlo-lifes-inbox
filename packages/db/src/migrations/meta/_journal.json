@@ -225,6 +225,13 @@
       "when": 1788108183547,
       "tag": "0031_friendly_night_nurse",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788113089418,
+      "tag": "0032_eminent_silver_centurion",
+      "breakpoints": true
     }
   ]
 }

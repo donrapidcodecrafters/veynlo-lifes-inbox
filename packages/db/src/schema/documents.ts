@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, integer, real, jsonb, index } from "drizzle-orm/pg-core";
+import type { TemporalValue } from "@veynlo/core";
 import { users } from "./identity";
 import { households } from "./household";
 import { sensitivityTierEnum, visibilityEnum } from "./common";
@@ -27,6 +28,19 @@ export const documents = pgTable(
     retentionPolicy: text("retention_policy").notNull().default("full_original"),
     linkedEntityIds: jsonb("linked_entity_ids").$type<string[]>().notNull().default([]),
     tags: encryptedJsonb<string[]>("tags").notNull().default([]),
+    // DOC-005 "deadline/obligation extraction" — AI-extracted from the document's OCR'd content (a
+    // contract renewal date, a permit expiration, an insurance policy end date) at upload/version-replace
+    // time. Null when no deadline was found/extractable, same "absence means genuinely nothing found, not
+    // a stuck pipeline" posture as ocrText. `extractedDeadlineSort` mirrors bills.dueDateSort/warranties.
+    // expirationDateSort's plain-timestamp-for-range-queries pattern; AttentionService.scanAndFileDeadlines
+    // reads it the same way.
+    extractedDeadline: jsonb("extracted_deadline").$type<TemporalValue>(),
+    extractedDeadlineSort: timestamp("extracted_deadline_sort", { withTimezone: true }),
+    extractedDeadlineLabel: encryptedText("extracted_deadline_label"),
+    // Unlike the other domains AttentionService.scanAndFileDeadlines files from (bills/warranties/returns,
+    // already-structured facts by scan time), this one really is a free-text AI guess — a real
+    // confidenceToBand() result (RiskPolicyService, domain "document_deadline"), not a hardcoded "verified".
+    extractedDeadlineConfidenceBand: text("extracted_deadline_confidence_band"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -34,7 +48,7 @@ export const documents = pgTable(
   // Composite (ownerUserId, createdAt) also serves owner-only lookups via its leftmost column, so it
   // replaces the old owner-only index rather than sitting alongside it — cursor pagination (order by
   // createdAt desc) can walk this index in order instead of doing an extra sort.
-  (t) => [index("documents_owner_created_idx").on(t.ownerUserId, t.createdAt)],
+  (t) => [index("documents_owner_created_idx").on(t.ownerUserId, t.createdAt), index("documents_deadline_idx").on(t.extractedDeadlineSort)],
 );
 
 export const documentVersions = pgTable("document_versions", {

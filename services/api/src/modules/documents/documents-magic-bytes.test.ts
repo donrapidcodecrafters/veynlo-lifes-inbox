@@ -3,6 +3,7 @@ import { generateId } from "@veynlo/core";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { eq, inArray } from "drizzle-orm";
 import { SearchIndexService } from "../search/search-index.service";
+import { RiskPolicyService } from "../intelligence/risk-policy.service";
 import { DocumentsService } from "./documents.service";
 
 /**
@@ -31,7 +32,7 @@ function makeService() {
   const malwareScanner = { isConfigured: () => false };
   const billing = { getCapability: vi.fn(async () => null) };
   const searchIndex = new SearchIndexService(db);
-  return new DocumentsService(db, storage as never, ai as never, malwareScanner as never, {} as never, {} as never, searchIndex, billing as never);
+  return new DocumentsService(db, storage as never, ai as never, malwareScanner as never, {} as never, {} as never, searchIndex, billing as never, new RiskPolicyService(db));
 }
 
 const ownerId = generateId("user");

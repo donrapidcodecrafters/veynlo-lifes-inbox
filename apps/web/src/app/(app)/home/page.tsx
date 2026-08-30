@@ -31,6 +31,7 @@ const RESOURCE_TYPE_LABEL: Record<string, string> = {
   return_case: "Return",
   warranty: "Warranty",
   person: "Person",
+  document: "Document",
 };
 
 const DISMISS_REASONS = [
@@ -54,6 +55,10 @@ function resourceHref(type: string | null, id: string | null): string | null {
       return `/life/warranties/${id}`;
     case "person":
       return `/people/${id}`;
+    // Documents have no single-item detail route (only the list + inline expand) — this is the closest
+    // real link available, not a per-id deep link.
+    case "document":
+      return `/documents`;
     default:
       return null;
   }

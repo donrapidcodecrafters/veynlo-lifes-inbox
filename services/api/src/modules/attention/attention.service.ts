@@ -303,6 +303,30 @@ export class AttentionService {
       });
     }
 
+    // DOC-005 "deadline/obligation extraction" — the only domain here where the underlying fact is a
+    // genuine free-text AI guess rather than an already-structured record, so this uses the document's own
+    // real confidenceBand (RiskPolicyService-derived at extraction time) instead of the "verified" every
+    // other branch above hardcodes.
+    const documentsWithDeadlines = await this.db.select().from(schema.documents).where(inWindow(schema.documents.extractedDeadlineSort));
+    for (const doc of documentsWithDeadlines) {
+      const days = daysUntil(doc.extractedDeadlineSort!, now);
+      await this.fileIfNew({
+        ownerUserId: doc.ownerUserId,
+        householdId: doc.householdId,
+        reasonCode: "document_deadline",
+        reasonText: `${doc.extractedDeadlineLabel ?? "A deadline"} on "${doc.title}" is in ${days} day${days === 1 ? "" : "s"}.`,
+        urgency: urgencyFor(days),
+        dueAt: doc.extractedDeadline!,
+        dueAtSort: doc.extractedDeadlineSort!,
+        moneyAtStakeMinorUnits: null,
+        moneyAtStakeCurrency: null,
+        confidenceBand: doc.extractedDeadlineConfidenceBand ?? "needs_review",
+        linkedResourceType: "document",
+        linkedResourceId: doc.id,
+        primaryActions: ["review"],
+      });
+    }
+
     // PEO-005 "important dates" reminders — annual, unlike every other deadline this method files, so
     // `fileIfNew`'s own dedup (any existing item on this exact linkedResourceId, regardless of resolved
     // state) would otherwise mean a birthday reminder fires exactly once, ever, then never again in

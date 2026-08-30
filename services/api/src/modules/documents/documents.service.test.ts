@@ -6,6 +6,7 @@ import { eq, inArray } from "drizzle-orm";
 import { HouseholdService } from "../household/household.service";
 import { SearchIndexService } from "../search/search-index.service";
 import { SharingService } from "../shared/sharing.service";
+import { RiskPolicyService } from "../intelligence/risk-policy.service";
 import { DocumentsService } from "./documents.service";
 
 /**
@@ -19,7 +20,7 @@ const db: Database = createDbClient(DATABASE_URL);
 const households = new HouseholdService(db, {} as never, {} as never);
 const searchIndex = new SearchIndexService(db);
 const sharing = new SharingService(db);
-const documents = new DocumentsService(db, {} as never, {} as never, {} as never, households, sharing, searchIndex, {} as never);
+const documents = new DocumentsService(db, {} as never, {} as never, {} as never, households, sharing, searchIndex, {} as never, new RiskPolicyService(db));
 
 const ownerId = generateId("user");
 const strangerId = generateId("user");

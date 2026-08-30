@@ -5,11 +5,13 @@ import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import heicConvert from "heic-convert";
-import { generateId, DocumentTypeSchema, type DocumentType } from "@veynlo/core";
+import { generateId, confidenceToBand, DocumentTypeSchema, type DocumentType, type TemporalValue } from "@veynlo/core";
+import { toTemporalValue, temporalToSortDate } from "../ingestion/temporal.util";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
+import { RiskPolicyService } from "../intelligence/risk-policy.service";
 import { HouseholdService } from "../household/household.service";
 import { SharingService } from "../shared/sharing.service";
 import { SearchIndexService } from "../search/search-index.service";
@@ -41,6 +43,7 @@ export class DocumentsService {
     private readonly sharing: SharingService,
     private readonly searchIndex: SearchIndexService,
     private readonly billing: BillingService,
+    private readonly riskPolicy: RiskPolicyService,
   ) {}
 
   /** §46 entitlement enforcement — `document_storage_mb` was defined in `PLAN_CATALOG` (free: 250MB, up to
@@ -215,11 +218,17 @@ export class DocumentsService {
     // from the document's actual content. Runs after OCR since classification needs real text to work
     // from; a failure here is non-fatal (keeps the client-provided type) same posture as OCR above.
     let classifiedType: DocumentType | null = null;
+    let deadline: { label: string; deadline: TemporalValue; deadlineSort: Date | null; confidenceBand: string } | null = null;
     if (ocrText && this.ai.isConfigured()) {
       try {
         classifiedType = await this.classifyDocumentType(ocrText);
       } catch (err) {
         this.logger.warn(`Classification failed for ${documentId}: ${String(err)}`);
+      }
+      try {
+        deadline = await this.extractDeadline(ocrText);
+      } catch (err) {
+        this.logger.warn(`Deadline extraction failed for ${documentId}: ${String(err)}`);
       }
     }
 
@@ -240,6 +249,9 @@ export class DocumentsService {
       .set({
         processingState: ocrText ? "extracted" : "classified",
         ...(classifiedType ? { documentType: classifiedType } : {}),
+        ...(deadline
+          ? { extractedDeadline: deadline.deadline, extractedDeadlineSort: deadline.deadlineSort, extractedDeadlineLabel: deadline.label, extractedDeadlineConfidenceBand: deadline.confidenceBand }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(schema.documents.id, documentId));
@@ -316,6 +328,34 @@ export class DocumentsService {
       toolDescription: "Emit the classified document type.",
     });
     return result?.data.documentType ?? null;
+  }
+
+  /** DOC-005 "deadline/obligation extraction" — OCR was previously verbatim-only with nothing looking for
+   * a real date to remind the user about (a contract renewal, a permit expiration, a policy end date).
+   * Returns null when no reliable deadline is found — the AI is explicitly told not to guess. Unlike the
+   * other domains AttentionService.scanAndFileDeadlines files from (bills/warranties/returns, already-
+   * structured facts by scan time), this really is a free-text AI guess, so it gets a real
+   * confidenceToBand() result instead of a hardcoded "verified". */
+  private async extractDeadline(ocrText: string): Promise<{ label: string; deadline: TemporalValue; deadlineSort: Date | null; confidenceBand: string } | null> {
+    const result = await this.ai.extractStructured({
+      extractorName: "document_deadline_v1",
+      model: "cheap",
+      systemPrompt:
+        "Find any real future deadline, expiration, or renewal date this document obligates the reader to (e.g. a contract renewal, permit expiration, policy end date). If none exists, set hasDeadline to false — never guess a date that isn't actually stated.",
+      userContent: ocrText.slice(0, 8_000),
+      schema: z.object({
+        hasDeadline: z.boolean(),
+        label: z.string().nullable().describe('A short human label, e.g. "Contract renewal" or "Permit expires".'),
+        iso_date: z.string().nullable().describe("The deadline as YYYY-MM-DD, when a specific date is stated."),
+        approximate_text: z.string().nullable().describe('Verbatim wording when only an approximate date is given, e.g. "next spring".'),
+      }),
+      toolDescription: "Emit whether a real deadline was found and its date.",
+    });
+    if (!result?.data.hasDeadline || !result.data.label) return null;
+    const deadline = toTemporalValue({ iso_date: result.data.iso_date, approximate_text: result.data.approximate_text });
+    if (deadline.precision === "unknown") return null;
+    const confidenceBand = confidenceToBand(result.confidenceScore, await this.riskPolicy.thresholdsFor("document_deadline"));
+    return { label: result.data.label, deadline, deadlineSort: temporalToSortDate(deadline), confidenceBand };
   }
 
   private async transcribeImage(buffer: Buffer, mediaType: "image/jpeg" | "image/png"): Promise<string | null> {
@@ -576,11 +616,17 @@ export class DocumentsService {
     // DOC-001 "AI classification" — a replaced version's content may be entirely different from the
     // original (e.g. a placeholder re-uploaded with the real file), so re-classify the same as upload().
     let classifiedType: DocumentType | null = null;
+    let deadline: { label: string; deadline: TemporalValue; deadlineSort: Date | null; confidenceBand: string } | null = null;
     if (ocrText && this.ai.isConfigured()) {
       try {
         classifiedType = await this.classifyDocumentType(ocrText);
       } catch (err) {
         this.logger.warn(`Classification failed for ${documentId} v${nextVersionNumber}: ${String(err)}`);
+      }
+      try {
+        deadline = await this.extractDeadline(ocrText);
+      } catch (err) {
+        this.logger.warn(`Deadline extraction failed for ${documentId} v${nextVersionNumber}: ${String(err)}`);
       }
     }
 
@@ -601,6 +647,9 @@ export class DocumentsService {
         currentVersionId: versionId,
         processingState: ocrText ? "extracted" : "classified",
         ...(classifiedType ? { documentType: classifiedType } : {}),
+        ...(deadline
+          ? { extractedDeadline: deadline.deadline, extractedDeadlineSort: deadline.deadlineSort, extractedDeadlineLabel: deadline.label, extractedDeadlineConfidenceBand: deadline.confidenceBand }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(schema.documents.id, documentId));
