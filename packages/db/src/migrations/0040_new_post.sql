@@ -1,0 +1,1 @@
+ALTER TABLE "notification_preferences" ADD COLUMN "privacy_level" text DEFAULT 'full' NOT NULL;

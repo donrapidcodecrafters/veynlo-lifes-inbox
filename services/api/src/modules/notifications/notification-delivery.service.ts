@@ -8,6 +8,7 @@ import { QueueProducerService } from "../../queue/queue-producer.service";
 import { MailerService } from "./mailer.service";
 import { PushService } from "./push.service";
 import { isWithinQuietHours } from "./quiet-hours";
+import { applyPrivacyLevel } from "./notification-privacy";
 
 export type NotificationPriority = "critical" | "important" | "useful" | "fyi" | "silent";
 
@@ -115,7 +116,15 @@ export class NotificationDeliveryService {
     }
 
     if (notification.channel === "push") {
-      const sent = await this.sendPush(notification.ownerUserId, notification.title, notification.body, notification.linkedAttentionItemId, notification.id);
+      const sent = await this.sendPush(
+        notification.ownerUserId,
+        notification.title,
+        notification.body,
+        notification.category,
+        prefs?.privacyLevel ?? "full",
+        notification.linkedAttentionItemId,
+        notification.id,
+      );
       if (sent) {
         await this.db
           .update(schema.notifications)
@@ -169,10 +178,17 @@ export class NotificationDeliveryService {
       );
 
     for (const notification of candidates) {
+      const [prefs] = await this.db
+        .select()
+        .from(schema.notificationPreferences)
+        .where(eq(schema.notificationPreferences.userId, notification.ownerUserId))
+        .limit(1);
       const sent = await this.sendPush(
         notification.ownerUserId,
         `⚠️ Still needs you: ${notification.title}`,
         notification.body,
+        notification.category,
+        prefs?.privacyLevel ?? "full",
         notification.linkedAttentionItemId,
         notification.id,
       );
@@ -187,11 +203,15 @@ export class NotificationDeliveryService {
 
   /** Shared by deliver() and escalateUnacknowledged() — looks up the owner's most-recently-active
    * non-revoked device and sends via PushService, returning false (rather than throwing) if there's no
-   * usable push token so callers can fall back accordingly. */
+   * usable push token so callers can fall back accordingly. The single choke point that actually builds
+   * the outbound push payload, so lock-screen privacy redaction (applyPrivacyLevel) is applied here
+   * rather than by each caller. */
   private async sendPush(
     ownerUserId: string,
     title: string,
     body: string,
+    category: string | null,
+    privacyLevel: string,
     linkedAttentionItemId: string | null,
     notificationId: string,
   ): Promise<boolean> {
@@ -202,10 +222,11 @@ export class NotificationDeliveryService {
       .orderBy(desc(schema.devices.lastActiveAt))
       .limit(1);
     if (!device?.pushToken) return false;
+    const redacted = applyPrivacyLevel(title, body, category, privacyLevel);
     return this.push.send(
       device.pushToken,
-      title,
-      body,
+      redacted.title,
+      redacted.body,
       linkedAttentionItemId ? { categoryId: "attention_actionable", data: { notificationId, linkedAttentionItemId } } : undefined,
     );
   }

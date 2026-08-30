@@ -123,4 +123,13 @@ describe("NotificationsService — cross-user isolation", () => {
     const prefsB = await notifications.getPreferences(userBId);
     expect(prefsB.categoryOverrides).toEqual({});
   });
+
+  it("updatePreferences() persists privacyLevel", async () => {
+    await notifications.updatePreferences(userAId, { privacyLevel: "hide_titles" });
+    const prefsA = await notifications.getPreferences(userAId);
+    expect(prefsA.privacyLevel).toBe("hide_titles");
+
+    const prefsB = await notifications.getPreferences(userBId);
+    expect(prefsB.privacyLevel).toBe("full");
+  });
 });

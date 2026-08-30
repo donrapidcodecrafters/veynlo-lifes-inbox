@@ -6,11 +6,14 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { ScreenHeader } from "@/components/screen-header";
 
+type PrivacyLevel = "full" | "hide_amounts" | "hide_titles" | "generic";
+
 interface NotificationPreferences {
   intensity: "quiet" | "balanced" | "proactive";
   dailyBriefEnabled: boolean;
   weeklyBriefEnabled: boolean;
   categoryOverrides: Record<string, string>;
+  privacyLevel: PrivacyLevel;
 }
 
 // Matches the real `category` values IngestionService.fileInboxItem passes when filing each domain —
@@ -30,6 +33,15 @@ const INTENSITY_OPTIONS: Array<{ value: NotificationPreferences["intensity"]; la
   { value: "quiet", label: "Quiet" },
   { value: "balanced", label: "Balanced" },
   { value: "proactive", label: "Proactive" },
+];
+
+// Cumulative lock-screen privacy ladder — each level hides everything the previous one hides, plus more.
+// Matches services/api/src/modules/notifications/notification-privacy.ts's applyPrivacyLevel exactly.
+const PRIVACY_LEVEL_OPTIONS: Array<{ value: PrivacyLevel; label: string; description: string }> = [
+  { value: "full", label: "Full", description: "Lock screen shows the real title and message." },
+  { value: "hide_amounts", label: "Hide amounts", description: "Same as Full, but dollar amounts are hidden." },
+  { value: "hide_titles", label: "Hide titles", description: "Hides amounts, and replaces the title with a generic category label." },
+  { value: "generic", label: "Generic", description: 'Lock screen shows only "Veynlo" — nothing about what it\'s about.' },
 ];
 
 export default function NotificationPreferencesScreen() {
@@ -92,6 +104,38 @@ export default function NotificationPreferencesScreen() {
             );
           })}
         </View>
+      </Card>
+
+      <Card style={{ gap: 12 }}>
+        <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>Lock screen privacy</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {PRIVACY_LEVEL_OPTIONS.map((opt) => {
+            const active = prefs.privacyLevel === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => updatePrefs({ privacyLevel: opt.value })}
+                accessibilityRole="button"
+                accessibilityLabel={opt.label}
+                accessibilityState={{ selected: active }}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: theme.radius.md,
+                  alignItems: "center",
+                  backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textPrimary }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+          {PRIVACY_LEVEL_OPTIONS.find((opt) => opt.value === prefs.privacyLevel)?.description}
+        </Text>
       </Card>
 
       <Card style={{ gap: 4 }}>

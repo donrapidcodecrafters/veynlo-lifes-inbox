@@ -110,4 +110,8 @@ export const notificationPreferences = pgTable("notification_preferences", {
   categoryOverrides: jsonb("category_overrides").$type<Record<string, string>>().notNull().default({}),
   dailyBriefEnabled: boolean("daily_brief_enabled").notNull().default(true),
   weeklyBriefEnabled: boolean("weekly_brief_enabled").notNull().default(true),
+  // Lock-screen privacy ladder: "full" | "hide_amounts" | "hide_titles" | "generic" — each level is
+  // cumulative with the previous, applied at send time in NotificationDeliveryService. Same loose-string
+  // style as intensity/suppressionReason above rather than a DB enum.
+  privacyLevel: text("privacy_level").notNull().default("full"),
 });

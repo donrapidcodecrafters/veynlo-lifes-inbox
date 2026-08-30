@@ -13,11 +13,14 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
+type PrivacyLevel = "full" | "hide_amounts" | "hide_titles" | "generic";
+
 interface NotificationPreferences {
   intensity: "quiet" | "balanced" | "proactive";
   dailyBriefEnabled: boolean;
   weeklyBriefEnabled: boolean;
   categoryOverrides: Record<string, string>;
+  privacyLevel: PrivacyLevel;
 }
 
 // Matches the real `category` values IngestionService.fileInboxItem passes when filing each domain
@@ -31,6 +34,15 @@ const NOTIFICATION_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "appointment", label: "Appointments" },
   { key: "warranty", label: "Warranties" },
   { key: "task", label: "Tasks" },
+];
+
+// Cumulative lock-screen privacy ladder — each level hides everything the previous one hides, plus more.
+// Matches services/api/src/modules/notifications/notification-privacy.ts's applyPrivacyLevel exactly.
+const PRIVACY_LEVELS: Array<{ value: PrivacyLevel; label: string; description: string }> = [
+  { value: "full", label: "Full", description: "Lock screen shows the real title and message." },
+  { value: "hide_amounts", label: "Hide amounts", description: "Same as Full, but dollar amounts are hidden." },
+  { value: "hide_titles", label: "Hide titles", description: "Hides amounts, and replaces the title with a generic category label." },
+  { value: "generic", label: "Generic", description: "Lock screen shows only \"Veynlo\" — nothing about what it's about." },
 ];
 
 export default function SettingsPage() {
@@ -171,6 +183,20 @@ export default function SettingsPage() {
                   { value: "proactive", label: "Proactive" },
                 ]}
               />
+            </div>
+            <div className="space-y-2 border-t border-border-subtle pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-[0.9375rem] font-medium text-primary">Lock screen privacy</p>
+                <SegmentedControl
+                  aria-label="Lock screen privacy level"
+                  value={prefs?.privacyLevel ?? "full"}
+                  onChange={(v) => updatePrefs({ privacyLevel: v })}
+                  options={PRIVACY_LEVELS.map((l) => ({ value: l.value, label: l.label }))}
+                />
+              </div>
+              <p className="text-sm text-tertiary">
+                {PRIVACY_LEVELS.find((l) => l.value === (prefs?.privacyLevel ?? "full"))?.description}
+              </p>
             </div>
             <Switch
               id="daily-brief"

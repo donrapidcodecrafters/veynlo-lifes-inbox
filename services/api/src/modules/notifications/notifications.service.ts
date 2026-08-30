@@ -60,6 +60,7 @@ export class NotificationsService {
         categoryOverrides: {},
         dailyBriefEnabled: true,
         weeklyBriefEnabled: true,
+        privacyLevel: "full",
       }
     );
   }
@@ -76,6 +77,9 @@ export class NotificationsService {
        * Keys match what NotificationDeliveryService.createAndEnqueue's callers pass as `category`
        * (domain names like "bill"/"purchase", or "daily_brief"/"weekly_brief" for digests). */
       categoryOverrides: Record<string, string>;
+      /** Lock-screen privacy ladder: "full" | "hide_amounts" | "hide_titles" | "generic" — applied at
+       * send time by NotificationDeliveryService.sendPush (see applyPrivacyLevel). */
+      privacyLevel: string;
     }>,
   ) {
     const existing = await this.getPreferences(userId);
