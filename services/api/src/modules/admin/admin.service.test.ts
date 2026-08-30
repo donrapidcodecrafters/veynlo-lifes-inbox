@@ -78,7 +78,7 @@ describe("AdminService.modelHealthSummary — cost aggregation", () => {
       stage: "extraction",
       name: extractorName,
       version: "1",
-      modelKey: "claude-haiku-4-5-20251001",
+      modelKey: "claude-haiku-4-5-20251001", // gitleaks:allow — a model identifier, not a credential
     });
     const runs = [
       { costMinorUnits: 12, status: "success" as const },

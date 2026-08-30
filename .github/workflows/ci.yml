@@ -81,10 +81,14 @@ jobs:
 
       # Blocking, not informational — verified 0 findings against the current codebase (2026-08-28), so
       # there's no pre-existing noise to grandfather. A new finding here is a new problem, not old debt.
+      #
+      # Runs the OSS gitleaks binary directly via its official image rather than gitleaks/gitleaks-action@v2:
+      # that wrapper action started enforcing a GITLEAKS_LICENSE requirement for private repositories
+      # (this repo only got a GitHub remote this session, so this step had never actually run for real
+      # before it hit that wall) — a real signup/paid dependency this project has no reason to take on when
+      # the underlying scanner is free. Same rules, same blocking behavior, zero cost.
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest detect --source /repo --redact -v
 
       # Same free, no-login Semgrep Registry rulesets verified locally (0 findings after fixing the two
       # real GCM auth-tag-length issues these caught in field-encryption.ts/credential-vault.ts) — blocking
