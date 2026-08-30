@@ -73,6 +73,13 @@
         {
           "androidIntentFilters": ["text/*"]
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Veynlo uses the microphone to capture voice notes and voice questions.",
+          "speechRecognitionPermission": "Veynlo uses speech recognition to turn your voice into text."
+        }
       ]
     ]
   }

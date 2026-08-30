@@ -11,6 +11,7 @@ import { Button } from "@/components/button";
 import { ActionMenu } from "@/components/action-menu";
 import { EmptyState } from "@/components/empty-state";
 import { TextField } from "@/components/text-field";
+import { isVoiceCaptureSupported, useVoiceCapture } from "@/lib/voice";
 
 interface InboxItem {
   id: string;
@@ -397,14 +398,24 @@ export default function InboxScreen() {
 /** Mirrors the web Inbox page's identical form — pastes a receipt/bill/confirmation email's text through the same pipeline a real connected inbox uses. */
 function CaptureForm({ onDone }: { onDone: () => void }) {
   const { theme } = useAppTheme();
-  const [mode, setMode] = useState<"text" | "url">("text");
+  const [voiceSupported] = useState(() => isVoiceCaptureSupported());
+  const [mode, setMode] = useState<"text" | "url" | "voice">("text");
   const [subject, setSubject] = useState("");
   const [fromAddress, setFromAddress] = useState("");
   const [bodyText, setBodyText] = useState("");
   const [url, setUrl] = useState("");
+  const [voiceTranscript, setVoiceTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+
+  // §CAP-006 "voice note" — each recognized utterance is appended to whatever transcript already exists,
+  // so a longer note is built from several short start/stop taps rather than one long native session (see
+  // src/lib/voice.ts for why). Editable before submit, same as web's identical capture mode, since speech
+  // recognition can mishear a word and this is the only capture path with no confirmation step otherwise.
+  const { listening, start: startVoice, stop: stopVoice } = useVoiceCapture((transcript) => {
+    setVoiceTranscript((prev) => (prev ? `${prev} ${transcript}` : transcript));
+  });
 
   async function onSubmit() {
     setSubmitting(true);
@@ -412,6 +423,9 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
     try {
       if (mode === "url") {
         await api.post("/v1/ingestion/url", { url });
+      } else if (mode === "voice") {
+        const firstLine = voiceTranscript.trim().split("\n")[0]?.slice(0, 500) || "Voice note";
+        await api.post("/v1/ingestion/manual", { subject: firstLine, bodyText: voiceTranscript });
       } else {
         await api.post("/v1/ingestion/manual", { subject, bodyText, fromAddress: fromAddress || undefined });
       }
@@ -437,7 +451,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
   return (
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: "row", gap: 6, padding: 4, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md }}>
-        {(["text", "url"] as const).map((m) => {
+        {(["text", "url", ...(voiceSupported ? (["voice"] as const) : [])] as const).map((m) => {
           const active = mode === m;
           return (
             <Pressable
@@ -452,7 +466,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
               }}
             >
               <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>
-                {m === "text" ? "Paste text" : "From a URL"}
+                {m === "text" ? "Paste text" : m === "url" ? "From a URL" : "Voice note"}
               </Text>
             </Pressable>
           );
@@ -475,7 +489,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
             style={{ height: 140, paddingTop: 12, textAlignVertical: "top" }}
           />
         </>
-      ) : (
+      ) : mode === "url" ? (
         <>
           <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
             Paste a link to a confirmation page, event listing, or anything else worth remembering.
@@ -489,10 +503,31 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
             placeholder="https://example.com/order/12345"
           />
         </>
+      ) : (
+        <>
+          <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>
+            Record what happened — tap again to add more, then edit before submitting.
+          </Text>
+          <Button variant={listening ? "primary" : "secondary"} onPress={listening ? stopVoice : startVoice}>
+            {listening ? "Listening…" : "🎙 Start recording"}
+          </Button>
+          <TextField
+            label="Transcript"
+            value={voiceTranscript}
+            onChangeText={setVoiceTranscript}
+            multiline
+            numberOfLines={6}
+            style={{ height: 140, paddingTop: 12, textAlignVertical: "top" }}
+          />
+        </>
       )}
 
       {error && <Text style={{ color: theme.colors.critical, fontSize: 13 }}>{error}</Text>}
-      <Button onPress={onSubmit} loading={submitting} disabled={mode === "text" ? !subject || !bodyText : !url}>
+      <Button
+        onPress={onSubmit}
+        loading={submitting}
+        disabled={mode === "text" ? !subject || !bodyText : mode === "url" ? !url : !voiceTranscript}
+      >
         Submit
       </Button>
     </View>

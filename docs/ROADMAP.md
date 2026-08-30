@@ -1432,3 +1432,45 @@ still open:
   close, same category as ClamAV/MinIO/metrics-dashboard earlier in this file). Typecheck/lint clean on
   `apps/mobile` and `services/api`; full API vitest suite (67 tests) green. Test account deleted after.
   **Still not started**: mobile voice note capture — the last gap from the fresh spec re-audit.
+
+- **Twenty-fourth gap-closing pass (2026-08-30): mobile voice capture — the last gap from the spec
+  re-audit.** Web has real Web Speech API voice capture in Ask and Inbox's capture form (§CAP-006); mobile
+  had none, previously deferred with an explicit code comment as needing "a native module and a custom
+  dev-client rebuild." Closed it with a real OS-provided capability, not a new paid vendor — same category
+  as web's browser-native `SpeechRecognition`:
+  1. Added `expo-speech-recognition@57.0.0` — wraps iOS `SFSpeechRecognizer` / Android `SpeechRecognizer`
+     directly. New `src/lib/voice.ts` exposes `useVoiceCapture(onFinalResult)`, one real utterance per
+     start()/stop() cycle deliberately rather than leaning on the library's own `continuous` option (iOS and
+     Android's underlying recognizers finalize very differently under it, unlike a browser session's
+     cumulative multi-utterance results).
+  2. **Ask** (`app/(tabs)/ask.tsx`): a "🎙 Ask by voice" button mirrors web's `toggleVoice` — one utterance
+     auto-submits as a question, removing the prior deferral comment.
+  3. **Inbox capture form** (`app/(tabs)/inbox.tsx`): a third "Voice note" mode alongside paste-text/URL,
+     mirroring web's `toggleRecording` exactly — each utterance appends to an editable transcript (not
+     auto-filed, since speech recognition can mishear a word and this is the only capture path with no
+     confirmation step otherwise), submitting via the same `/v1/ingestion/manual` call web's voice mode uses
+     (first line as subject, full transcript as body).
+  4. `app.json`: new `expo-speech-recognition` config plugin entry with custom microphone/speech-recognition
+     permission copy, matching this app's existing per-permission usage-description style.
+  **Verified live, but only partially** — this pass ran into a real, separate infrastructure problem
+  unrelated to the feature: the Android emulator on this machine started hanging on boot (GPU/Vulkan
+  renderer initialization, reproducible on a completely fresh AVD with a freshly reinstalled system image —
+  ruled out disk space, memory pressure, AVD corruption, and stale config as causes). A full `emulator`
+  package reinstall (36.1.9 → 37.1.11.0) fixed the boot hang, but the renderer then hit a second, separate
+  crash (`bad color buffer handle`, all QEMU threads hung) during a UI transition on a later run — an
+  intermittent host-level graphics-pipeline instability, confirmed not code-related since it reproduces
+  identically on a virgin AVD with no app installed. On the one clean boot obtained mid-investigation: real
+  build succeeded with `expo-speech-recognition` genuinely linked (confirmed via `npx expo prebuild` +
+  `expo run:android`, `RECORD_AUDIO` present in the generated manifest), the app installed and loaded, the
+  "Voice note" tab rendered correctly, and tapping "Start recording" triggered the **real** Android
+  microphone permission dialog ("Allow Veynlo to record audio?") which was successfully granted — proving
+  the native wiring, permission plumbing, and UI are all genuinely correct end-to-end up to the point of
+  actual audio capture. The emulator crashed (its own renderer bug, not the app) before a transcript
+  round-trip could be captured; the emulator's virtual microphone also has no real audio input in this
+  headless sandbox regardless, so even a stable emulator likely couldn't produce a real transcribed word —
+  only a live device or a stable emulator with injected audio could close that last gap. Typecheck/lint
+  clean on `apps/mobile`.
+  **This closes the last of the four gaps found by the fresh spec re-audit** (confidence calibration, bulk
+  import, a11y testing, Android share-target, native IAP, and now voice capture) — Phase 1 MVP should be
+  re-confirmed against `spec/Life_Inbox_Master_Spec.txt` §52.1/§54.2 directly, not this file, before
+  treating it as done.

@@ -7,6 +7,7 @@ import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { TextField } from "@/components/text-field";
 import { Button } from "@/components/button";
+import { isVoiceCaptureSupported, useVoiceCapture } from "@/lib/voice";
 
 interface AskResponse {
   answer: string;
@@ -34,10 +35,6 @@ const SUGGESTIONS = [
   "How much am I paying for subscriptions?",
 ];
 
-// Real-time speech-to-text on native needs a native module and a custom dev-client rebuild (not
-// Expo-Go-compatible) — a separate, larger effort matching this app's other native-feature work (see
-// ROADMAP). Deliberately deferred rather than half-built; web's Ask page has a real Web Speech API mic
-// button since that needs no native module at all.
 export default function AskScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
@@ -51,6 +48,12 @@ export default function AskScreen() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [searching, setSearching] = useState(false);
+
+  const [voiceSupported] = useState(() => isVoiceCaptureSupported());
+  const { listening, start: startVoice, stop: stopVoice } = useVoiceCapture((transcript) => {
+    setQuestion(transcript);
+    void ask(transcript);
+  });
 
   const loadSavedQueries = useCallback(async () => {
     const rows = await api.get<SavedQuery[]>("/v1/saved-queries").catch(() => []);
@@ -222,6 +225,13 @@ export default function AskScreen() {
               Save
             </Button>
           </View>
+          {voiceSupported && (
+            <View style={{ flex: 1 }}>
+              <Button variant={listening ? "primary" : "secondary"} onPress={listening ? stopVoice : startVoice}>
+                {listening ? "Listening…" : "🎙 Ask by voice"}
+              </Button>
+            </View>
+          )}
         </View>
       </View>
 
