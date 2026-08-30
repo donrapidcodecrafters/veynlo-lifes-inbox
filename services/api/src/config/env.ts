@@ -14,6 +14,10 @@ const EnvSchema = z.object({
   // that needs a real infra decision (Prometheus/OpenTelemetry backend), not just an app-level change.
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   DATABASE_URL: z.string().default("postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo"),
+  // Was hardcoded to pg's own default (10) with no way to tune it against RDS's real max_connections.
+  // The API and worker ECS services set this to different values (see infrastructure/terraform) since
+  // they scale independently and have different connection-holding profiles.
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().optional(),
   REDIS_URL: z.string().default("redis://localhost:6379"),
 
   SESSION_JWT_SECRET: z.string().default("dev-only-insecure-secret-change-me"),

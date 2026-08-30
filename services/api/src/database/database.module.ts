@@ -14,7 +14,7 @@ export const DATABASE = Symbol("DATABASE");
   providers: [
     {
       provide: DATABASE,
-      useFactory: (): Database => createDbClient(loadEnv().DATABASE_URL),
+      useFactory: (): Database => createDbClient(loadEnv().DATABASE_URL, { poolMax: loadEnv().DATABASE_POOL_MAX }),
     },
   ],
   exports: [DATABASE],

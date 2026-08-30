@@ -131,7 +131,7 @@ module "ecs_service_api" {
   target_group_arn       = module.alb.target_group_arn
   min_count              = 1
   max_count              = 1
-  environment            = local.app_environment
+  environment            = merge(local.app_environment, { DATABASE_POOL_MAX = "10" })
   secrets                = local.app_secrets
   task_role_policy_json  = data.aws_iam_policy_document.app_task_permissions.json
   tags                   = local.tags
@@ -149,7 +149,7 @@ module "ecs_service_worker" {
   container_port         = null
   min_count              = 1
   max_count              = 1
-  environment            = local.app_environment
+  environment            = merge(local.app_environment, { DATABASE_POOL_MAX = "5" })
   secrets                = local.app_secrets
   task_role_policy_json  = data.aws_iam_policy_document.app_task_permissions.json
   tags                   = local.tags

@@ -150,7 +150,11 @@ module "ecs_service_api" {
   target_group_arn       = module.alb.target_group_arn
   min_count              = 3 # blueprint §10/§32: one baseline task per active AZ
   max_count              = 30
-  environment            = local.app_environment
+  # Per-task pg pool size, tuned separately from the worker below (see database.module.ts /
+  # DATABASE_POOL_MAX): at max_count=30 this tops out at 300 proxy connections for the API alone,
+  # so raise it only alongside the RDS Proxy's max_connections_percent / the Aurora Serverless v2
+  # max_acu ceiling in modules/database.
+  environment            = merge(local.app_environment, { DATABASE_POOL_MAX = "10" })
   secrets                = local.app_secrets
   task_role_policy_json  = data.aws_iam_policy_document.app_task_permissions.json
   tags                   = local.tags
@@ -168,7 +172,10 @@ module "ecs_service_worker" {
   container_port         = null # no inbound traffic — background job processor only
   min_count              = 2
   max_count              = 50
-  environment            = local.app_environment
+  # Smaller per-task pool than the API's: each worker task runs many concurrency-limited BullMQ
+  # workers sharing one process/pool, not one connection per inbound HTTP request, so it needs
+  # fewer live connections per task even though it can scale to more tasks.
+  environment            = merge(local.app_environment, { DATABASE_POOL_MAX = "5" })
   secrets                = local.app_secrets
   task_role_policy_json  = data.aws_iam_policy_document.app_task_permissions.json
   tags                   = local.tags
