@@ -8,6 +8,7 @@ import { AdminAuthService } from "./admin-auth.service";
 import { AdminService } from "./admin.service";
 import { FeatureFlagsService } from "../feature-flags/feature-flags.service";
 import { RiskPolicyService } from "../intelligence/risk-policy.service";
+import { BillingService } from "../billing/billing.service";
 import { CurrentAdmin } from "./current-admin.decorator";
 import type { AuthenticatedAdmin } from "./admin.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -32,6 +33,9 @@ type SignInDto = z.infer<typeof SignInDtoSchema>;
 const MergeMerchantsDtoSchema = z.object({ survivingMerchantId: z.string().min(1), mergedMerchantId: z.string().min(1) });
 type MergeMerchantsDto = z.infer<typeof MergeMerchantsDtoSchema>;
 
+const RefundChargeDtoSchema = z.object({ note: z.string().max(500).optional() });
+type RefundChargeDto = z.infer<typeof RefundChargeDtoSchema>;
+
 @Controller("v1/admin")
 export class AdminController {
   constructor(
@@ -39,6 +43,7 @@ export class AdminController {
     private readonly adminAuth: AdminAuthService,
     private readonly flags: FeatureFlagsService,
     private readonly riskPolicy: RiskPolicyService,
+    private readonly billing: BillingService,
   ) {}
 
   // Stricter than the global 300/60s default — admin credentials are the highest-value target in the
@@ -195,5 +200,30 @@ export class AdminController {
     await this.riskPolicy.setThresholds(domain, dto.reviewThreshold, dto.autoAcceptThreshold, dto.policyVersion);
     await this.admin.recordAccess(admin.id, "admin.risk_policy_update", "risk_policy", domain);
     return { domain, ...dto };
+  }
+
+  // §54.2 Operations "billing support" — read-only, live Stripe data. Support-level: seeing a customer's
+  // charge history carries no more risk than seeing their entitlements, which is already AdminGuard-only.
+  @Get("users/:userId/charges")
+  @UseGuards(AdminGuard)
+  async listUserCharges(@Param("userId") userId: string) {
+    return this.billing.listRecentCharges(userId);
+  }
+
+  // Real money leaves the business here, and it's not reversible by Veynlo itself (a refunded refund isn't
+  // a thing) — the same irreversible-consequence tier as revokeAdmin above, not the reversible-action tier
+  // entitlement grant/revoke and kill switches sit at. Gated behind SuperAdminGuard on purpose.
+  @Post("charges/:chargeId/refund")
+  @UseGuards(AdminGuard, SuperAdminGuard)
+  @UsePipes(new ZodValidationPipe(RefundChargeDtoSchema))
+  async refundCharge(@CurrentAdmin() admin: AuthenticatedAdmin, @Param("chargeId") chargeId: string, @Body() dto: RefundChargeDto) {
+    const result = await this.billing.refundCharge(chargeId, admin.id, dto.note);
+    await this.admin.recordAccess(admin.id, "admin.charge_refund", "stripe_charge", chargeId, {
+      refundId: result.refundId,
+      amountMinorUnits: result.amountMinorUnits,
+      refundedUserId: result.userId,
+      note: dto.note ?? null,
+    });
+    return result;
   }
 }

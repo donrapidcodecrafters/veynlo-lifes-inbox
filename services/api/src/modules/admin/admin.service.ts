@@ -391,7 +391,7 @@ export class AdminService {
     await this.recordAccess(actorAdminId, "admin.admin_revoke", "admin_user", targetAdminId);
   }
 
-  async recordAccess(actingAdminId: string, action: string, resourceType: string, resourceId: string): Promise<void> {
+  async recordAccess(actingAdminId: string, action: string, resourceType: string, resourceId: string, afterJson?: unknown): Promise<void> {
     await this.db.insert(schema.auditEvents).values({
       id: generateId("auditEvent"),
       actorType: "support_agent",
@@ -399,6 +399,7 @@ export class AdminService {
       action,
       resourceType,
       resourceId,
+      afterJson: afterJson ?? null,
       result: "success",
     });
   }

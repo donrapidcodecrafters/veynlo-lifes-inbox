@@ -52,6 +52,17 @@ interface FeatureFlag {
   updatedAt: string;
 }
 
+interface StripeCharge {
+  id: string;
+  amountMinorUnits: number;
+  currency: string;
+  createdAt: string;
+  description: string | null;
+  refunded: boolean;
+  amountRefundedMinorUnits: number;
+  status: string;
+}
+
 interface AuditEvent {
   id: string;
   actorType: string;
@@ -61,6 +72,10 @@ interface AuditEvent {
   resourceId: string;
   result: string;
   occurredAt: string;
+}
+
+function formatMoney(minorUnits: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(minorUnits / 100);
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -83,6 +98,15 @@ export default function DashboardPage() {
   const [grantError, setGrantError] = useState<string | null>(null);
   const [grantSubmitting, setGrantSubmitting] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [confirmingRefundId, setConfirmingRefundId] = useState<string | null>(null);
+  const [refundNote, setRefundNote] = useState("");
+  const [refundingId, setRefundingId] = useState<string | null>(null);
+  const [refundError, setRefundError] = useState<string | null>(null);
+
+  const { data: charges, mutate: mutateCharges } = useSWR<StripeCharge[]>(
+    lookupResult ? `/v1/admin/users/${lookupResult.id}/charges` : null,
+    swrFetcher,
+  );
 
   const { data: health } = useSWR<ConnectorHealthSummary>("/v1/admin/connectors/health", swrFetcher, {
     refreshInterval: 30_000,
@@ -157,6 +181,21 @@ export default function DashboardPage() {
       setGrantError(err instanceof ApiError ? err.message : "Couldn't revoke that entitlement.");
     } finally {
       setRevokingId(null);
+    }
+  }
+
+  async function refundCharge(chargeId: string) {
+    setRefundingId(chargeId);
+    setRefundError(null);
+    try {
+      await api.post(`/v1/admin/charges/${chargeId}/refund`, { note: refundNote.trim() || undefined });
+      setConfirmingRefundId(null);
+      setRefundNote("");
+      await mutateCharges();
+    } catch (err) {
+      setRefundError(err instanceof ApiError ? err.message : "Couldn't issue that refund.");
+    } finally {
+      setRefundingId(null);
     }
   }
 
@@ -374,6 +413,82 @@ export default function DashboardPage() {
                 </button>
               </div>
               {grantError && <p className="mt-2 text-sm text-critical-subtle-text">{grantError}</p>}
+            </div>
+
+            <div className="border-t border-border-subtle pt-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-tertiary">Billing (live Stripe data)</p>
+              {!charges && <p className="text-tertiary">Loading…</p>}
+              {charges && charges.length === 0 && <p className="text-tertiary">No Stripe charges on file for this account.</p>}
+              {charges && charges.length > 0 && (
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase text-tertiary">
+                      <th className="pb-2 font-medium">Date</th>
+                      <th className="pb-2 font-medium">Amount</th>
+                      <th className="pb-2 font-medium">Description</th>
+                      <th className="pb-2 font-medium">Status</th>
+                      <th className="pb-2 font-medium" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {charges.map((c) => (
+                      <tr key={c.id} className="border-t border-border-subtle align-top">
+                        <td className="py-2 text-tertiary">{new Date(c.createdAt).toLocaleDateString()}</td>
+                        <td className="py-2 text-primary">{formatMoney(c.amountMinorUnits, c.currency)}</td>
+                        <td className="py-2 text-tertiary">{c.description ?? "—"}</td>
+                        <td className="py-2 text-tertiary">
+                          {c.refunded
+                            ? "Fully refunded"
+                            : c.amountRefundedMinorUnits > 0
+                              ? `Partially refunded (${formatMoney(c.amountRefundedMinorUnits, c.currency)})`
+                              : c.status}
+                        </td>
+                        <td className="py-2 text-right">
+                          {!c.refunded && confirmingRefundId !== c.id && (
+                            <button
+                              onClick={() => {
+                                setConfirmingRefundId(c.id);
+                                setRefundNote("");
+                                setRefundError(null);
+                              }}
+                              className="text-critical-subtle-text hover:underline"
+                            >
+                              Refund
+                            </button>
+                          )}
+                          {confirmingRefundId === c.id && (
+                            <div className="flex flex-col items-end gap-1.5">
+                              <input
+                                value={refundNote}
+                                onChange={(e) => setRefundNote(e.target.value)}
+                                placeholder="Note for the audit log (optional)"
+                                className="h-8 w-56 rounded-lg border border-border-default bg-surface px-2 text-xs text-primary"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setConfirmingRefundId(null)}
+                                  disabled={refundingId === c.id}
+                                  className="text-xs text-tertiary hover:underline disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => refundCharge(c.id)}
+                                  disabled={refundingId === c.id}
+                                  className="rounded-lg bg-critical px-3 py-1 text-xs font-medium text-white hover:brightness-95 disabled:opacity-50"
+                                >
+                                  {refundingId === c.id ? "Refunding…" : `Confirm refund of ${formatMoney(c.amountMinorUnits, c.currency)}`}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {refundError && <p className="mt-2 text-sm text-critical-subtle-text">{refundError}</p>}
             </div>
           </div>
         )}

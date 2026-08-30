@@ -150,11 +150,24 @@ Applies to any of: `SESSION_JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`,
 - `GET /v1/admin/users/lookup?email=...` then
   `POST /v1/admin/users/:userId/entitlements` /
   `POST /v1/admin/entitlements/:id/revoke` — real, audited (`recordAccess`)
-  admin tooling for manually correcting a user's plan. This is
-  grant/revoke only, **not a Stripe refund-issuance endpoint** — actually
-  refunding money still has to happen in the Stripe dashboard directly;
-  this tooling only fixes what Veynlo *believes* the user is entitled to
-  after that.
+  admin tooling for manually correcting a user's plan (support-level
+  `AdminGuard`, a routine reversible action).
+- `GET /v1/admin/users/:userId/charges` /
+  `POST /v1/admin/charges/:chargeId/refund` — a real, live Stripe
+  refund-issuance endpoint (not just entitlement bookkeeping): lists a
+  user's actual Stripe charges and can issue a real `stripe.refunds.create`
+  against one. Gated behind `SuperAdminGuard`, not the ordinary support-level
+  `AdminGuard` the entitlement/kill-switch/risk-policy actions use — real
+  money leaves the business here and it isn't reversible by Veynlo itself
+  (a refunded refund isn't a thing), the same tier as revoking another
+  admin's account. Refuses to act on a charge that doesn't resolve back to
+  a known Veynlo user (via the same reverse `stripeCustomerId` lookup the
+  `charge.refunded` webhook reconciliation below uses) and refuses an
+  already-fully-refunded charge. Every refund is audited
+  (`admin.charge_refund`, with the refund ID/amount/note in `afterJson`) —
+  after issuing one, expect the `charge.refunded` webhook to arrive shortly
+  after and reconcile the entitlement automatically (see below); it isn't a
+  separate manual step.
 - `billing_events` (both `source: "web_stripe"` and the RevenueCat rows)
   is the append-only raw record of every webhook Veynlo has received,
   deduped by `(source, external_event_id)` — the first place to look to

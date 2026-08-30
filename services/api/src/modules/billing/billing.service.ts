@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import Stripe from "stripe";
 import { and, eq, isNull, or, gt } from "drizzle-orm";
@@ -309,6 +309,69 @@ export class BillingService {
   private async resolveUserIdByStripeCustomer(customerId: string): Promise<string | null> {
     const [row] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.stripeCustomerId, customerId)).limit(1);
     return row?.id ?? null;
+  }
+
+  /**
+   * §54.2 Operations "billing support" — admin tooling before this could only grant/revoke Veynlo's own
+   * internal entitlements, with no way to actually give a customer their money back. Real, live data
+   * (not cached/stored anywhere) since a refund decision needs the charge's actual current state, not a
+   * snapshot that could already be stale by the time an admin acts on it.
+   */
+  async listRecentCharges(userId: string): Promise<
+    Array<{
+      id: string;
+      amountMinorUnits: number;
+      currency: string;
+      createdAt: string;
+      description: string | null;
+      refunded: boolean;
+      amountRefundedMinorUnits: number;
+      status: string;
+    }>
+  > {
+    const [user] = await this.db.select({ stripeCustomerId: schema.users.stripeCustomerId }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    if (!user?.stripeCustomerId) return []; // never billed through Stripe -- nothing to show, not an error
+    const stripe = this.stripe();
+    const charges = await stripe.charges.list({ customer: user.stripeCustomerId, limit: 20 });
+    return charges.data.map((c) => ({
+      id: c.id,
+      amountMinorUnits: c.amount,
+      currency: c.currency,
+      createdAt: new Date(c.created * 1000).toISOString(),
+      description: c.description,
+      refunded: c.refunded,
+      amountRefundedMinorUnits: c.amount_refunded,
+      status: c.status,
+    }));
+  }
+
+  /**
+   * Deliberately requires the charge to resolve back to a real Veynlo user via the same reverse
+   * stripeCustomerId lookup the charge.refunded webhook reconciliation above uses — an admin can only act
+   * on a charge this system can actually attribute to an account, not an arbitrary Stripe charge ID
+   * mistyped or copied from the wrong place. Money actually moves here; this is not reversible by Veynlo
+   * itself (a refunded refund isn't a thing) — the caller (admin.controller) gates this behind the rarer
+   * superadmin role, the same tier as revoking another admin's access.
+   */
+  async refundCharge(chargeId: string, actorAdminId: string, note?: string): Promise<{ refundId: string; amountMinorUnits: number; userId: string }> {
+    const stripe = this.stripe();
+    const charge = await stripe.charges.retrieve(chargeId);
+    const customerId = typeof charge.customer === "string" ? charge.customer : charge.customer?.id;
+    const userId = customerId ? await this.resolveUserIdByStripeCustomer(customerId) : null;
+    if (!userId) {
+      throw new BadRequestException({
+        code: "CHARGE_NOT_LINKED_TO_USER",
+        message: "This charge isn't linked to a known Veynlo account. If a refund is really intended, issue it directly in the Stripe dashboard.",
+      });
+    }
+    if (charge.refunded) {
+      throw new BadRequestException({ code: "ALREADY_REFUNDED", message: "This charge has already been fully refunded." });
+    }
+    const refund = await stripe.refunds.create({ charge: chargeId, reason: "requested_by_customer" });
+    this.logger.warn(
+      `Admin ${actorAdminId} issued a Stripe refund of ${refund.amount} ${charge.currency} for charge ${chargeId} (user ${userId})${note ? ` — ${note}` : ""}`,
+    );
+    return { refundId: refund.id, amountMinorUnits: refund.amount ?? charge.amount, userId };
   }
 }
 
