@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { resolveShareLinkAccess } from "@veynlo/authz";
@@ -23,17 +24,42 @@ export class SharedService {
     private readonly storage: StorageService,
   ) {}
 
+  /**
+   * SECURITY.md "consumer-side actions aren't all audited yet" — resolve() (the only place a public share
+   * link is actually redeemed) had ZERO audit logging; only create/revoke were logged. If a link leaked,
+   * there was no record it was ever accessed. Logs every attempt — the anonymous visitor has no userId, so
+   * actorType is "anonymous"/actorId null; a denied attempt has no real resourceId to log against (the
+   * token lookup itself failed), so it's logged against the token's own hash instead, which still gives
+   * real forensic value for detecting a leaked/brute-forced link. */
+  private async recordAccess(action: "share_link.resolve", resourceType: string, resourceId: string, result: "success" | "denied") {
+    await this.db.insert(schema.auditEvents).values({
+      id: generateId("auditEvent"),
+      actorType: "anonymous",
+      actorId: null,
+      action,
+      resourceType,
+      resourceId,
+      result,
+    });
+  }
+
   async resolve(token: string) {
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const access = await resolveShareLinkAccess(this.db, tokenHash, null);
     if (!access.allowed || !access.resourceId) {
+      await this.recordAccess("share_link.resolve", "share_link_token", tokenHash, "denied");
       throw new NotFoundException({ code: "SHARE_LINK_INVALID", message: "This link is invalid, expired, or has been revoked." });
     }
 
+    if (access.resourceType !== "attention_item" && access.resourceType !== "document" && access.resourceType !== "calendar_event") {
+      await this.recordAccess("share_link.resolve", access.resourceType ?? "unknown", access.resourceId, "denied");
+      throw new NotFoundException({ code: "SHARE_LINK_INVALID", message: "This link is invalid, expired, or has been revoked." });
+    }
+
+    await this.recordAccess("share_link.resolve", access.resourceType, access.resourceId, "success");
     if (access.resourceType === "attention_item") return this.resolveAttentionItem(access.resourceId);
     if (access.resourceType === "document") return this.resolveDocument(access.resourceId);
-    if (access.resourceType === "calendar_event") return this.resolveCalendarEvent(access.resourceId);
-    throw new NotFoundException({ code: "SHARE_LINK_INVALID", message: "This link is invalid, expired, or has been revoked." });
+    return this.resolveCalendarEvent(access.resourceId);
   }
 
   private async resolveAttentionItem(id: string) {
