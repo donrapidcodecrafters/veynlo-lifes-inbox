@@ -3,6 +3,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { ThrottlerStorageRedisService } from "@nest-lab/throttler-storage-redis";
 import { APP_GUARD } from "@nestjs/core";
 import { loadEnv } from "./config/env";
+import { MaintenanceModeGuard } from "./common/maintenance-mode.guard";
 import { LoggingModule } from "./logging/logging.module";
 import { DatabaseModule } from "./database/database.module";
 import { QueueModule } from "./queue/queue.module";
@@ -70,6 +71,9 @@ import { SavedItemsModule } from "./modules/saved-items/saved-items.module";
     PeopleModule,
     SavedItemsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: MaintenanceModeGuard },
+  ],
 })
 export class AppModule {}
