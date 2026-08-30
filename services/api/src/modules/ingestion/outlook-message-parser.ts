@@ -1,4 +1,5 @@
 import type { ParsedEmail } from "./gmail-message-parser";
+import { stripHtml, MAX_EXTRACTED_TEXT_LENGTH } from "./html-strip.util";
 
 /** The subset of a Microsoft Graph message resource this parser actually reads. */
 export interface GraphMessage {
@@ -27,10 +28,7 @@ export interface GraphAttachment {
 
 export function parseOutlookMessage(message: GraphMessage): ParsedEmail {
   const bodyContent = message.body?.content ?? "";
-  const bodyText =
-    message.body?.contentType === "html"
-      ? bodyContent.replace(/<[^>]+>/g, " ") // same extremely small tag-strip as the Gmail HTML fallback path
-      : bodyContent;
+  const bodyText = message.body?.contentType === "html" ? stripHtml(bodyContent) : bodyContent;
 
   const headers: Record<string, string> = {};
   for (const h of message.internetMessageHeaders ?? []) {
@@ -43,7 +41,7 @@ export function parseOutlookMessage(message: GraphMessage): ParsedEmail {
     toAddress: (message.toRecipients ?? []).map((r) => r.emailAddress?.address).filter(Boolean).join(", "),
     dateHeader: message.receivedDateTime ?? "",
     snippet: message.bodyPreview ?? "",
-    bodyText: bodyText.slice(0, 20_000), // cap payload size entering the pipeline, matching the Gmail parser
+    bodyText: bodyText.slice(0, MAX_EXTRACTED_TEXT_LENGTH),
     headers,
   };
 }

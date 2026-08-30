@@ -37,7 +37,7 @@ describe("parseOutlookMessage", () => {
     const message: GraphMessage = {
       body: { contentType: "html", content: "<p>Hi <b>there</b></p>" },
     };
-    expect(parseOutlookMessage(message).bodyText).toBe(" Hi  there  ");
+    expect(parseOutlookMessage(message).bodyText).toBe("Hi there");
   });
 
   it("passes plain-text body content through unchanged", () => {

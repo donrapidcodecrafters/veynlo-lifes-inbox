@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from "@nestjs/common";
 import { lookup } from "node:dns/promises";
 import { isIPv4, isIPv6 } from "node:net";
 import { Agent } from "undici";
+import { stripHtml, decodeHtmlEntities, MAX_EXTRACTED_TEXT_LENGTH } from "./html-strip.util";
 
 const MAX_REDIRECTS = 5;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -83,7 +84,7 @@ export class SafeUrlFetcher {
 
       const html = await readBodyCapped(response, MAX_RESPONSE_BYTES);
       const title = extractTitle(html) ?? current.hostname;
-      const text = stripHtml(html).slice(0, 20_000); // same cap gmail/outlook message parsing applies to email bodies
+      const text = stripHtml(html).slice(0, MAX_EXTRACTED_TEXT_LENGTH);
       return { title, text, finalUrl: current.toString() };
     }
 
@@ -176,19 +177,3 @@ function extractTitle(html: string): string | null {
   return match?.[1] ? decodeHtmlEntities(match[1]).trim().slice(0, 500) || null : null;
 }
 
-function stripHtml(html: string): string {
-  const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
-  return decodeHtmlEntities(withoutScripts.replace(/<[^>]+>/g, " "))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}

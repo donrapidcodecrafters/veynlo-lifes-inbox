@@ -64,7 +64,7 @@ describe("parseGmailMessage", () => {
         body: { data: b64url("<div>Hello <strong>world</strong></div>") },
       },
     };
-    expect(parseGmailMessage(message).bodyText).toBe(" Hello  world  ");
+    expect(parseGmailMessage(message).bodyText).toBe("Hello world");
   });
 
   it("recurses into nested multipart/mixed + multipart/alternative structures to find the real body", () => {

@@ -1,4 +1,5 @@
 import type { gmail_v1 } from "googleapis";
+import { stripHtml, MAX_EXTRACTED_TEXT_LENGTH } from "./html-strip.util";
 
 export interface ParsedEmail {
   subject: string;
@@ -35,10 +36,7 @@ function extractPlainText(part: gmail_v1.Schema$MessagePart | undefined): string
   const plainPart = findPart(part, "text/plain");
   if (plainPart?.body?.data) return decodeBase64Url(plainPart.body.data);
   const htmlPart = findPart(part, "text/html");
-  if (htmlPart?.body?.data) {
-    // Extremely small tag-strip; the sanitized-viewer / OCR pipeline handles anything richer downstream.
-    return decodeBase64Url(htmlPart.body.data).replace(/<[^>]+>/g, " ");
-  }
+  if (htmlPart?.body?.data) return stripHtml(decodeBase64Url(htmlPart.body.data));
   return "";
 }
 
@@ -76,7 +74,7 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedEmail
     toAddress: headers["to"] ?? "",
     dateHeader: headers["date"] ?? "",
     snippet: message.snippet ?? "",
-    bodyText: extractPlainText(message.payload).slice(0, 20_000), // cap payload size entering the pipeline
+    bodyText: extractPlainText(message.payload).slice(0, MAX_EXTRACTED_TEXT_LENGTH),
     headers,
   };
 }
