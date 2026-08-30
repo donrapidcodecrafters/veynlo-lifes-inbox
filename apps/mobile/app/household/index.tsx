@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { ScreenHeader } from "@/components/screen-header";
@@ -49,6 +50,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default function HouseholdScreen() {
   const { theme } = useAppTheme();
+  const { user } = useAuth();
   const [households, setHouseholds] = useState<HouseholdRow[] | null>(null);
   const [members, setMembers] = useState<Member[] | null>(null);
   const [dependents, setDependents] = useState<Dependent[] | null>(null);
@@ -69,6 +71,11 @@ export default function HouseholdScreen() {
   const [scopes, setScopes] = useState<string[]>([]);
   const [granting, setGranting] = useState(false);
   const [delegationError, setDelegationError] = useState<string | null>(null);
+
+  const [newOwnerUserId, setNewOwnerUserId] = useState<string | null>(null);
+  const [confirmingTransfer, setConfirmingTransfer] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   const active = households?.[0];
 
@@ -136,6 +143,22 @@ export default function HouseholdScreen() {
     }
   }
 
+  async function transferOwnership() {
+    if (!active || !newOwnerUserId) return;
+    setTransferring(true);
+    setTransferError(null);
+    try {
+      await api.post(`/v1/households/${active.household.id}/transfer-ownership`, { newOwnerUserId });
+      setConfirmingTransfer(false);
+      setNewOwnerUserId(null);
+      await load();
+    } catch (err) {
+      setTransferError(err instanceof ApiError ? err.message : "Couldn't transfer ownership. Please try again.");
+    } finally {
+      setTransferring(false);
+    }
+  }
+
   function toggleScope(scope: string) {
     setScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
   }
@@ -187,6 +210,7 @@ export default function HouseholdScreen() {
 
   const canManage = active.membership.role === "household_owner" || active.membership.role === "adult_member";
   const activeMembers = members?.filter((m) => m.status === "active") ?? [];
+  const otherAdultMembers = activeMembers.filter((m) => m.role === "adult_member" && m.userId && m.userId !== user?.id);
 
   return (
     <Screen>
@@ -217,6 +241,49 @@ export default function HouseholdScreen() {
             <Button onPress={invite} loading={inviting} disabled={!inviteEmail.trim()}>
               Invite
             </Button>
+          </Card>
+        )}
+        {active.membership.role === "household_owner" && otherAdultMembers.length > 0 && (
+          <Card style={{ gap: 10 }}>
+            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary }}>Transfer ownership to</Text>
+            <View style={{ gap: 6 }}>
+              {otherAdultMembers.map((m) => {
+                const isSelected = newOwnerUserId === m.userId;
+                return (
+                  <Pressable
+                    key={m.userId}
+                    onPress={() => setNewOwnerUserId(m.userId)}
+                    accessibilityRole="button"
+                    accessibilityLabel={m.displayName ?? m.userId ?? "Household member"}
+                    accessibilityState={{ selected: isSelected }}
+                    style={{
+                      padding: 10,
+                      borderRadius: theme.radius.sm,
+                      backgroundColor: isSelected ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: isSelected ? theme.colors.textOnBrand : theme.colors.textPrimary }}>
+                      {m.displayName ?? m.userId}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {transferError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{transferError}</Text>}
+            {!confirmingTransfer ? (
+              <Button variant="secondary" disabled={!newOwnerUserId} onPress={() => setConfirmingTransfer(true)}>
+                Transfer ownership
+              </Button>
+            ) : (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Button variant="critical" loading={transferring} onPress={transferOwnership}>
+                  Confirm transfer
+                </Button>
+                <Button variant="ghost" onPress={() => setConfirmingTransfer(false)}>
+                  Cancel
+                </Button>
+              </View>
+            )}
           </Card>
         )}
       </View>

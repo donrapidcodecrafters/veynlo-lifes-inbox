@@ -113,9 +113,11 @@ function HouseholdDetail({ householdId, householdName, myRole }: { householdId: 
   const { data: members, mutate: mutateMembers } = useSWR<Member[]>(`/v1/households/${householdId}/members`, swrFetcher);
   const { data: dependents, mutate: mutateDependents } = useSWR<Dependent[]>(`/v1/households/${householdId}/dependents`, swrFetcher);
   const { data: delegations, mutate: mutateDelegations } = useSWR<Delegation[]>(`/v1/households/${householdId}/delegations`, swrFetcher);
+  const { data: me } = useSWR<{ id: string }>("/v1/auth/me", swrFetcher);
 
   const canManage = myRole === "household_owner" || myRole === "adult_member";
   const activeMembers = members?.filter((m) => m.status === "active") ?? [];
+  const otherAdultMembers = activeMembers.filter((m) => m.role === "adult_member" && m.userId && m.userId !== me?.id);
 
   return (
     <div className="space-y-6">
@@ -143,6 +145,9 @@ function HouseholdDetail({ householdId, householdName, myRole }: { householdId: 
           </CardBody>
         </Card>
         {canManage && <InviteForm householdId={householdId} onInvited={() => mutateMembers()} />}
+        {myRole === "household_owner" && otherAdultMembers.length > 0 && (
+          <TransferOwnershipForm householdId={householdId} candidates={otherAdultMembers} onTransferred={() => mutateMembers()} />
+        )}
       </section>
 
       <section>
@@ -237,6 +242,74 @@ function InviteForm({ householdId, onInvited }: { householdId: string; onInvited
       </Button>
       {error && <FieldError>{error}</FieldError>}
     </form>
+  );
+}
+
+/** §HH-001 "transfer household ownership" — previously nonexistent despite two real, blocking error paths
+ * (leave, delete-account) telling the owner to do exactly this first. Only offered to the real current
+ * owner, and only when there's a real adult member (other than themselves) to hand it to. */
+function TransferOwnershipForm({
+  householdId,
+  candidates,
+  onTransferred,
+}: {
+  householdId: string;
+  candidates: Member[];
+  onTransferred: () => void;
+}) {
+  const [newOwnerUserId, setNewOwnerUserId] = useState(candidates[0]?.userId ?? "");
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onTransfer() {
+    if (!newOwnerUserId) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post(`/v1/households/${householdId}/transfer-ownership`, { newOwnerUserId });
+      setConfirming(false);
+      onTransferred();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't transfer ownership. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg bg-subtle p-3">
+      <div className="min-w-[200px] flex-1">
+        <Label htmlFor="transfer-owner-select">Transfer ownership to</Label>
+        <select
+          id="transfer-owner-select"
+          value={newOwnerUserId}
+          onChange={(e) => setNewOwnerUserId(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border-default bg-surface px-3 text-sm text-primary"
+        >
+          {candidates.map((m) => (
+            <option key={m.userId!} value={m.userId!}>
+              {m.displayName ?? m.userId}
+            </option>
+          ))}
+        </select>
+      </div>
+      {!confirming ? (
+        <Button type="button" variant="secondary" onClick={() => setConfirming(true)}>
+          Transfer ownership
+        </Button>
+      ) : (
+        <>
+          <Button type="button" variant="critical" loading={submitting} onClick={onTransfer}>
+            Confirm transfer
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+        </>
+      )}
+      {error && <FieldError>{error}</FieldError>}
+    </div>
   );
 }
 

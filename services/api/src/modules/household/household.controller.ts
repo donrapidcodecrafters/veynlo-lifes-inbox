@@ -66,6 +66,15 @@ export class HouseholdController {
     return this.households.leave(householdId, user.userId);
   }
 
+  @Post(":householdId/transfer-ownership")
+  transferOwnership(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("householdId") householdId: string,
+    @Body("newOwnerUserId") newOwnerUserId: string,
+  ) {
+    return this.households.transferOwnership(householdId, user.userId, newOwnerUserId);
+  }
+
   @Get(":householdId/delegations")
   delegations(@CurrentUser() user: AuthenticatedUser, @Param("householdId") householdId: string) {
     return this.households.listDelegations(householdId, user.userId);

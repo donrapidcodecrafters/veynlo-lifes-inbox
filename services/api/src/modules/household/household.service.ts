@@ -217,6 +217,51 @@ export class HouseholdService {
     return this.db.select().from(schema.dependentProfiles).where(eq(schema.dependentProfiles.householdId, householdId));
   }
 
+  /**
+   * §HH-001 "transfer household ownership" — previously nonexistent despite two real, blocking error
+   * paths (leave() below, and IdentityService.requestDeletion) telling the owner to do exactly this before
+   * they could leave or delete their account. Deliberately transfers only the administrative
+   * `household_owner` role on this membership row, never `households.billingOwnerUserId` — that's a
+   * separate, real financial-migration concern (whose Stripe subscription/payment method the plan is on),
+   * intentionally modeled as its own column precisely so it doesn't have to move in lockstep with who
+   * administers the household day to day.
+   */
+  async transferOwnership(householdId: string, currentOwnerUserId: string, newOwnerUserId: string) {
+    const currentOwnerMembership = await this.assertOwnerOrAdult(householdId, currentOwnerUserId);
+    if (currentOwnerMembership.role !== "household_owner") {
+      throw new ForbiddenException({ code: "NOT_OWNER", message: "Only the current household owner can transfer ownership." });
+    }
+    if (newOwnerUserId === currentOwnerUserId) {
+      throw new BadRequestException({ code: "SAME_OWNER", message: "That's already the current owner." });
+    }
+    const [newOwnerMembership] = await this.db
+      .select()
+      .from(schema.householdMemberships)
+      .where(
+        and(
+          eq(schema.householdMemberships.householdId, householdId),
+          eq(schema.householdMemberships.userId, newOwnerUserId),
+          eq(schema.householdMemberships.status, "active"),
+        ),
+      )
+      .limit(1);
+    if (!newOwnerMembership) {
+      throw new BadRequestException({ code: "NOT_A_MEMBER", message: "The new owner must be an active member of this household." });
+    }
+    if (newOwnerMembership.role !== "adult_member") {
+      throw new BadRequestException({
+        code: "INELIGIBLE_NEW_OWNER",
+        message: "Ownership can only be transferred to an adult member — a dependent profile has no account of its own to receive it.",
+      });
+    }
+    await this.db.update(schema.householdMemberships).set({ role: "adult_member" }).where(eq(schema.householdMemberships.id, currentOwnerMembership.id));
+    await this.db.update(schema.householdMemberships).set({ role: "household_owner" }).where(eq(schema.householdMemberships.id, newOwnerMembership.id));
+    await this.recordAudit(currentOwnerUserId, "household.transfer_ownership", "household", householdId, {
+      beforeJson: { ownerUserId: currentOwnerUserId },
+      afterJson: { ownerUserId: newOwnerUserId },
+    });
+  }
+
   async leave(householdId: string, userId: string) {
     const membership = await this.assertOwnerOrAdult(householdId, userId);
     if (membership.role === "household_owner") {
