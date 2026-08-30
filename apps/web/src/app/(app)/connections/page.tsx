@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
+import { invalidateDomainCaches } from "@/lib/cache-invalidation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -177,6 +178,9 @@ export default function ConnectionsPage() {
     await api.post(`/v1/connectors/${id}/disconnect`, { deleteDerivedData });
     setConfirmingDeleteId(null);
     mutate();
+    // A reconnect/disconnect (especially with deleteDerivedData) changes what Life/Home/Timeline/Search
+    // show — same "remains consistent through... reconnect" requirement as an Inbox correction.
+    invalidateDomainCaches();
   }
 
   return (
@@ -257,6 +261,7 @@ export default function ConnectionsPage() {
                 onDone={() => {
                   setShowIcsForm(false);
                   mutate();
+                  invalidateDomainCaches();
                 }}
                 onCancel={() => setShowIcsForm(false)}
               />

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { api, ApiError, swrFetcher } from "@/lib/api-client";
+import { invalidateDomainCaches } from "@/lib/cache-invalidation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,10 @@ export default function PeoplePage() {
 
   async function refreshAfterMerge() {
     await Promise.all([mutate(), mutateDuplicates(), mutateLineage()]);
+    // A merge/unmerge repoints facts across resources — same "remains consistent through... merge/unmerge"
+    // requirement as an Inbox correction. Any domain list/detail page showing the affected person's name
+    // needs to know.
+    invalidateDomainCaches();
   }
 
   async function mergeInto(survivingId: string, mergedId: string) {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { api, swrFetcher } from "@/lib/api-client";
+import { invalidateDomainCaches } from "@/lib/cache-invalidation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export default function PurchaseDetailPage() {
   async function markState(state: string) {
     await api.post(`/v1/purchases/${purchase.id}/state`, { state });
     mutate();
+    invalidateDomainCaches();
   }
 
   return (

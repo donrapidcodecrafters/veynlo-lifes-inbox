@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, API_BASE_URL } from "@/lib/api-client";
+import { useDomainCacheInvalidation } from "@/lib/cache-invalidation";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -104,7 +105,7 @@ export default function TimelinePage() {
   const [kindFilter, setKindFilter] = useState<TimelineKind | "">("");
   const [showExport, setShowExport] = useState(false);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     setIsLoading(true);
     const qs = kindFilter ? `?kind=${kindFilter}` : "";
     api
@@ -115,6 +116,12 @@ export default function TimelinePage() {
       })
       .finally(() => setIsLoading(false));
   }, [kindFilter]);
+
+  useDomainCacheInvalidation(refresh);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   async function loadMore() {
     if (!cursor) return;

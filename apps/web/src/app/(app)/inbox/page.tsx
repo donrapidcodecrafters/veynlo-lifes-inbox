@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
+import { invalidateDomainCaches, useDomainCacheInvalidation } from "@/lib/cache-invalidation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -161,6 +162,8 @@ export default function InboxPage() {
       .finally(() => setIsLoading(false));
   }, [filter, category]);
 
+  useDomainCacheInvalidation(refresh);
+
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -198,6 +201,7 @@ export default function InboxPage() {
       }
       setPasteMessage("Captured from clipboard.");
       refresh();
+      invalidateDomainCaches();
     } catch {
       setPasteMessage("Couldn't read your clipboard. Your browser may be blocking clipboard access.");
     } finally {
@@ -208,6 +212,9 @@ export default function InboxPage() {
   async function act(id: string, action: "confirm" | "archive" | "dismiss") {
     await api.post(`/v1/inbox/${id}/${action}`);
     refresh();
+    // "confirm" finalizes a real purchase/bill/subscription/warranty/shipment/event — Life/Home/Timeline
+    // elsewhere need to know. Harmless to also fire for archive/dismiss (a cheap extra revalidation).
+    invalidateDomainCaches();
   }
 
   async function snooze(id: string) {
@@ -283,6 +290,7 @@ export default function InboxPage() {
           onDone={() => {
             setCapturing(false);
             refresh();
+            invalidateDomainCaches();
           }}
           onCancel={() => setCapturing(false)}
         />
@@ -374,6 +382,7 @@ export default function InboxPage() {
                         onDone={() => {
                           setCorrectingId(null);
                           refresh();
+                          invalidateDomainCaches();
                         }}
                         onCancel={() => setCorrectingId(null)}
                       />
