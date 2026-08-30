@@ -8,7 +8,7 @@ import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
-import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorNotConfiguredError, classifyPermissionHealth, parseGrantedScopes } from "./connector-errors";
 import { extractGmailAttachmentRefs } from "../ingestion/gmail-message-parser";
 import type { gmail_v1 } from "googleapis";
 import { ConnectorsService } from "./connectors.service";
@@ -73,7 +73,11 @@ export class GmailAdapter {
       householdId: params.householdId,
       provider: "gmail",
       feasibilityClass: "direct_api",
-      scopes: GMAIL_SCOPES,
+      // What Google actually granted, not what was requested — see classifyPermissionHealth's own comment
+      // for why. A token refresh (see incrementalSync/initialSync above) doesn't reach this method, so a
+      // scope reduction that happens later (a user or org admin narrowing an already-granted app's access)
+      // isn't caught retroactively here; it surfaces the next time this connection re-authorizes.
+      scopes: parseGrantedScopes(tokens.scope),
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
       historyDepthDays: params.historyDepthDays,
     });
@@ -154,7 +158,7 @@ export class GmailAdapter {
     await this.db
       .update(schema.connections)
       .set({
-        health: "healthy",
+        health: classifyPermissionHealth(connection.scopes, GMAIL_SCOPES),
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: itemCount,
         cursor: profile.data.historyId ?? null,
@@ -235,7 +239,7 @@ export class GmailAdapter {
     await this.db
       .update(schema.connections)
       .set({
-        health: "healthy",
+        health: classifyPermissionHealth(connection.scopes, GMAIL_SCOPES),
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: latestHistoryId,

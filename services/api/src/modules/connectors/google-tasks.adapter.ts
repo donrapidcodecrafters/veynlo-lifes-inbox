@@ -8,7 +8,7 @@ import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
-import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorNotConfiguredError, classifyPermissionHealth, parseGrantedScopes } from "./connector-errors";
 import { ConnectorsService } from "./connectors.service";
 
 // Full read/write scope — Google Tasks has no narrower "events-only"-style scope to request.
@@ -68,7 +68,8 @@ export class GoogleTasksAdapter {
       householdId: params.householdId,
       provider: "google_tasks",
       feasibilityClass: "direct_api",
-      scopes: TASKS_SCOPES,
+      // What Google actually granted, not what was requested — see classifyPermissionHealth's comment.
+      scopes: parseGrantedScopes(tokens.scope),
       enabledCategories: ["tasks"],
       historyDepthDays: params.historyDepthDays,
     });
@@ -137,7 +138,7 @@ export class GoogleTasksAdapter {
 
     await this.db
       .update(schema.connections)
-      .set({ health: "healthy", lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, cursor: syncStartedAt })
+      .set({ health: classifyPermissionHealth(connection.scopes, TASKS_SCOPES), lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, cursor: syncStartedAt })
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };
@@ -172,7 +173,7 @@ export class GoogleTasksAdapter {
     await this.db
       .update(schema.connections)
       .set({
-        health: "healthy",
+        health: classifyPermissionHealth(connection.scopes, TASKS_SCOPES),
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: syncStartedAt,

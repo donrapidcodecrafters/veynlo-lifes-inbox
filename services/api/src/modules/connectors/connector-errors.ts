@@ -29,3 +29,30 @@ export function classifyConnectorError(err: unknown): ConnectorHealthState {
   if (typeof status === "number" && status >= 500 && status < 600) return "provider_outage";
   return "degraded";
 }
+
+/**
+ * §43.3 "permission_reduced" — a real, distinct connection-health state that existed only as UI-rendered
+ * dead code (the web/mobile Connections badge already had a tone for it) with nothing on the backend ever
+ * setting it. A user who narrows what they grant mid-consent-flow, or whose org admin later restricts an
+ * OAuth app's approved scopes, still gets a "healthy"/successfully-syncing connection that's silently
+ * missing capability it claims to have — indistinguishable from one with full access until something that
+ * needed the missing scope fails outright.
+ *
+ * `connections.scopes` is repurposed here to store what the OAuth token response actually granted
+ * (`tokens.scope`, space-separated) rather than what was requested — the requested set is a compile-time
+ * constant per adapter with nothing to gain from persisting it, and nothing in the codebase ever read the
+ * old "requested" value back. A connection from before this existed has an empty `scopes` array (the
+ * column's default) — treated as "unknown, assume healthy" rather than a false permission_reduced, since
+ * there's no real signal to act on for it.
+ */
+export function classifyPermissionHealth(grantedScopes: string[], requiredScopes: string[]): "healthy" | "permission_reduced" {
+  if (grantedScopes.length === 0) return "healthy";
+  const granted = new Set(grantedScopes);
+  return requiredScopes.every((scope) => granted.has(scope)) ? "healthy" : "permission_reduced";
+}
+
+/** OAuth token responses carry granted scope as one space-separated string (or omit it entirely on a
+ * token refresh, where providers commonly assume "unchanged from the original grant"). */
+export function parseGrantedScopes(scopeString: string | null | undefined): string[] {
+  return scopeString ? scopeString.split(/\s+/).filter(Boolean) : [];
+}

@@ -9,7 +9,7 @@ import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { QueueProducerService } from "../../queue/queue-producer.service";
-import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorNotConfiguredError, classifyPermissionHealth, parseGrantedScopes } from "./connector-errors";
 import { ConnectorsService } from "./connectors.service";
 
 // CAL-001 "write-back capability" — narrowed to events-only read/write (not full `calendar`, which also
@@ -85,7 +85,8 @@ export class GoogleCalendarAdapter {
       householdId: params.householdId,
       provider: "google_calendar",
       feasibilityClass: "direct_api",
-      scopes: CALENDAR_SCOPES,
+      // What Google actually granted, not what was requested — see classifyPermissionHealth's comment.
+      scopes: parseGrantedScopes(tokens.scope),
       enabledCategories: ["appointments"],
       historyDepthDays: params.historyDepthDays,
     });
@@ -186,7 +187,7 @@ export class GoogleCalendarAdapter {
 
     await this.db
       .update(schema.connections)
-      .set({ health: "healthy", lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, cursor: nextSyncToken ?? null })
+      .set({ health: classifyPermissionHealth(connection.scopes, CALENDAR_SCOPES), lastSuccessfulSyncAt: new Date(), itemsDiscoveredCount: itemCount, cursor: nextSyncToken ?? null })
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };
@@ -228,7 +229,7 @@ export class GoogleCalendarAdapter {
     await this.db
       .update(schema.connections)
       .set({
-        health: "healthy",
+        health: classifyPermissionHealth(connection.scopes, CALENDAR_SCOPES),
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: nextSyncToken ?? connection.cursor,

@@ -8,7 +8,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import type { GraphMessage, GraphAttachment } from "../ingestion/outlook-message-parser";
 import { QueueProducerService } from "../../queue/queue-producer.service";
-import { ConnectorNotConfiguredError } from "./connector-errors";
+import { ConnectorNotConfiguredError, classifyPermissionHealth, parseGrantedScopes } from "./connector-errors";
 import { ConnectorsService } from "./connectors.service";
 
 const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
@@ -74,7 +74,8 @@ export class OutlookAdapter {
       householdId: params.householdId,
       provider: "outlook",
       feasibilityClass: "direct_api",
-      scopes: OUTLOOK_SCOPES,
+      // What Microsoft actually granted, not what was requested — see classifyPermissionHealth's comment.
+      scopes: parseGrantedScopes(tokens.scope),
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
       historyDepthDays: params.historyDepthDays,
     });
@@ -145,7 +146,7 @@ export class OutlookAdapter {
     await this.db
       .update(schema.connections)
       .set({
-        health: "healthy",
+        health: classifyPermissionHealth(connection.scopes, OUTLOOK_SCOPES),
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: itemCount,
         cursor: deltaLink,
@@ -205,7 +206,7 @@ export class OutlookAdapter {
     await this.db
       .update(schema.connections)
       .set({
-        health: "healthy",
+        health: classifyPermissionHealth(connection.scopes, OUTLOOK_SCOPES),
         lastSuccessfulSyncAt: new Date(),
         itemsDiscoveredCount: (connection.itemsDiscoveredCount ?? 0) + itemCount,
         cursor: latestDeltaLink,
@@ -231,7 +232,7 @@ export class OutlookAdapter {
     return deltaLink;
   }
 
-  private async exchangeCode(code: string, redirectUri: string): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
+  private async exchangeCode(code: string, redirectUri: string): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date; scope?: string }> {
     const env = loadEnv();
     const body = new URLSearchParams({
       client_id: env.MICROSOFT_OAUTH_CLIENT_ID!,
@@ -244,7 +245,7 @@ export class OutlookAdapter {
     return this.requestToken(body);
   }
 
-  private async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
+  private async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date; scope?: string }> {
     const env = loadEnv();
     const body = new URLSearchParams({
       client_id: env.MICROSOFT_OAUTH_CLIENT_ID!,
@@ -256,7 +257,7 @@ export class OutlookAdapter {
     return this.requestToken(body);
   }
 
-  private async requestToken(body: URLSearchParams): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
+  private async requestToken(body: URLSearchParams): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date; scope?: string }> {
     const response = await fetch(TOKEN_URL, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -265,12 +266,13 @@ export class OutlookAdapter {
     if (!response.ok) {
       throw new Error(`Microsoft token request failed: ${response.status} ${await response.text()}`);
     }
-    const json = (await response.json()) as { access_token: string; refresh_token?: string; expires_in: number };
+    const json = (await response.json()) as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
     return {
       accessToken: json.access_token,
       // Microsoft doesn't always return a new refresh_token on refresh — keep using the prior one if so.
       refreshToken: json.refresh_token ?? body.get("refresh_token") ?? "",
       expiresAt: new Date(Date.now() + json.expires_in * 1000),
+      scope: json.scope,
     };
   }
 

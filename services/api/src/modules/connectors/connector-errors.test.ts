@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyConnectorError } from "./connector-errors";
+import { classifyConnectorError, classifyPermissionHealth, parseGrantedScopes } from "./connector-errors";
 
 describe("classifyConnectorError", () => {
   it("classifies a 429 as rate_limited", () => {
@@ -33,5 +33,32 @@ describe("classifyConnectorError", () => {
 
   it("falls back to degraded for a non-numeric err.code (Node system error codes are strings)", () => {
     expect(classifyConnectorError({ code: "ETIMEDOUT" })).toBe("degraded");
+  });
+});
+
+describe("parseGrantedScopes", () => {
+  it("splits a space-separated OAuth scope string", () => {
+    expect(parseGrantedScopes("https://www.googleapis.com/auth/gmail.readonly")).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
+    expect(parseGrantedScopes("offline_access Calendars.ReadWrite")).toEqual(["offline_access", "Calendars.ReadWrite"]);
+  });
+
+  it("returns an empty array for a missing/empty scope (a token response that omits it, not a real signal)", () => {
+    expect(parseGrantedScopes(undefined)).toEqual([]);
+    expect(parseGrantedScopes(null)).toEqual([]);
+    expect(parseGrantedScopes("")).toEqual([]);
+  });
+});
+
+describe("classifyPermissionHealth", () => {
+  it("is healthy when every required scope was granted", () => {
+    expect(classifyPermissionHealth(["gmail.readonly", "extra.scope"], ["gmail.readonly"])).toBe("healthy");
+  });
+
+  it("is permission_reduced when a required scope is missing from what was granted", () => {
+    expect(classifyPermissionHealth(["offline_access"], ["offline_access", "Calendars.ReadWrite"])).toBe("permission_reduced");
+  });
+
+  it("defaults to healthy when nothing was ever captured — a connection from before this existed, or a token response that omitted scope, has no real signal to act on", () => {
+    expect(classifyPermissionHealth([], ["gmail.readonly"])).toBe("healthy");
   });
 });
