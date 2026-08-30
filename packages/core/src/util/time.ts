@@ -36,11 +36,3 @@ export function unknownTemporal(sourceText?: string): TemporalValue {
 export function instantTemporal(instantUtc: string, timezone: string): TemporalValue {
   return { precision: "instant", instantUtc, date: null, timezone, sourceText: null };
 }
-
-export function dateOnlyTemporal(date: string, timezone: string | null = null): TemporalValue {
-  return { precision: "date", instantUtc: null, date, timezone, sourceText: null };
-}
-
-export function isKnown(value: TemporalValue): boolean {
-  return value.precision !== "unknown";
-}

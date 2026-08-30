@@ -83,7 +83,3 @@ function randomToken(bytes = 16): string {
 export function generateId(kind: IdKind): string {
   return `${ID_PREFIXES[kind]}_${randomToken(16)}`;
 }
-
-export function isIdOfKind(id: string, kind: IdKind): boolean {
-  return id.startsWith(`${ID_PREFIXES[kind]}_`);
-}

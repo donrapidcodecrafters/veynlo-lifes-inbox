@@ -323,4 +323,3 @@ export class MicrosoftCalendarAdapter {
   }
 }
 
-export { ConnectorNotConfiguredError };

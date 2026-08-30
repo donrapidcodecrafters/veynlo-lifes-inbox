@@ -10,10 +10,6 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   );
 }
 
-export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-start justify-between gap-3 p-4 pb-0", className)} {...props} />;
-}
-
 export function CardBody({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("p-4", className)} {...props} />;
 }

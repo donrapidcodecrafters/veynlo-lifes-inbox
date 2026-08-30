@@ -239,4 +239,3 @@ export class GoogleCalendarAdapter {
   }
 }
 
-export { ConnectorNotConfiguredError };

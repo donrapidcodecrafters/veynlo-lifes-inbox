@@ -259,4 +259,3 @@ export class MicrosoftTodoAdapter {
   }
 }
 
-export { ConnectorNotConfiguredError };
