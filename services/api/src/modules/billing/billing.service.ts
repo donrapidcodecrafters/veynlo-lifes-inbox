@@ -7,12 +7,16 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv } from "../../config/env";
+import { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
 
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly notifications: NotificationDeliveryService,
+  ) {}
 
   private stripe(): Stripe {
     const key = loadEnv().STRIPE_SECRET_KEY;
@@ -253,15 +257,58 @@ export class BillingService {
       // `refunded` is only true once the FULL charge amount has been refunded — a partial/goodwill refund
       // (amount_refunded < amount, refunded still false) shouldn't cut off an otherwise-paying subscriber.
       if (charge.refunded && customerId) {
-        const [refundedUser] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.stripeCustomerId, customerId)).limit(1);
-        if (refundedUser) {
+        const refundedUserId = await this.resolveUserIdByStripeCustomer(customerId);
+        if (refundedUserId) {
           await this.db
             .update(schema.entitlements)
             .set({ effectiveTo: new Date() })
-            .where(and(eq(schema.entitlements.userId, refundedUser.id), eq(schema.entitlements.source, "web_stripe"), isNull(schema.entitlements.effectiveTo)));
+            .where(and(eq(schema.entitlements.userId, refundedUserId), eq(schema.entitlements.source, "web_stripe"), isNull(schema.entitlements.effectiveTo)));
         }
       }
     }
+
+    // §54.2 launch criteria #10 "payment-failure... entitlements reconcile correctly" — previously
+    // entirely unhandled: `customer.subscription.updated` only acts on `canceled`/`unpaid` (see above), so
+    // the intermediate `past_due` state a single failed charge produces was a silent no-op — the user kept
+    // full access with zero signal anything was wrong, and Stripe's own retry schedule (default: several
+    // attempts over ~2-3 weeks) got no chance to succeed with the user aware and able to fix their card in
+    // the meantime. Deliberately does NOT revoke access here — Smart Retries genuinely often succeed on
+    // their own, and immediately cutting off a subscriber for one transient decline (an expired-but-about-
+    // to-be-renewed card, a bank's fraud hold) would be a worse outcome than the current silent grace
+    // period. A real notification is the fix: warn early, let `canceled`/`unpaid` (already handled) do the
+    // actual revocation once Stripe's own retries are truly exhausted.
+    if (event.type === "invoice.payment_failed") {
+      const invoice = event.data.object as Stripe.Invoice;
+      const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+      if (customerId) {
+        const failedUserId = await this.resolveUserIdByStripeCustomer(customerId);
+        if (failedUserId) {
+          await this.notifications.createAndEnqueue({
+            ownerUserId: failedUserId,
+            // Deduped per invoice, not per attempt — Stripe retries the same invoice several times before
+            // giving up, and re-notifying on every retry would be exactly the "notification fatigue" risk
+            // §54.1 names, not a second useful signal.
+            dedupeKey: `stripe-payment-failed:${invoice.id}`,
+            priority: "important",
+            title: "We couldn't process your payment",
+            body: invoice.hosted_invoice_url
+              ? `Your payment for Veynlo didn't go through. Update your payment method to keep your plan active: ${invoice.hosted_invoice_url}`
+              : "Your payment for Veynlo didn't go through. Update your payment method in Billing to keep your plan active.",
+            // "billing" is intentionally NOT one of the user-mutable categories in NOTIFICATION_CATEGORIES
+            // (apps/web/settings, apps/mobile/notification-preferences) — silencing "you're about to lose
+            // access" is a real harm a category mute shouldn't be able to cause, unlike muting e.g. bill
+            // reminders. Still respects quiet hours (priority "important", not "critical") since this
+            // isn't a security emergency, just an account-status heads up.
+            category: "billing",
+          });
+        }
+      }
+    }
+  }
+
+  private async resolveUserIdByStripeCustomer(customerId: string): Promise<string | null> {
+    const [row] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.stripeCustomerId, customerId)).limit(1);
+    return row?.id ?? null;
   }
 }
 

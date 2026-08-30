@@ -6,6 +6,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { isRevenueCatConfigured, loadEnv } from "../../config/env";
+import { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 
 /**
  * Only the fields this handler actually reads — RevenueCat's payload carries more, and `.passthrough()`
@@ -45,7 +46,10 @@ const ENTITLEMENT_REVOKING_EVENTS = new Set(["EXPIRATION", "REFUND"]);
 export class RevenueCatService {
   private readonly logger = new Logger(RevenueCatService.name);
 
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly notifications: NotificationDeliveryService,
+  ) {}
 
   async handleWebhook(authHeader: string | undefined, body: unknown): Promise<void> {
     if (!isRevenueCatConfigured()) {
@@ -114,6 +118,22 @@ export class RevenueCatService {
     }
     // CANCELLATION deliberately does nothing here — RevenueCat sends it when a subscription is set to
     // not renew, but access stays active until the real EXPIRATION event fires at period end.
+
+    // §54.2 launch criteria #10 "payment-failure... entitlements reconcile correctly" — the same
+    // notify-don't-revoke pattern as Stripe's invoice.payment_failed handling. BILLING_ISSUE is
+    // RevenueCat's own signal for "the store had trouble billing this subscriber" (an expired card, a
+    // declined charge) — access stays active (RevenueCat/the stores retry on their own schedule; only a
+    // real EXPIRATION should revoke, already handled above), but the user should know before it lapses.
+    if (event.type === "BILLING_ISSUE") {
+      await this.notifications.createAndEnqueue({
+        ownerUserId: userId,
+        dedupeKey: `revenuecat-billing-issue:${event.id}`,
+        priority: "important",
+        title: "We couldn't process your payment",
+        body: "There was a problem billing your subscription through the App/Play Store. Update your payment method there to keep your plan active.",
+        category: "billing",
+      });
+    }
   }
 
   /**
