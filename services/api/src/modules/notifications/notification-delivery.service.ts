@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -10,6 +10,8 @@ import { PushService } from "./push.service";
 import { isWithinQuietHours } from "./quiet-hours";
 
 export type NotificationPriority = "critical" | "important" | "useful" | "fyi" | "silent";
+
+const ESCALATION_THRESHOLD_MS = 30 * 60 * 1000;
 
 /**
  * §33 — notification priority tiers + quiet hours + dedupe. This is the
@@ -113,40 +115,16 @@ export class NotificationDeliveryService {
     }
 
     if (notification.channel === "push") {
-      const [device] = await this.db
-        .select({ pushToken: schema.devices.pushToken })
-        .from(schema.devices)
-        .where(
-          and(
-            eq(schema.devices.userId, notification.ownerUserId),
-            isNotNull(schema.devices.pushToken),
-            isNull(schema.devices.revokedAt),
-          ),
-        )
-        .orderBy(desc(schema.devices.lastActiveAt))
-        .limit(1);
-      if (device?.pushToken) {
-        const sent = await this.push.send(
-          device.pushToken,
-          notification.title,
-          notification.body,
-          notification.linkedAttentionItemId
-            ? {
-                categoryId: "attention_actionable",
-                data: { notificationId: notification.id, linkedAttentionItemId: notification.linkedAttentionItemId },
-              }
-            : undefined,
-        );
-        if (sent) {
-          await this.db
-            .update(schema.notifications)
-            .set({ state: "sent", sentAt: new Date() })
-            .where(eq(schema.notifications.id, notificationId));
-          return;
-        }
-        // No registered/working push token — fall through to the email path below, same "not configured"
-        // degradation as every other optional delivery mechanism rather than silently dropping the notification.
+      const sent = await this.sendPush(notification.ownerUserId, notification.title, notification.body, notification.linkedAttentionItemId, notification.id);
+      if (sent) {
+        await this.db
+          .update(schema.notifications)
+          .set({ state: "sent", sentAt: new Date() })
+          .where(eq(schema.notifications.id, notificationId));
+        return;
       }
+      // No registered/working push token — fall through to the email path below, same "not configured"
+      // degradation as every other optional delivery mechanism rather than silently dropping the notification.
     }
 
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.id, notification.ownerUserId)).limit(1);
@@ -165,6 +143,71 @@ export class NotificationDeliveryService {
       this.logger.warn(`Notification ${notificationId} delivery failed, will retry via job backoff: ${String(err)}`);
       throw err;
     }
+  }
+
+  /**
+   * Escalation ladder (§NOT-002 follow-up): a critical notification that's been sent but sat
+   * unacknowledged for 30+ minutes gets one re-send at distinctly-marked urgency, so it doesn't silently
+   * sit unread. escalatedAt gates this to firing at most once per notification — no infinite ladder.
+   * Deliberately skips deliver()'s quiet-hours/intensity/category-mute suppression entirely rather than
+   * re-running it: those already carve out an explicit bypass for priority === "critical" (see deliver()
+   * above), and an escalation only ever fires for critical notifications in the first place.
+   */
+  async escalateUnacknowledged(): Promise<void> {
+    const candidates = await this.db
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.priority, "critical"),
+          eq(schema.notifications.state, "sent"),
+          isNotNull(schema.notifications.sentAt),
+          lte(schema.notifications.sentAt, new Date(Date.now() - ESCALATION_THRESHOLD_MS)),
+          isNull(schema.notifications.acknowledgedAt),
+          isNull(schema.notifications.escalatedAt),
+        ),
+      );
+
+    for (const notification of candidates) {
+      const sent = await this.sendPush(
+        notification.ownerUserId,
+        `⚠️ Still needs you: ${notification.title}`,
+        notification.body,
+        notification.linkedAttentionItemId,
+        notification.id,
+      );
+      if (sent) {
+        await this.db
+          .update(schema.notifications)
+          .set({ escalatedAt: new Date() })
+          .where(eq(schema.notifications.id, notification.id));
+      }
+    }
+  }
+
+  /** Shared by deliver() and escalateUnacknowledged() — looks up the owner's most-recently-active
+   * non-revoked device and sends via PushService, returning false (rather than throwing) if there's no
+   * usable push token so callers can fall back accordingly. */
+  private async sendPush(
+    ownerUserId: string,
+    title: string,
+    body: string,
+    linkedAttentionItemId: string | null,
+    notificationId: string,
+  ): Promise<boolean> {
+    const [device] = await this.db
+      .select({ pushToken: schema.devices.pushToken })
+      .from(schema.devices)
+      .where(and(eq(schema.devices.userId, ownerUserId), isNotNull(schema.devices.pushToken), isNull(schema.devices.revokedAt)))
+      .orderBy(desc(schema.devices.lastActiveAt))
+      .limit(1);
+    if (!device?.pushToken) return false;
+    return this.push.send(
+      device.pushToken,
+      title,
+      body,
+      linkedAttentionItemId ? { categoryId: "attention_actionable", data: { notificationId, linkedAttentionItemId } } : undefined,
+    );
   }
 
   private async suppress(notificationId: string, reason: string): Promise<void> {

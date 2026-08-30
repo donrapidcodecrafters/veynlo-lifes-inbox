@@ -1,0 +1,1 @@
+ALTER TABLE "notifications" ADD COLUMN "escalated_at" timestamp with time zone;

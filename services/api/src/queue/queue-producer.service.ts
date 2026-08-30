@@ -13,6 +13,7 @@ import {
   type ConnectionDataDeletionJobData,
   type DataExportJobData,
   type DataRetentionScanJobData,
+  type NotificationEscalationScanJobData,
 } from "./queue-names";
 
 /**
@@ -52,6 +53,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly dataRetentionScanQueue = new Queue<DataRetentionScanJobData>(QUEUE_NAMES.dataRetentionScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly notificationEscalationScanQueue = new Queue<NotificationEscalationScanJobData>(QUEUE_NAMES.notificationEscalationScan, {
     connection: getRedisConnection(),
   });
 
@@ -206,6 +210,15 @@ export class QueueProducerService implements OnModuleDestroy {
     await this.dataRetentionScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-retention-scan" });
   }
 
+  /**
+   * Registers the recurring tick that re-sends critical notifications no one has acknowledged
+   * (§NOT-002 escalation ladder). Same 15-minute cadence and shape as scheduleRecurringConnectorScan/
+   * scheduleRecurringInboxUnsnooze — one repeatable tick, its processor (worker-main.ts) does the lookup.
+   */
+  async scheduleRecurringNotificationEscalationScan(): Promise<void> {
+    await this.notificationEscalationScanQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "notification-escalation-scan" });
+  }
+
   /** §Operations "job/queue health monitoring" — the admin console previously only had connection-level
    * (per-connector) and model-level (per-AI-extractor) health, despite the spec explicitly asking for
    * "connector/job/model health." Reuses these same Queue instances (one already exists per queue for
@@ -222,6 +235,7 @@ export class QueueProducerService implements OnModuleDestroy {
       [QUEUE_NAMES.connectionDataDeletion]: this.connectionDataDeletionQueue,
       [QUEUE_NAMES.dataExport]: this.dataExportQueue,
       [QUEUE_NAMES.dataRetentionScan]: this.dataRetentionScanQueue,
+      [QUEUE_NAMES.notificationEscalationScan]: this.notificationEscalationScanQueue,
     };
     const entries = await Promise.all(
       Object.entries(queues).map(async ([name, queue]) => {
@@ -244,6 +258,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.connectionDataDeletionQueue.close(),
       this.dataExportQueue.close(),
       this.dataRetentionScanQueue.close(),
+      this.notificationEscalationScanQueue.close(),
     ]);
   }
 }

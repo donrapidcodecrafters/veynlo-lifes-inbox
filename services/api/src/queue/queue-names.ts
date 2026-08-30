@@ -14,6 +14,7 @@ export const QUEUE_NAMES = {
   connectionDataDeletion: "connection-data-deletion",
   dataExport: "data-export",
   dataRetentionScan: "data-retention-scan",
+  notificationEscalationScan: "notification-escalation-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -57,3 +58,6 @@ export interface DataExportJobData {
 
 /** Recurring tick with no payload — its processor finds every user with a data retention setting itself. */
 export type DataRetentionScanJobData = Record<string, never>;
+
+/** Recurring tick with no payload — its processor (NotificationDeliveryService.escalateUnacknowledged) finds due critical unacknowledged notifications itself. */
+export type NotificationEscalationScanJobData = Record<string, never>;

@@ -92,6 +92,9 @@ export const notifications = pgTable(
     // state/suppressionReason above rather than a DB enum.
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     actionTaken: text("action_taken"),
+    // Escalation ladder: set once a critical, unacknowledged notification has been re-sent at higher
+    // urgency (NotificationDeliveryService.escalateUnacknowledged), so it only ever escalates once.
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("notifications_dedupe_idx").on(t.ownerUserId, t.dedupeKey)],

@@ -21,6 +21,7 @@ import {
   type NotificationDispatchJobData,
   type DataExportJobData,
   type DataRetentionScanJobData,
+  type NotificationEscalationScanJobData,
 } from "./queue/queue-names";
 import { classifyConnectorError, extractRetryAfterMs } from "./modules/connectors/connector-errors";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
@@ -455,6 +456,14 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  const notificationEscalationScanWorker = new Worker<NotificationEscalationScanJobData>(
+    QUEUE_NAMES.notificationEscalationScan,
+    async () => {
+      await notificationDelivery.escalateUnacknowledged();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
@@ -466,6 +475,7 @@ async function bootstrap() {
     attentionScanWorker,
     dataExportWorker,
     dataRetentionScanWorker,
+    notificationEscalationScanWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
@@ -478,9 +488,10 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringInboxUnsnooze();
   await queueProducer.scheduleRecurringAttentionScan();
   await queueProducer.scheduleRecurringDataRetentionScan();
+  await queueProducer.scheduleRecurringNotificationEscalationScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan, notification-escalation-scan",
   );
 
   const shutdown = async () => {
@@ -496,6 +507,7 @@ async function bootstrap() {
       attentionScanWorker.close(),
       dataExportWorker.close(),
       dataRetentionScanWorker.close(),
+      notificationEscalationScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);
