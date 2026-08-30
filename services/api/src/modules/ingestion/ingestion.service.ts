@@ -1241,6 +1241,7 @@ export class IngestionService {
         priority: "useful",
         title: "Veynlo found something new",
         body: params.summary,
+        category: params.category,
       });
     }
   }

@@ -135,6 +135,20 @@ export class CommerceService {
     return { warranty, evidence: await this.evidenceViaInboxItem("warranty", warrantyId) };
   }
 
+  /** Domains row (§52.1) — shipments were modeled/extracted since ingestion shipped but only ever
+   * reachable nested inside a purchase's detail payload, never as their own browsable domain surface. */
+  async shipmentDetail(shipmentId: string, userId: string) {
+    const [row] = await this.db
+      .select({ shipment: schema.shipments, merchantName: schema.merchants.displayName })
+      .from(schema.shipments)
+      .leftJoin(schema.purchases, eq(schema.purchases.id, schema.shipments.purchaseId))
+      .leftJoin(schema.merchants, eq(schema.merchants.id, schema.purchases.merchantId))
+      .where(eq(schema.shipments.id, shipmentId))
+      .limit(1);
+    if (!row || !(await this.assertCommerceAccess(row.shipment.ownerUserId, row.shipment.householdId, userId))) return null;
+    return { shipment: { ...row.shipment, merchantName: row.merchantName }, evidence: await this.evidenceViaInboxItem("shipment", shipmentId) };
+  }
+
   async returnDetail(returnCaseId: string, userId: string) {
     const [row] = await this.db
       .select({ returnCase: schema.returnCases, purchase: schema.purchases })
@@ -191,5 +205,16 @@ export class CommerceService {
       .from(schema.warranties)
       .where(await this.ownerOrDelegatedHousehold(userId, schema.warranties.ownerUserId, schema.warranties.householdId))
       .orderBy(asc(schema.warranties.expirationDateSort));
+  }
+
+  async shipments(userId: string) {
+    const rows = await this.db
+      .select({ shipment: schema.shipments, merchantName: schema.merchants.displayName })
+      .from(schema.shipments)
+      .leftJoin(schema.purchases, eq(schema.purchases.id, schema.shipments.purchaseId))
+      .leftJoin(schema.merchants, eq(schema.merchants.id, schema.purchases.merchantId))
+      .where(await this.ownerOrDelegatedHousehold(userId, schema.shipments.ownerUserId, schema.shipments.householdId))
+      .orderBy(asc(schema.shipments.createdAt));
+    return rows.map((r) => ({ ...r.shipment, merchantName: r.merchantName }));
   }
 }

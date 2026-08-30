@@ -43,6 +43,10 @@ export class NotificationsService {
       quietHoursEnd: string | null;
       dailyBriefEnabled: boolean;
       weeklyBriefEnabled: boolean;
+      /** Per-category mute — `{ [category]: "off" }` to mute, any other/no entry means default delivery.
+       * Keys match what NotificationDeliveryService.createAndEnqueue's callers pass as `category`
+       * (domain names like "bill"/"purchase", or "daily_brief"/"weekly_brief" for digests). */
+      categoryOverrides: Record<string, string>;
     }>,
   ) {
     const existing = await this.getPreferences(userId);

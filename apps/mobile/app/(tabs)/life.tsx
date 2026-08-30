@@ -55,6 +55,23 @@ interface Warranty {
   registrationConfirmed: boolean | null;
 }
 
+interface Shipment {
+  id: string;
+  carrier: string;
+  trackingNumber: string;
+  status: string;
+  estimatedDelivery: TemporalValueLike | null;
+  merchantName: string | null;
+}
+
+const SHIPMENT_STATUS_TONE: Record<string, "neutral" | "warning" | "positive"> = {
+  label_created: "neutral",
+  in_transit: "warning",
+  out_for_delivery: "warning",
+  delivered: "positive",
+  exception: "warning",
+};
+
 interface TaskRow {
   id: string;
   title: string;
@@ -88,6 +105,7 @@ export default function LifeScreen() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [bills, setBills] = useState<BillRow[] | null>(null);
   const [warranties, setWarranties] = useState<Warranty[] | null>(null);
+  const [shipments, setShipments] = useState<Shipment[] | null>(null);
   const [tasks, setTasks] = useState<TaskRow[] | null>(null);
   const [conflicts, setConflicts] = useState<ScheduleConflict[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,13 +114,14 @@ export default function LifeScreen() {
   const [creatingTask, setCreatingTask] = useState(false);
 
   const load = useCallback(async () => {
-    const [ev, p, r, s, b, w, t, c] = await Promise.all([
+    const [ev, p, r, s, b, w, sh, t, c] = await Promise.all([
       api.get<EventRow[]>("/v1/events"),
       api.get<Purchase[]>("/v1/purchases"),
       api.get<ReturnRow[]>("/v1/returns"),
       api.get<SubscriptionRow[]>("/v1/subscriptions"),
       api.get<BillRow[]>("/v1/bills"),
       api.get<Warranty[]>("/v1/warranties"),
+      api.get<Shipment[]>("/v1/shipments"),
       api.get<TaskRow[]>("/v1/tasks"),
       api.get<ScheduleConflict[]>("/v1/schedule/conflicts").catch(() => []),
     ]);
@@ -112,6 +131,7 @@ export default function LifeScreen() {
     setSubscriptions(s);
     setBills(b);
     setWarranties(w);
+    setShipments(sh);
     setTasks(t.filter((task) => task.state !== "completed" && task.state !== "dismissed"));
     setConflicts(c);
   }, []);
@@ -421,6 +441,45 @@ export default function LifeScreen() {
                     {expires && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Expires {expires}</Text>}
                   </View>
                   {days != null && <Badge tone={days <= 30 ? "warning" : "neutral"}>{days > 0 ? `${days}d left` : "Expired"}</Badge>}
+                </Pressable>
+              );
+            })}
+          </Card>
+        )}
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <SectionHeading title="Shipments" />
+        {!shipments && <View style={{ height: 64, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} />}
+        {shipments?.length === 0 && (
+          <EmptyState title="No shipments tracked yet" description="Shipping confirmations found in email will show up here with carrier and status." />
+        )}
+        {shipments && shipments.length > 0 && (
+          <Card style={{ padding: 0 }}>
+            {shipments.map((s, i) => {
+              const estimated = formatTemporal(s.estimatedDelivery);
+              return (
+                <Pressable
+                  key={s.id}
+                  onPress={() => router.push(`/shipment/${s.id}`)}
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: theme.colors.borderSubtle,
+                  }}
+                >
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{s.merchantName ?? s.carrier}</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                      {s.carrier} · {s.trackingNumber}
+                      {estimated ? ` · Est. ${estimated}` : ""}
+                    </Text>
+                  </View>
+                  <Badge tone={SHIPMENT_STATUS_TONE[s.status] ?? "neutral"}>{s.status.replace(/_/g, " ")}</Badge>
                 </Pressable>
               );
             })}

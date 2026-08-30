@@ -25,7 +25,9 @@ const RevenueCatWebhookSchema = z.object({
 });
 
 const ENTITLEMENT_GRANTING_EVENTS = new Set(["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE", "TRANSFER"]);
-const ENTITLEMENT_REVOKING_EVENTS = new Set(["EXPIRATION"]);
+// §54.2 launch criteria — REFUND was previously unhandled (only EXPIRATION revoked), the same
+// "got their money back, kept the feature" gap `charge.refunded` closes on the Stripe side.
+const ENTITLEMENT_REVOKING_EVENTS = new Set(["EXPIRATION", "REFUND"]);
 
 /**
  * RevenueCat (App Store §5.1.1 subscription entitlement normalization) — mirrors the Google/Microsoft

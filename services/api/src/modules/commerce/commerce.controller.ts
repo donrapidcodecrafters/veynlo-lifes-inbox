@@ -63,4 +63,14 @@ export class CommerceController {
   warrantyDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.commerce.warrantyDetail(id, user.userId);
   }
+
+  @Get("shipments")
+  shipments(@CurrentUser() user: AuthenticatedUser) {
+    return this.commerce.shipments(user.userId);
+  }
+
+  @Get("shipments/:id")
+  shipmentDetail(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.commerce.shipmentDetail(id, user.userId);
+  }
 }

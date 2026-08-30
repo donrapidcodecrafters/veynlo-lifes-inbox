@@ -78,6 +78,23 @@ interface Warranty {
   registrationConfirmed: boolean | null;
 }
 
+interface Shipment {
+  id: string;
+  carrier: string;
+  trackingNumber: string;
+  status: string;
+  estimatedDelivery: TemporalValueLike | null;
+  merchantName: string | null;
+}
+
+const SHIPMENT_STATUS_TONE: Record<string, "neutral" | "warning" | "positive"> = {
+  label_created: "neutral",
+  in_transit: "warning",
+  out_for_delivery: "warning",
+  delivered: "positive",
+  exception: "warning",
+};
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
@@ -94,6 +111,7 @@ export default function LifePage() {
   const { data: subscriptions, isLoading: loadingSubs } = useSWR<SubscriptionRow[]>("/v1/subscriptions", swrFetcher);
   const { data: bills, isLoading: loadingBills } = useSWR<BillRow[]>("/v1/bills", swrFetcher);
   const { data: warranties, isLoading: loadingWarranties } = useSWR<Warranty[]>("/v1/warranties", swrFetcher);
+  const { data: shipments, isLoading: loadingShipments } = useSWR<Shipment[]>("/v1/shipments", swrFetcher);
   const { data: tasks, isLoading: loadingTasks, mutate: mutateTasks } = useSWR<Task[]>("/v1/tasks", swrFetcher);
   const { data: conflicts } = useSWR<ScheduleConflict[]>("/v1/schedule/conflicts", swrFetcher);
   const openConflicts = conflicts?.filter((c) => !c.resolvedAt) ?? [];
@@ -264,6 +282,32 @@ export default function LifePage() {
                       {value && <p className="text-lg font-semibold text-primary">{value}</p>}
                     </CardBody>
                   </Card>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Shipments">
+        {loadingShipments && <div className="h-16 animate-pulse rounded-xl bg-subtle" />}
+        {!loadingShipments && (!shipments || shipments.length === 0) && (
+          <EmptyState title="No shipments tracked yet" description="Shipping confirmations found in email will show up here with carrier and status." />
+        )}
+        {shipments && shipments.length > 0 && (
+          <div className="divide-y divide-border-subtle rounded-xl border border-border-subtle bg-surface">
+            {shipments.map((s) => {
+              const estimated = formatTemporal(s.estimatedDelivery);
+              return (
+                <Link key={s.id} href={`/life/shipments/${s.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-subtle">
+                  <div>
+                    <p className="text-sm font-medium text-primary">{s.merchantName ?? s.carrier}</p>
+                    <p className="text-xs text-tertiary">
+                      {s.carrier} · {s.trackingNumber}
+                      {estimated ? ` · Est. ${estimated}` : ""}
+                    </p>
+                  </div>
+                  <Badge tone={SHIPMENT_STATUS_TONE[s.status] ?? "neutral"}>{s.status.replace(/_/g, " ")}</Badge>
                 </Link>
               );
             })}

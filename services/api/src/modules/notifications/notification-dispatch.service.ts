@@ -46,6 +46,7 @@ export class NotificationDispatchService {
         priority: "useful",
         title: `Your daily brief — ${items.length} thing${items.length === 1 ? "" : "s"} to know`,
         body: `Here's what needs your attention today:\n\n${lines}`,
+        category: "daily_brief",
       });
       if ("notificationId" in result) this.logger.log(`Queued daily brief for ${userId}`);
     }
@@ -96,6 +97,7 @@ export class NotificationDispatchService {
         priority: "useful",
         title: "Your week ahead",
         body: `Coming up in the next 7 days:\n\n${lines}`,
+        category: "weekly_brief",
       });
     }
   }

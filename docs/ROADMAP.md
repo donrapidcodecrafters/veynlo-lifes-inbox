@@ -1474,3 +1474,68 @@ still open:
   import, a11y testing, Android share-target, native IAP, and now voice capture) — Phase 1 MVP should be
   re-confirmed against `spec/Life_Inbox_Master_Spec.txt` §52.1/§54.2 directly, not this file, before
   treating it as done.
+
+- **Twenty-fifth gap-closing pass (2026-08-30): independent spec re-audit — a real second-opinion check
+  against §52.1/§54.2, not this file.** Per the user's standing instruction to verify against the actual
+  spec rather than trust this document's own tracking, ran a fresh, independent audit (four parallel
+  agents, one per area-group) reading the real spec sections and the actual current source directly. All
+  11 §52.1 MVP areas and 13 §54.2 launch-acceptance items were checked against real code, not doc claims.
+  Result: **10 of 11 areas fully DONE**; the 13 launch-acceptance items were mostly DONE-with-caveats
+  rather than clean passes. Closed the concrete, unambiguous findings below; the more judgment-call ones
+  are listed at the end as open questions, not silently decided either way.
+  1. **Domains — shipments had no independent list/detail surface** (only reachable nested inside a
+     purchase's detail payload, a real shortfall against §52.1's explicit domain enumeration). Added
+     `GET /v1/shipments` + `GET /v1/shipments/:id` (`commerce.service.ts`/`commerce.controller.ts`,
+     mirroring the existing bills/warranties pattern exactly — owner-or-delegated-household scoping,
+     evidence via the same `evidenceViaInboxItem("shipment", id)` helper the extraction pipeline already
+     files shipments under). New web (`life/shipments/[id]/page.tsx` + a "Shipments" section on `life/page
+     .tsx`) and mobile (`app/shipment/[id].tsx` + a "Shipments" section on `(tabs)/life.tsx`) surfaces,
+     full platform parity.
+  2. **§54.2 #10 — refund reconciliation was entirely unhandled.** A refunded charge previously left its
+     entitlement active forever — get your money back, keep the feature. Stripe: new `charge.refunded`
+     handling in `billing.service.ts`, gated on `charge.refunded === true` (the field that's only true once
+     the FULL amount is refunded, so a partial/goodwill refund doesn't cut off an otherwise-paying
+     subscriber) — user resolved via the reverse `stripeCustomerId` lookup checkout already persists, since
+     refund events carry no `client_reference_id`/metadata the way checkout does. RevenueCat: added
+     `"REFUND"` to `ENTITLEMENT_REVOKING_EVENTS` (previously only `EXPIRATION` revoked). Deliberately did
+     NOT add `invoice.payment_failed`/`BILLING_ISSUE` handling beyond what already exists
+     (`customer.subscription.updated` already revokes on Stripe `canceled`/`unpaid`) — how aggressively to
+     react to a single failed-and-likely-retried payment is a real grace-period/dunning policy choice, not
+     an unambiguous bug, so left as an open question rather than guessed at.
+  3. **§54.2 #8 — notification category overrides were schema-only.** `notificationPreferences
+     .categoryOverrides` existed in the schema with an explicit code comment admitting it was never
+     checked, and no UI could set it. Added a real `category` column to `notifications` (migration 0029,
+     applied) threaded through `NotificationDeliveryService.createAndEnqueue()`'s callers (the real domain
+     categories ingestion already uses — purchase/shipment/bill/subscription/appointment/warranty/task —
+     plus "daily_brief"/"weekly_brief" for the two digest types), checked in `deliver()` right alongside
+     the existing quiet-hours/intensity suppression checks (an `"off"` override suppresses with reason
+     `category_muted`; critical-priority notifications still bypass it, same as the other two checks — a
+     category mute is a preference, not a safety suppression). `NotificationsService.updatePreferences()`
+     now accepts `categoryOverrides` in its patch type (the controller already passed through an unvalidated
+     `Record<string, unknown>` body, so no controller change needed). New UI: web gets a "By category"
+     section of switches on `/settings` (alongside the existing intensity/briefs controls); mobile gets an
+     entirely new `notification-preferences.tsx` screen (mobile had ZERO notification-preferences UI at
+     all before this — not just missing categories, missing the whole thing — intensity/daily-brief/
+     weekly-brief now included as well for parity with web, linked from the Settings tab).
+  **Verified live**: shipments — created a real shipment row via SQL, hit both endpoints with a real
+  signed-up user, confirmed correct data + merchant join, then confirmed a second user gets `null` (access
+  control holds). Category mute — real end-to-end test through the actual BullMQ worker (restarted in
+  watch mode to pick up the change): queued a real `category: "bill"` notification via the app's own
+  Drizzle client (a raw-SQL insert was tried first and correctly failed decryption, proving the field-level
+  encryption on notification title/body is real, not decorative), muted "bill" via `PUT
+  /v1/notification-preferences`, and got back `state: "suppressed", suppression_reason: "category_muted"`;
+  un-muting and re-queuing correctly passed the check and proceeded to a real delivery attempt (which then
+  failed only on this sandbox's unconfigured mail transport, unrelated to this change). Refund handling
+  verified via typecheck/lint/the full 67-test API suite only — this sandbox has no real Stripe test keys
+  or RevenueCat account to fire an actual signed webhook through, same external-dependency limitation as
+  billing/IAP work earlier in this file. All test accounts and scratch scripts deleted after.
+  **Left as open questions, not decided silently**: (a) §54.2 #5 — authz has one real 6-case policy unit
+  test but zero coverage of search/notifications/exports/admin leak surfaces; (b) #4 — only calendar
+  time-overlap conflicts are surfaced, not the broader cross-source "conflicting facts" case, and the
+  ingestion risk threshold is one global hardcoded constant rather than per-domain; (c) #2/#3 — no explicit
+  streaming-discovery/cache-invalidation mechanism beyond existing SWR revalidation and mobile's
+  fetch-on-focus; (d) #6 — sync is polling+cursor-based by design, not webhook-based, so the criterion's
+  webhook-duplicate/expiration language doesn't map onto this architecture; (e) #12 — no incident-response
+  runbook doc exists yet, and pen-test/manual-a11y sign-off are inherently not code-verifiable; (f) #13 —
+  no marketing/landing page exists in `apps/web` at all (root route is just an auth redirect) — whether one
+  is even wanted for MVP is a product call, not an engineering gap.

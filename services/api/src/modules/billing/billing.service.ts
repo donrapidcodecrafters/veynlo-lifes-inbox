@@ -242,6 +242,26 @@ export class BillingService {
         }
       }
     }
+
+    // §54.2 launch criteria — refund reconciliation was previously entirely unhandled: a refunded charge
+    // left the entitlement it paid for active forever, a real "got their money back, kept the feature"
+    // billing bug. `charge.refunded` carries no client_reference_id/metadata (only checkout.session does),
+    // so the user is resolved via the reverse stripeCustomerId lookup checkout already persists.
+    if (event.type === "charge.refunded") {
+      const charge = event.data.object as Stripe.Charge;
+      const customerId = typeof charge.customer === "string" ? charge.customer : charge.customer?.id;
+      // `refunded` is only true once the FULL charge amount has been refunded — a partial/goodwill refund
+      // (amount_refunded < amount, refunded still false) shouldn't cut off an otherwise-paying subscriber.
+      if (charge.refunded && customerId) {
+        const [refundedUser] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.stripeCustomerId, customerId)).limit(1);
+        if (refundedUser) {
+          await this.db
+            .update(schema.entitlements)
+            .set({ effectiveTo: new Date() })
+            .where(and(eq(schema.entitlements.userId, refundedUser.id), eq(schema.entitlements.source, "web_stripe"), isNull(schema.entitlements.effectiveTo)));
+        }
+      }
+    }
   }
 }
 

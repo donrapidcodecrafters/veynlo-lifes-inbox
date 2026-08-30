@@ -74,6 +74,10 @@ export const notifications = pgTable(
     dedupeKey: text("dedupe_key").notNull(),
     priority: text("priority").notNull(),
     channel: text("channel").notNull(),
+    // §54.2 launch criteria — the key `notificationPreferences.categoryOverrides` is keyed by (e.g.
+    // "bill", "purchase", "daily_brief"); null means the sender didn't attribute a category (e.g. an
+    // ad-hoc system notice), which never gets suppressed by a category override.
+    category: text("category"),
     title: encryptedText("title").notNull(),
     body: encryptedText("body").notNull(),
     linkedAttentionItemId: text("linked_attention_item_id"),

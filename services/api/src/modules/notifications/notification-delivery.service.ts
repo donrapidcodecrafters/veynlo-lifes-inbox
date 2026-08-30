@@ -14,12 +14,9 @@ export type NotificationPriority = "critical" | "important" | "useful" | "fyi" |
 /**
  * §33 — notification priority tiers + quiet hours + dedupe. This is the
  * single chokepoint every part of the product goes through to actually
- * notify a user, so suppression rules that ARE implemented (quiet hours,
- * intensity, duplicate dedupe key) live in exactly this one place.
- * `notificationPreferences.categoryOverrides` exists in the schema but is
- * NOT checked here — no UI exposes a per-category toggle yet, so there is
- * currently no override to honor; wire it into deliver() alongside the
- * checks below whenever that preference actually becomes settable.
+ * notify a user, so suppression rules — quiet hours, intensity, duplicate
+ * dedupe key, and per-category overrides — all live in exactly this one
+ * place.
  */
 @Injectable()
 export class NotificationDeliveryService {
@@ -47,6 +44,9 @@ export class NotificationDeliveryService {
     body: string;
     linkedAttentionItemId?: string | null;
     channel?: "push" | "email" | "desktop" | "in_app";
+    /** Keys into `notificationPreferences.categoryOverrides` (e.g. a domain like "bill"/"purchase", or
+     * "daily_brief"/"weekly_brief" for digests). Omitted for notifications with no natural single category. */
+    category?: string;
   }): Promise<{ notificationId: string } | { skipped: "duplicate" }> {
     const [existing] = await this.db
       .select({ id: schema.notifications.id })
@@ -70,6 +70,7 @@ export class NotificationDeliveryService {
       title: params.title,
       body: params.body,
       linkedAttentionItemId: params.linkedAttentionItemId ?? null,
+      category: params.category ?? null,
       state: "queued",
       scheduledFor: new Date(),
     });
@@ -94,6 +95,14 @@ export class NotificationDeliveryService {
 
     if (prefs?.intensity === "quiet" && notification.priority !== "critical") {
       await this.suppress(notificationId, "quiet_intensity_preference");
+      return;
+    }
+
+    // "off" is the one recognized override value — anything else (or no entry at all) means default
+    // delivery. Critical notifications still bypass this, same as quiet-hours/intensity above: a
+    // category mute is a "don't bother me about this" preference, not a safety-relevant suppression.
+    if (notification.category && prefs?.categoryOverrides?.[notification.category] === "off" && notification.priority !== "critical") {
+      await this.suppress(notificationId, "category_muted");
       return;
     }
 

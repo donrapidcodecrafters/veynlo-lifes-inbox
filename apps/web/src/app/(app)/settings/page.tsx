@@ -17,7 +17,21 @@ interface NotificationPreferences {
   intensity: "quiet" | "balanced" | "proactive";
   dailyBriefEnabled: boolean;
   weeklyBriefEnabled: boolean;
+  categoryOverrides: Record<string, string>;
 }
+
+// Matches the real `category` values IngestionService.fileInboxItem passes when filing each domain
+// (see the `domains.includes(...)` branches in ingestion.service.ts) — the only categories a user
+// could plausibly want to mute individually. Digests have their own dedicated toggles above instead.
+const NOTIFICATION_CATEGORIES: Array<{ key: string; label: string }> = [
+  { key: "purchase", label: "Purchases" },
+  { key: "shipment", label: "Shipments" },
+  { key: "bill", label: "Bills" },
+  { key: "subscription", label: "Subscriptions" },
+  { key: "appointment", label: "Appointments" },
+  { key: "warranty", label: "Warranties" },
+  { key: "task", label: "Tasks" },
+];
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -29,6 +43,13 @@ export default function SettingsPage() {
     mutate({ ...prefs, ...patch } as NotificationPreferences, false);
     await api.put("/v1/notification-preferences", patch);
     mutate();
+  }
+
+  async function setCategoryMuted(category: string, muted: boolean) {
+    const categoryOverrides = { ...(prefs?.categoryOverrides ?? {}) };
+    if (muted) categoryOverrides[category] = "off";
+    else delete categoryOverrides[category];
+    await updatePrefs({ categoryOverrides });
   }
 
   async function signOut() {
@@ -165,6 +186,21 @@ export default function SettingsPage() {
               checked={prefs?.weeklyBriefEnabled ?? true}
               onCheckedChange={(v) => updatePrefs({ weeklyBriefEnabled: v })}
             />
+            <div className="space-y-3 border-t border-border-subtle pt-4">
+              <p className="text-[0.9375rem] font-medium text-primary">By category</p>
+              <p className="text-sm text-tertiary">Turn off notifications for a specific kind of thing without changing your overall intensity.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {NOTIFICATION_CATEGORIES.map((c) => (
+                  <Switch
+                    key={c.key}
+                    id={`category-${c.key}`}
+                    label={c.label}
+                    checked={prefs?.categoryOverrides?.[c.key] !== "off"}
+                    onCheckedChange={(v) => setCategoryMuted(c.key, !v)}
+                  />
+                ))}
+              </div>
+            </div>
             <div className="flex items-center justify-between border-t border-border-subtle pt-4">
               <p className="text-sm text-tertiary">See everything Veynlo has sent you.</p>
               <Link href="/settings/notifications">
