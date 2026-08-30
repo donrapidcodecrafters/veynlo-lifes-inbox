@@ -5,7 +5,7 @@ import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import heicConvert from "heic-convert";
-import { generateId, type DocumentType } from "@veynlo/core";
+import { generateId, DocumentTypeSchema, type DocumentType } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -210,6 +210,19 @@ export class DocumentsService {
       }
     }
 
+    // DOC-001 "AI classification" — documentType was previously purely whatever the client sent at
+    // upload time (mobile's picker defaults to "receipt" for everything), never predicted or corrected
+    // from the document's actual content. Runs after OCR since classification needs real text to work
+    // from; a failure here is non-fatal (keeps the client-provided type) same posture as OCR above.
+    let classifiedType: DocumentType | null = null;
+    if (ocrText && this.ai.isConfigured()) {
+      try {
+        classifiedType = await this.classifyDocumentType(ocrText);
+      } catch (err) {
+        this.logger.warn(`Classification failed for ${documentId}: ${String(err)}`);
+      }
+    }
+
     await this.db.insert(schema.documentVersions).values({
       id: versionId,
       documentId,
@@ -224,7 +237,11 @@ export class DocumentsService {
 
     await this.db
       .update(schema.documents)
-      .set({ processingState: ocrText ? "extracted" : "classified", updatedAt: new Date() })
+      .set({
+        processingState: ocrText ? "extracted" : "classified",
+        ...(classifiedType ? { documentType: classifiedType } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.documents.id, documentId));
 
     await this.reindexDocument(documentId);
@@ -284,6 +301,21 @@ export class DocumentsService {
       return this.transcribeImage(buffer, mimeType as "image/jpeg" | "image/png");
     }
     return null;
+  }
+
+  /** DOC-001 "AI classification" — predicts documentType from the document's actual OCR'd content,
+   * rather than trusting whatever the client happened to send at upload time. */
+  private async classifyDocumentType(ocrText: string): Promise<DocumentType | null> {
+    const result = await this.ai.extractStructured({
+      extractorName: "document_classification_v1",
+      model: "cheap",
+      systemPrompt:
+        'Classify this document into exactly one type. Choose "other" only if none of the other types clearly fit.',
+      userContent: ocrText.slice(0, 8_000),
+      schema: z.object({ documentType: DocumentTypeSchema }),
+      toolDescription: "Emit the classified document type.",
+    });
+    return result?.data.documentType ?? null;
   }
 
   private async transcribeImage(buffer: Buffer, mediaType: "image/jpeg" | "image/png"): Promise<string | null> {
@@ -541,6 +573,17 @@ export class DocumentsService {
       }
     }
 
+    // DOC-001 "AI classification" — a replaced version's content may be entirely different from the
+    // original (e.g. a placeholder re-uploaded with the real file), so re-classify the same as upload().
+    let classifiedType: DocumentType | null = null;
+    if (ocrText && this.ai.isConfigured()) {
+      try {
+        classifiedType = await this.classifyDocumentType(ocrText);
+      } catch (err) {
+        this.logger.warn(`Classification failed for ${documentId} v${nextVersionNumber}: ${String(err)}`);
+      }
+    }
+
     await this.db.insert(schema.documentVersions).values({
       id: versionId,
       documentId,
@@ -554,7 +597,12 @@ export class DocumentsService {
     });
     await this.db
       .update(schema.documents)
-      .set({ currentVersionId: versionId, processingState: ocrText ? "extracted" : "classified", updatedAt: new Date() })
+      .set({
+        currentVersionId: versionId,
+        processingState: ocrText ? "extracted" : "classified",
+        ...(classifiedType ? { documentType: classifiedType } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.documents.id, documentId));
 
     await this.reindexDocument(documentId);
