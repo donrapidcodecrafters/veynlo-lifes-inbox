@@ -346,7 +346,7 @@ export class DocumentsService {
 
   /** DOC-006/DOC-001 "rename, correct type, tag" — write-once-at-upload before this; the only mutation available afterward. */
   async updateMetadata(documentId: string, userId: string, dto: { title?: string; documentType?: DocumentType; tags?: string[] }) {
-    await this.assertOwnedDocument(documentId, userId);
+    await this.assertDocumentOwner(documentId, userId);
     const patch: Partial<typeof schema.documents.$inferInsert> = { updatedAt: new Date() };
     if (dto.title !== undefined) patch.title = dto.title;
     if (dto.documentType !== undefined) patch.documentType = dto.documentType;
@@ -357,7 +357,7 @@ export class DocumentsService {
 
   /** DOC-006 "link/unlink object" — the other half of TIME-002's "attach document" (linking happens at upload time via `linkedResourceId`). */
   async unlinkResource(documentId: string, userId: string, resourceId: string) {
-    const doc = await this.assertOwnedDocument(documentId, userId);
+    const doc = await this.assertDocumentOwner(documentId, userId);
     await this.db
       .update(schema.documents)
       .set({ linkedEntityIds: doc.linkedEntityIds.filter((id) => id !== resourceId), updatedAt: new Date() })
@@ -372,7 +372,7 @@ export class DocumentsService {
    * — the confirmation copy lives in the UI, this method just does what it's told once confirmed.
    */
   async setRetention(documentId: string, userId: string, retentionPolicy: "full_original" | "extracted_only" | "delete_after_processing") {
-    await this.assertOwnedDocument(documentId, userId);
+    await this.assertDocumentOwner(documentId, userId);
     if (retentionPolicy !== "full_original") {
       const versions = await this.db.select({ blobRef: schema.documentVersions.blobRef }).from(schema.documentVersions).where(eq(schema.documentVersions.documentId, documentId));
       for (const version of versions) await this.storage.deleteObject(version.blobRef).catch(() => undefined);
@@ -391,7 +391,7 @@ export class DocumentsService {
    * control with no real backing logic yet.
    */
   async setVisibility(documentId: string, userId: string, visibility: "private" | "household") {
-    const document = await this.assertOwnedDocument(documentId, userId);
+    const document = await this.assertDocumentOwner(documentId, userId);
     if (visibility === "household" && !document.householdId) {
       throw new BadRequestException({
         code: "NO_HOUSEHOLD",
@@ -403,12 +403,12 @@ export class DocumentsService {
 
   /** §Sharing expansion — same shape as AttentionService's identical pair, generalized via SharingService. */
   async createShareLink(documentId: string, userId: string) {
-    await this.assertOwnedDocument(documentId, userId);
+    await this.assertDocumentOwner(documentId, userId);
     return this.sharing.createShareLink("document", documentId, userId);
   }
 
   async revokeShareLinks(documentId: string, userId: string) {
-    await this.assertOwnedDocument(documentId, userId);
+    await this.assertDocumentOwner(documentId, userId);
     await this.sharing.revokeShareLinks("document", documentId, userId);
   }
 
@@ -450,7 +450,7 @@ export class DocumentsService {
 
   /** DOC-001/DOC-006 "delete" — no delete endpoint existed at all before this. Removes every version's blob from storage before the DB row (cascades to document_versions), so nothing orphaned is left in the bucket. */
   async deleteDocument(documentId: string, userId: string) {
-    await this.assertOwnedDocument(documentId, userId);
+    await this.assertDocumentOwner(documentId, userId);
     const versions = await this.db.select({ blobRef: schema.documentVersions.blobRef }).from(schema.documentVersions).where(eq(schema.documentVersions.documentId, documentId));
     for (const version of versions) await this.storage.deleteObject(version.blobRef).catch(() => undefined);
     await this.db.delete(schema.documents).where(eq(schema.documents.id, documentId));
@@ -464,7 +464,7 @@ export class DocumentsService {
    * incrementing `versionNumber` instead of always starting a fresh document.
    */
   async addVersion(documentId: string, userId: string, params: { mimeType: string; buffer: Buffer }): Promise<{ versionId: string }> {
-    const doc = await this.assertOwnedDocument(documentId, userId);
+    const doc = await this.assertDocumentOwner(documentId, userId);
     if (params.buffer.length === 0) throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
     if (params.buffer.length > MAX_UPLOAD_BYTES) throw new BadRequestException({ code: "FILE_TOO_LARGE", message: "Files must be 25MB or smaller." });
     if (!ALLOWED_MIME_TYPES.has(params.mimeType)) {
@@ -552,6 +552,10 @@ export class DocumentsService {
     });
   }
 
+  /** Read access only — a "documents:read" delegate can reach a non-private household document through
+   * this. Genuine mutations must use assertDocumentOwner below instead; this was previously (incorrectly)
+   * shared by both, which let a read-only delegate delete/overwrite/re-share another member's document —
+   * see assertDocumentOwner's own comment. */
   private async assertOwnedDocument(documentId: string, userId: string) {
     const [doc] = await this.db.select().from(schema.documents).where(eq(schema.documents.id, documentId)).limit(1);
     if (!doc) throw new NotFoundException({ code: "DOCUMENT_NOT_FOUND", message: "Not found." });
@@ -562,6 +566,22 @@ export class DocumentsService {
         throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
       }
     }
+    return doc;
+  }
+
+  /**
+   * Strict owner-only — for every real mutation (rename/retag, unlink, retention, visibility, share-link
+   * create/revoke, delete, new version). `assertOwnedDocument` above deliberately allows a "documents:read"
+   * household delegate through for non-private documents, which is correct for genuine reads (view/download/
+   * list versions) but was a real privilege-escalation bug when the exact same check also gated these
+   * mutations: a delegate with READ-only access could delete another member's document, overwrite its
+   * content, destroy the original file via retention policy, or mint a public share link for it. Matches
+   * ScheduleService's identical strict-owner pattern for its own mutations.
+   */
+  private async assertDocumentOwner(documentId: string, userId: string) {
+    const [doc] = await this.db.select().from(schema.documents).where(eq(schema.documents.id, documentId)).limit(1);
+    if (!doc) throw new NotFoundException({ code: "DOCUMENT_NOT_FOUND", message: "Not found." });
+    if (doc.ownerUserId !== userId) throw new ForbiddenException({ code: "NOT_OWNER", message: "Not your document." });
     return doc;
   }
 }

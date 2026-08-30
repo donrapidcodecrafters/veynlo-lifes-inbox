@@ -3,6 +3,8 @@ import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { generateId } from "@veynlo/core";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { eq, inArray } from "drizzle-orm";
+import { HouseholdService } from "../household/household.service";
+import { SearchIndexService } from "../search/search-index.service";
 import { DocumentsService } from "./documents.service";
 
 /**
@@ -13,30 +15,43 @@ import { DocumentsService } from "./documents.service";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const db: Database = createDbClient(DATABASE_URL);
-const documents = new DocumentsService(db, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+const households = new HouseholdService(db, {} as never, {} as never);
+const searchIndex = new SearchIndexService(db);
+const documents = new DocumentsService(db, {} as never, {} as never, {} as never, households, {} as never, searchIndex, {} as never);
 
 const ownerId = generateId("user");
 const strangerId = generateId("user");
+const delegateId = generateId("user");
 const householdId = generateId("household");
 const docInHouseholdId = generateId("document");
 const docSoloId = generateId("document");
+const delegationId = generateId("caregiverDelegation");
 
 beforeAll(async () => {
   await db.insert(schema.users).values([
     { id: ownerId, displayName: "Owner" },
     { id: strangerId, displayName: "Stranger" },
+    { id: delegateId, displayName: "Delegate" },
   ]);
   await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerId });
   await db.insert(schema.documents).values([
-    { id: docInHouseholdId, ownerUserId: ownerId, householdId, documentType: "receipt", title: "Household doc", tags: [] },
+    { id: docInHouseholdId, ownerUserId: ownerId, householdId, documentType: "receipt", title: "Household doc", tags: [], visibility: "household" },
     { id: docSoloId, ownerUserId: ownerId, householdId: null, documentType: "receipt", title: "Solo doc", tags: [] },
   ]);
+  await db.insert(schema.caregiverDelegations).values({
+    id: delegationId,
+    householdId,
+    delegateUserId: delegateId,
+    scopes: ["documents:read"],
+    grantedByUserId: ownerId,
+  });
 });
 
 afterAll(async () => {
+  await db.delete(schema.caregiverDelegations).where(eq(schema.caregiverDelegations.id, delegationId));
   await db.delete(schema.documents).where(inArray(schema.documents.id, [docInHouseholdId, docSoloId]));
   await db.delete(schema.households).where(eq(schema.households.id, householdId));
-  await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId]));
+  await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId, delegateId]));
 });
 
 describe("DocumentsService.setVisibility", () => {
@@ -56,5 +71,45 @@ describe("DocumentsService.setVisibility", () => {
     await documents.setVisibility(docInHouseholdId, ownerId, "private");
     [row] = await db.select({ visibility: schema.documents.visibility }).from(schema.documents).where(eq(schema.documents.id, docInHouseholdId));
     expect(row?.visibility).toBe("private");
+    // Restore to "household" — the delegate-access tests below rely on this document being visible to them.
+    await documents.setVisibility(docInHouseholdId, ownerId, "household");
+  });
+});
+
+/**
+ * Real, previously-shipped privilege-escalation bug: assertOwnedDocument (delegate-allowed, for genuine
+ * reads) was ALSO used to gate every real mutation — delete, overwrite, retention (destroys the original
+ * file), rename/retag, unlink, and worst of all mint a public share link — meaning a household member
+ * granted only "documents:read" delegation could do all of that to another member's document. Fixed by
+ * splitting into assertOwnedDocument (reads) vs. the new strict assertDocumentOwner (mutations). Real
+ * DB-backed proof: a real caregiver_delegations row scoped to documents:read can read but not mutate.
+ */
+describe("DocumentsService — read-only delegate cannot mutate (privilege-escalation fix)", () => {
+  it("a documents:read delegate CAN read version metadata (unchanged, correct behavior)", async () => {
+    await expect(documents.listVersions(docInHouseholdId, delegateId)).resolves.toBeDefined();
+  });
+
+  it("a documents:read delegate CANNOT delete the document", async () => {
+    await expect(documents.deleteDocument(docInHouseholdId, delegateId)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("a documents:read delegate CANNOT rename/retag it", async () => {
+    await expect(documents.updateMetadata(docInHouseholdId, delegateId, { title: "Hijacked" })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("a documents:read delegate CANNOT change its retention policy (would destroy the original file)", async () => {
+    await expect(documents.setRetention(docInHouseholdId, delegateId, "delete_after_processing")).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("a documents:read delegate CANNOT mint a public share link for it", async () => {
+    await expect(documents.createShareLink(docInHouseholdId, delegateId)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("a documents:read delegate CANNOT unlink it from a resource", async () => {
+    await expect(documents.unlinkResource(docInHouseholdId, delegateId, "purchase_fake")).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("the real owner is completely unaffected by the fix", async () => {
+    await expect(documents.updateMetadata(docInHouseholdId, ownerId, { title: "Household doc" })).resolves.toBeUndefined();
   });
 });
