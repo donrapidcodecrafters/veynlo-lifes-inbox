@@ -88,6 +88,28 @@ jobs:
       - name: Build remaining apps/services
         run: pnpm --filter "@veynlo/api" --filter "@veynlo/web" --filter "@veynlo/admin" run build
 
+      - name: Install Playwright browsers
+        run: pnpm --filter @veynlo/web exec playwright install --with-deps chromium
+
+      # Real Postgres/Redis, real API + web builds already sitting here from the steps above — the E2E
+      # suite's own playwright.config.ts starts both servers itself (CI=true from GitHub Actions makes
+      # `reuseExistingServer: !process.env.CI` start fresh ones rather than expecting anything pre-running)
+      # against the already-applied migrations. No deployment-specific secret is required: every env var
+      # the API needs has a safe non-production default (see services/api/src/config/env.ts), and the
+      # three flows this suite covers (sign-in, capture-to-inbox, ICS calendar connect) don't touch any of
+      # the optional integrations (Google/Microsoft OAuth, Anthropic, Stripe, ClamAV) that are genuinely
+      # unconfigured in CI.
+      - name: E2E smoke tests (Playwright)
+        run: pnpm --filter @veynlo/web exec playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
   security-scan:
     runs-on: ubuntu-latest
     steps:

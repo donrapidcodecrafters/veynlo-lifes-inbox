@@ -23,6 +23,10 @@ android/.gradle/
 *.key
 .expo/
 apps/mobile/.expo/
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+apps/web/playwright/.cache/
 infrastructure/docker/volumes/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/schemas/
