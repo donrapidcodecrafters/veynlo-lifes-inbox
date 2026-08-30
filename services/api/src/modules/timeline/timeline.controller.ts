@@ -13,9 +13,9 @@ export class TimelineController {
   constructor(private readonly timeline: TimelineService) {}
 
   @Get()
-  get(@CurrentUser() user: AuthenticatedUser, @Query("before") before?: string, @Query("kind") kind?: string) {
+  get(@CurrentUser() user: AuthenticatedUser, @Query("before") before?: string, @Query("kind") kind?: string, @Query("search") search?: string) {
     const validatedKind = kind && VALID_KINDS.has(kind as TimelineKind) ? (kind as TimelineKind) : null;
-    return this.timeline.getTimeline(user.userId, before ?? null, validatedKind);
+    return this.timeline.getTimeline(user.userId, before ?? null, validatedKind, search ?? null);
   }
 
   @Get("export")

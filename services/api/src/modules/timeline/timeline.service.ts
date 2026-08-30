@@ -143,12 +143,23 @@ export class TimelineService {
     `;
   }
 
+  /**
+   * TIME-001 "search box and jump-to-date" — jump-to-date needed no backend change at all: `before` is
+   * already a real cursor (`occurred_at < before`), so a date picker that sets it to the chosen date IS
+   * jump-to-date. Search does need one: every encrypted-title kind (calendar_event/bill/warranty/document)
+   * comes back as ciphertext from this raw-SQL union (see the decode comment below), so a text search can
+   * only ever work against `search_documents` (built from the real plaintext at write time — see
+   * SearchIndexService) — never against `timeline`'s own columns directly. The join is scoped to this
+   * user's own rows via the same owner_user_id predicate every other query here uses.
+   */
   async getTimeline(
     ownerUserId: string,
     before: string | null,
     kind: TimelineKind | null = null,
+    search: string | null = null,
   ): Promise<{ items: TimelineItem[]; nextCursor: string | null }> {
     const beforeTimestamp = before ? new Date(before) : null;
+    const searchTerm = search?.trim() || null;
 
     const result = await this.db.execute<{
       id: string;
@@ -159,16 +170,19 @@ export class TimelineService {
       resource_id: string;
       parent_purchase_id: string | null;
     }>(sql`
-      select * from (${this.timelineUnion(ownerUserId)}) timeline
-      where (${beforeTimestamp}::timestamptz is null or occurred_at < ${beforeTimestamp})
+      select t.* from (${this.timelineUnion(ownerUserId)}) t
+      left join search_documents sd
+        on sd.resource_type = t.resource_type and sd.resource_id = t.resource_id and sd.owner_user_id = ${ownerUserId}
+      where (${beforeTimestamp}::timestamptz is null or t.occurred_at < ${beforeTimestamp})
         and (
           ${kind}::text is null
-          or kind = ${kind}
+          or t.kind = ${kind}
           -- A shipment must still pass through when filtering to "purchase" specifically, or
           -- collapseShipments() below has nothing to fold under its parent purchase.
-          or (${kind}::text = 'purchase' and kind = 'shipment')
+          or (${kind}::text = 'purchase' and t.kind = 'shipment')
         )
-      order by occurred_at desc
+        and (${searchTerm}::text is null or sd.search_vector @@ websearch_to_tsquery('english', ${searchTerm}))
+      order by t.occurred_at desc
       limit ${PAGE_SIZE + 1}
     `);
 

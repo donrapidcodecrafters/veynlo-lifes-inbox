@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -111,6 +111,14 @@ export default function TimelineScreen() {
   const [kindFilter, setKindFilter] = useState<TimelineKind | "">("");
   const [showExport, setShowExport] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+
+  // TIME-001 "search box" — debounced so every keystroke doesn't fire a request.
+  useEffect(() => {
+    const handle = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   /** Same "no browser download here" reasoning as Documents export: the CSV is written to the cache
    * directory and handed to the OS share sheet via expo-sharing. */
@@ -134,15 +142,18 @@ export default function TimelineScreen() {
 
   useEffect(() => {
     setIsLoading(true);
-    const qs = kindFilter ? `?kind=${kindFilter}` : "";
+    const params = new URLSearchParams();
+    if (kindFilter) params.set("kind", kindFilter);
+    if (search) params.set("search", search);
+    const qs = params.toString();
     api
-      .get<TimelineResponse>(`/v1/timeline${qs}`)
+      .get<TimelineResponse>(`/v1/timeline${qs ? `?${qs}` : ""}`)
       .then((res) => {
         setItems(res.items);
         setCursor(res.nextCursor);
       })
       .finally(() => setIsLoading(false));
-  }, [kindFilter]);
+  }, [kindFilter, search]);
 
   async function loadMore() {
     if (!cursor) return;
@@ -150,6 +161,7 @@ export default function TimelineScreen() {
     try {
       const params = new URLSearchParams({ before: cursor });
       if (kindFilter) params.set("kind", kindFilter);
+      if (search) params.set("search", search);
       const res = await api.get<TimelineResponse>(`/v1/timeline?${params.toString()}`);
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
@@ -181,6 +193,24 @@ export default function TimelineScreen() {
           </View>
         </Card>
       )}
+
+      <TextInput
+        value={searchInput}
+        onChangeText={setSearchInput}
+        placeholder="Search timeline…"
+        placeholderTextColor={theme.colors.textTertiary}
+        accessibilityLabel="Search timeline"
+        style={{
+          height: 40,
+          borderRadius: theme.radius.md,
+          borderWidth: 1,
+          borderColor: theme.colors.borderDefault,
+          paddingHorizontal: 12,
+          fontSize: 14,
+          color: theme.colors.textPrimary,
+          backgroundColor: theme.colors.bgSurface,
+        }}
+      />
 
       <View style={{ flexDirection: "row", gap: 6, padding: 6, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.sm }}>
         {(["day", "week", "month"] as const).map((z) => {
@@ -230,8 +260,12 @@ export default function TimelineScreen() {
 
       {!isLoading && items.length === 0 && (
         <EmptyState
-          title="Nothing here yet"
-          description="As Veynlo learns about your purchases, bills, appointments, and documents, they'll show up here in order."
+          title={search ? "No matches" : "Nothing here yet"}
+          description={
+            search
+              ? "Nothing matches this search. Try a different term, or clear the search field."
+              : "As Veynlo learns about your purchases, bills, appointments, and documents, they'll show up here in order."
+          }
         />
       )}
 

@@ -104,18 +104,34 @@ export default function TimelinePage() {
   const [zoom, setZoom] = useState<ZoomLevel>("day");
   const [kindFilter, setKindFilter] = useState<TimelineKind | "">("");
   const [showExport, setShowExport] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [jumpDate, setJumpDate] = useState("");
+
+  // TIME-001 "search box" — debounced so every keystroke doesn't fire a request.
+  useEffect(() => {
+    const handle = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   const refresh = useCallback(() => {
     setIsLoading(true);
-    const qs = kindFilter ? `?kind=${kindFilter}` : "";
+    const params = new URLSearchParams();
+    if (kindFilter) params.set("kind", kindFilter);
+    if (search) params.set("search", search);
+    // TIME-001 "jump to date" — `before` is already a real cursor (occurredAt < before); jumping to a
+    // date just means starting the cursor there instead of at "now". One day added so the chosen date
+    // itself is included, not excluded by the strict "<".
+    if (jumpDate) params.set("before", new Date(new Date(jumpDate).getTime() + 86_400_000).toISOString());
+    const qs = params.toString();
     api
-      .get<TimelineResponse>(`/v1/timeline${qs}`)
+      .get<TimelineResponse>(`/v1/timeline${qs ? `?${qs}` : ""}`)
       .then((res) => {
         setItems(res.items);
         setCursor(res.nextCursor);
       })
       .finally(() => setIsLoading(false));
-  }, [kindFilter]);
+  }, [kindFilter, search, jumpDate]);
 
   useDomainCacheInvalidation(refresh);
 
@@ -129,6 +145,7 @@ export default function TimelinePage() {
     try {
       const params = new URLSearchParams({ before: cursor });
       if (kindFilter) params.set("kind", kindFilter);
+      if (search) params.set("search", search);
       const res = await api.get<TimelineResponse>(`/v1/timeline?${params.toString()}`);
       setItems((prev) => [...prev, ...res.items]);
       setCursor(res.nextCursor);
@@ -169,6 +186,34 @@ export default function TimelinePage() {
         </Card>
       )}
 
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search timeline…"
+          aria-label="Search timeline"
+          className="h-9 min-w-0 flex-1 rounded-lg border border-border-default bg-surface px-3 text-sm text-primary placeholder:text-tertiary"
+        />
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="jump-to-date" className="text-sm text-tertiary">
+            Jump to
+          </label>
+          <input
+            id="jump-to-date"
+            type="date"
+            value={jumpDate}
+            onChange={(e) => setJumpDate(e.target.value)}
+            className="h-9 rounded-lg border border-border-default bg-surface px-2 text-sm text-primary"
+          />
+          {jumpDate && (
+            <button type="button" onClick={() => setJumpDate("")} className="text-sm text-tertiary hover:text-primary">
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           aria-label="Zoom level"
@@ -205,8 +250,12 @@ export default function TimelinePage() {
 
       {!isLoading && items.length === 0 && (
         <EmptyState
-          title="Nothing here yet"
-          description="As Veynlo learns about your purchases, bills, appointments, and documents, they'll show up here in order."
+          title={search || jumpDate ? "No matches" : "Nothing here yet"}
+          description={
+            search || jumpDate
+              ? "Nothing matches this search or date. Try a different term, or clear the search and jump-to-date fields."
+              : "As Veynlo learns about your purchases, bills, appointments, and documents, they'll show up here in order."
+          }
         />
       )}
 
