@@ -83,4 +83,12 @@ export class CredentialVault {
       .set({ encryptedPayload: this.encrypt(JSON.stringify(credentials)), expiresAt, rotatedAt: new Date() })
       .where(eq(schema.connectionCredentials.id, credentialRef));
   }
+
+  /** Called on disconnect — a disconnected connection's stored OAuth token must not just stop being used,
+   * it must stop existing. Previously nothing anywhere ever deleted this row, so a user who disconnected
+   * (believing they'd revoked access) still had a live, encrypted-but-valid refresh token sitting in the
+   * database indefinitely. */
+  async delete(credentialRef: string): Promise<void> {
+    await this.db.delete(schema.connectionCredentials).where(eq(schema.connectionCredentials.id, credentialRef));
+  }
 }
