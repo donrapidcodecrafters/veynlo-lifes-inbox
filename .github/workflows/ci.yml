@@ -114,6 +114,8 @@ jobs:
           file: services/api/Dockerfile
           target: api
           push: false
+          load: true # without this the image only exists inside BuildKit's own cache, never in the
+          # local Docker daemon — the SBOM step below scans it by tag via `docker`, which needs it loaded.
           tags: veynlo-api:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -125,6 +127,7 @@ jobs:
           file: services/api/Dockerfile
           target: worker
           push: false
+          load: true
           tags: veynlo-worker:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
