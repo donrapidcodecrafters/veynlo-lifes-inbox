@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3100",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'no-op (ESLint flat config pending)'",
+    "lint": "eslint src --max-warnings 0",
     "test": "echo 'no-op'",
     "clean": "rm -rf .next"
   },

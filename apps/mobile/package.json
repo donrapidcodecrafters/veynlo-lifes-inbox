@@ -9,7 +9,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'no-op (ESLint flat config pending)'",
+    "lint": "eslint . --max-warnings 0",
     "test": "echo 'no-op'",
     "build": "echo 'no-op — native builds go through EAS Build, not turbo (see docs/ROADMAP.md)'",
     "clean": "rm -rf .expo dist"

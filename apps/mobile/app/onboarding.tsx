@@ -188,14 +188,12 @@ function ConnectStep({
   onSkip: () => void;
 }) {
   const { theme } = useAppTheme();
-  const [connections, setConnections] = useState<Connection[]>([]);
 
   // OAuth completes in the system browser (no in-app deep-link handback on mobile yet — see
   // ROADMAP's connectors item) — so this is how the wizard notices a connection appeared while the
   // user was away in Safari/Chrome and auto-advances instead of leaving them stuck on this screen.
   const checkConnections = useCallback(async () => {
     const data = await api.get<Connection[]>("/v1/connectors").catch(() => []);
-    setConnections(data);
     if (data.length > 0) onContinue();
   }, [onContinue]);
 

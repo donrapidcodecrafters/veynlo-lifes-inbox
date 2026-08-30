@@ -282,6 +282,7 @@ export default function InboxPage() {
             </div>
           </div>
           <select
+            aria-label="Filter by category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             className="rounded-lg border border-border-default bg-surface px-2.5 py-1.5 text-sm text-primary"
@@ -306,6 +307,11 @@ export default function InboxPage() {
           onCancel={() => setCapturing(false)}
         />
       )}
+
+      {/* Visually hidden — the filter tabs above already convey what's being shown at a glance, but the
+          region still needs a heading of its own: without one, this jumped straight from the page's h1 to
+          EmptyState's h3 with nothing in between (a real axe heading-order violation this caught). */}
+      <h2 className="sr-only">Items to review</h2>
 
       {isLoading && (
         <div className="space-y-3">
@@ -379,6 +385,7 @@ export default function InboxPage() {
                       <div className="flex flex-wrap items-center gap-2 rounded-lg bg-subtle p-2">
                         <span className="text-sm text-secondary">Always file messages from this sender as:</span>
                         <select
+                          aria-label="Always file messages from this sender as"
                           value={ruleCategory}
                           onChange={(e) => setRuleCategory(e.target.value)}
                           className="h-8 rounded-md border border-border-default bg-surface px-2 text-sm text-primary"

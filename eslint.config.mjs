@@ -18,6 +18,10 @@ export default tseslint.config(
       "**/*.d.ts",
       "**/drizzle.config.ts",
       "packages/db/src/migrations/**",
+      // Metro/Expo config plugins run under Node's plain CJS loader before any bundler touches them —
+      // genuinely require() rather than ESM import, same category as drizzle.config.ts above.
+      "apps/mobile/metro.config.js",
+      "apps/mobile/plugins/**",
     ],
   },
   ...tseslint.configs.recommended,

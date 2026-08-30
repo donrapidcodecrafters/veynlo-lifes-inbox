@@ -255,6 +255,7 @@ export default function PrivacyPage() {
               </p>
             </div>
             <select
+              aria-label="Raw evidence retention"
               value={me?.dataRetentionDays != null ? String(me.dataRetentionDays) : ""}
               onChange={(e) => setRetention(e.target.value)}
               disabled={updatingRetention}
