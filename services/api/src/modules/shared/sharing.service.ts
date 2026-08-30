@@ -1,13 +1,22 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { randomBytes, createHash } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { generateId } from "@veynlo/core";
+import { generateId, canCreateShareLink, type SensitivityTier } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv } from "../../config/env";
 
 const SHARE_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Static tier for the two resourceTypes with no per-row sensitivity column of their own (matching this
+// codebase's own Appendix C examples: "calendar titles" is explicitly a "sensitive"-tier item; attention
+// items are summaries/reasons drawn from those same domains, not raw financial/identity/health data).
+// `document` instead reads the row's own real `sensitivity` column below, since that varies per document.
+const STATIC_RESOURCE_SENSITIVITY: Record<string, SensitivityTier> = {
+  attention_item: "sensitive",
+  calendar_event: "sensitive",
+};
 
 /**
  * §Sharing expansion — the token/hash/expiry mechanics behind every "share" action (previously inlined
@@ -37,8 +46,34 @@ export class SharingService {
     });
   }
 
+  /**
+   * §45.4 "highly sensitive categories can disallow public share links entirely" — canCreateShareLink
+   * existed in packages/core with exactly that doc comment, but nothing here ever actually called it; a
+   * real gap, not just dead code, since it's the one guard this specific method's own class doc singles
+   * out. Every resourceType this method is ever actually called with today resolves to "sensitive" (the
+   * static map below, or a document's own real `sensitivity` column, which is itself always "sensitive"
+   * until per-document classification exists) — so this doesn't change today's behavior for any real
+   * caller, but it's the correct, real check going forward rather than an unenforced comment.
+   */
+  private async assertShareLinkAllowed(resourceType: string, resourceId: string): Promise<void> {
+    let tier: SensitivityTier;
+    if (resourceType === "document") {
+      const [doc] = await this.db.select({ sensitivity: schema.documents.sensitivity }).from(schema.documents).where(eq(schema.documents.id, resourceId)).limit(1);
+      tier = doc?.sensitivity ?? "sensitive";
+    } else {
+      tier = STATIC_RESOURCE_SENSITIVITY[resourceType] ?? "sensitive";
+    }
+    if (!canCreateShareLink(tier)) {
+      throw new BadRequestException({
+        code: "SHARE_LINK_NOT_ALLOWED",
+        message: "This item is too sensitive to share via a public link.",
+      });
+    }
+  }
+
   /** Returns the plaintext token exactly once, inside the URL — only its hash is ever stored. */
   async createShareLink(resourceType: string, resourceId: string, userId: string): Promise<{ url: string }> {
+    await this.assertShareLinkAllowed(resourceType, resourceId);
     const token = randomBytes(24).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     await this.db.insert(schema.shareLinks).values({

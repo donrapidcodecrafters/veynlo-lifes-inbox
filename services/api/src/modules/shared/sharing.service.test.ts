@@ -51,6 +51,37 @@ afterAll(async () => {
   await db.delete(schema.users).where(inArray(schema.users.id, [ownerId, strangerId]));
 });
 
+describe("Sharing — sensitivity-tier gate", () => {
+  const sensitiveDocId = generateId("document");
+  const highlySensitiveDocId = generateId("document");
+
+  beforeAll(async () => {
+    await db.insert(schema.documents).values([
+      { id: sensitiveDocId, ownerUserId: ownerId, documentType: "receipt", title: "A sensitive doc", sensitivity: "sensitive", tags: [] },
+      { id: highlySensitiveDocId, ownerUserId: ownerId, documentType: "identity", title: "A highly sensitive doc", sensitivity: "highly_sensitive", tags: [] },
+    ]);
+  });
+
+  afterAll(async () => {
+    await db.delete(schema.shareLinks).where(inArray(schema.shareLinks.resourceId, [sensitiveDocId, highlySensitiveDocId]));
+    await db.delete(schema.documents).where(inArray(schema.documents.id, [sensitiveDocId, highlySensitiveDocId]));
+  });
+
+  it("allows a public share link for a 'sensitive'-tier document", async () => {
+    const result = await sharing.createShareLink("document", sensitiveDocId, ownerId);
+    expect(result.url).toContain("/shared/");
+  });
+
+  it("refuses a public share link for a 'highly_sensitive'-tier document", async () => {
+    await expect(sharing.createShareLink("document", highlySensitiveDocId, ownerId)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("still allows calendar_event (a resourceType with no per-row sensitivity column, statically 'sensitive')", async () => {
+    const result = await sharing.createShareLink("calendar_event", eventId, ownerId);
+    expect(result.url).toContain("/shared/");
+  });
+});
+
 describe("Sharing — cross-user isolation", () => {
   it("listMyShareLinks never returns another user's share links", async () => {
     const ownerLinks = await sharing.listMyShareLinks(ownerId);
