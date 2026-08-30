@@ -27,6 +27,11 @@ interface SearchResponse {
   bills: Array<{ id: string; billerLabel: string }>;
   documents: Array<{ id: string; title: string }>;
   events: Array<{ id: string; title: string }>;
+  warranties: Array<{ id: string; productLabel: string }>;
+  subscriptions: Array<{ id: string; stream: { serviceLabel: string } }>;
+  shipments: Array<{ id: string; carrier: string; trackingNumber: string }>;
+  returnCases: Array<{ id: string; purchase: { orderNumber: string | null } }>;
+  people: Array<{ id: string; displayLabel: string }>;
 }
 
 const SUGGESTIONS = [
@@ -157,7 +162,12 @@ export default function AskScreen() {
               {searchResult.purchases.length === 0 &&
                 searchResult.bills.length === 0 &&
                 searchResult.documents.length === 0 &&
-                searchResult.events.length === 0 && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>No matches.</Text>}
+                searchResult.events.length === 0 &&
+                searchResult.warranties.length === 0 &&
+                searchResult.subscriptions.length === 0 &&
+                searchResult.shipments.length === 0 &&
+                searchResult.returnCases.length === 0 &&
+                searchResult.people.length === 0 && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>No matches.</Text>}
 
               {searchResult.purchases.length > 0 && (
                 <View style={{ gap: 6 }}>
@@ -218,6 +228,88 @@ export default function AskScreen() {
                       accessibilityLabel={e.title}
                     >
                       <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{e.title}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {searchResult.warranties.length > 0 && (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Warranties</Text>
+                  {searchResult.warranties.map((w) => (
+                    <Pressable
+                      key={w.id}
+                      onPress={() => router.push(`/warranty/${w.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={w.productLabel}
+                    >
+                      <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{w.productLabel}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {searchResult.subscriptions.length > 0 && (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Subscriptions</Text>
+                  {searchResult.subscriptions.map((s) => (
+                    <Pressable
+                      key={s.id}
+                      onPress={() => router.push(`/subscription/${s.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={s.stream.serviceLabel}
+                    >
+                      <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{s.stream.serviceLabel}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {searchResult.shipments.length > 0 && (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Shipments</Text>
+                  {searchResult.shipments.map((s) => (
+                    <Pressable
+                      key={s.id}
+                      onPress={() => router.push(`/shipment/${s.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${s.carrier}, ${s.trackingNumber}`}
+                    >
+                      <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>
+                        {s.carrier} — {s.trackingNumber}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {searchResult.returnCases.length > 0 && (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Returns</Text>
+                  {searchResult.returnCases.map((r) => (
+                    <Pressable
+                      key={r.id}
+                      onPress={() => router.push(`/return-case/${r.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Order ${r.purchase.orderNumber ?? r.id}`}
+                    >
+                      <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>Order {r.purchase.orderNumber ?? r.id}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              {searchResult.people.length > 0 && (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>People</Text>
+                  {searchResult.people.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => router.push(`/person/${p.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={p.displayLabel}
+                    >
+                      <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{p.displayLabel}</Text>
                     </Pressable>
                   ))}
                 </View>

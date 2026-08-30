@@ -5,6 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 import { IngestionService } from "./ingestion.service";
 import { FeatureFlagsService } from "../feature-flags/feature-flags.service";
 import { RiskPolicyService } from "../intelligence/risk-policy.service";
+import { SearchIndexService } from "../search/search-index.service";
 import type { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
 
 /**
@@ -17,6 +18,7 @@ const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_p
 const db: Database = createDbClient(DATABASE_URL);
 const featureFlags = new FeatureFlagsService(db);
 const riskPolicy = new RiskPolicyService(db);
+const searchIndex = new SearchIndexService(db);
 
 const ownerUserId = generateId("user");
 
@@ -51,7 +53,7 @@ function makeAi(serviceLabel: string, isTrial: boolean): AnthropicExtractionServ
 
 function makeService(ai: AnthropicExtractionService): IngestionService {
   const notifications = { createAndEnqueue: vi.fn(async () => undefined) };
-  return new IngestionService(db, ai, notifications as never, {} as never, {} as never, featureFlags, riskPolicy);
+  return new IngestionService(db, ai, notifications as never, {} as never, searchIndex, featureFlags, riskPolicy);
 }
 
 async function ownerStreams() {

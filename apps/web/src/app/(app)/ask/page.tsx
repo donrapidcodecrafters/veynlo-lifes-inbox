@@ -22,6 +22,11 @@ interface SearchResponse {
   bills: Array<{ id: string; billerLabel: string }>;
   documents: Array<{ id: string; title: string }>;
   events: Array<{ id: string; title: string }>;
+  warranties: Array<{ id: string; productLabel: string }>;
+  subscriptions: Array<{ id: string; stream: { serviceLabel: string } }>;
+  shipments: Array<{ id: string; carrier: string; trackingNumber: string }>;
+  returnCases: Array<{ id: string; purchase: { orderNumber: string | null } }>;
+  people: Array<{ id: string; displayLabel: string }>;
 }
 
 interface SavedQuery {
@@ -192,7 +197,12 @@ export default function AskPage() {
               {searchResult.purchases.length === 0 &&
                 searchResult.bills.length === 0 &&
                 searchResult.documents.length === 0 &&
-                searchResult.events.length === 0 && <p className="text-sm text-tertiary">No matches.</p>}
+                searchResult.events.length === 0 &&
+                searchResult.warranties.length === 0 &&
+                searchResult.subscriptions.length === 0 &&
+                searchResult.shipments.length === 0 &&
+                searchResult.returnCases.length === 0 &&
+                searchResult.people.length === 0 && <p className="text-sm text-tertiary">No matches.</p>}
 
               {searchResult.purchases.length > 0 && (
                 <div className="space-y-2">
@@ -233,6 +243,61 @@ export default function AskPage() {
                   {searchResult.events.map((e) => (
                     <Link key={e.id} href={`/life/events/${e.id}`} className="block text-sm text-brand hover:underline">
                       {e.title}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.warranties.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Warranties</p>
+                  {searchResult.warranties.map((w) => (
+                    <Link key={w.id} href={`/life/warranties/${w.id}`} className="block text-sm text-brand hover:underline">
+                      {w.productLabel}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.subscriptions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Subscriptions</p>
+                  {searchResult.subscriptions.map((s) => (
+                    <Link key={s.id} href={`/life/subscriptions/${s.id}`} className="block text-sm text-brand hover:underline">
+                      {s.stream.serviceLabel}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.shipments.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Shipments</p>
+                  {searchResult.shipments.map((s) => (
+                    <Link key={s.id} href={`/life/shipments/${s.id}`} className="block text-sm text-brand hover:underline">
+                      {s.carrier} — {s.trackingNumber}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.returnCases.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Returns</p>
+                  {searchResult.returnCases.map((r) => (
+                    <Link key={r.id} href={`/life/returns/${r.id}`} className="block text-sm text-brand hover:underline">
+                      Order {r.purchase.orderNumber ?? r.id}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {searchResult.people.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">People</p>
+                  {searchResult.people.map((p) => (
+                    <Link key={p.id} href={`/people/${p.id}`} className="block text-sm text-brand hover:underline">
+                      {p.displayLabel}
                     </Link>
                   ))}
                 </div>

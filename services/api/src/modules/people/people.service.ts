@@ -4,6 +4,7 @@ import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { SearchIndexService } from "../search/search-index.service";
 import type { CreatePersonDto, UpdatePersonDto } from "./dto";
 
 const RELATIONSHIP_LABEL_PREDICATE = "relationship_label";
@@ -39,7 +40,10 @@ export function normalizePersonName(name: string): string {
  */
 @Injectable()
 export class PeopleService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    private readonly searchIndex: SearchIndexService,
+  ) {}
 
   async listPeople(userId: string) {
     const people = await this.db
@@ -175,6 +179,16 @@ export class PeopleService {
     });
     if (dto.relationshipLabel) await this.setRelationshipLabel(id, dto.relationshipLabel);
     for (const date of dto.importantDates ?? []) await this.addImportantDate(id, date.label, date.dateIso);
+    // §54.2 launch criteria #2/ASK-001 — people were never indexed at all, so Ask couldn't answer
+    // "who is X"/contractor-history-style questions naming a person by name.
+    await this.searchIndex.upsert({
+      resourceType: "person",
+      resourceId: id,
+      ownerUserId: userId,
+      householdId,
+      title: dto.displayLabel,
+      bodyText: dto.relationshipLabel ?? "",
+    });
     return { id };
   }
 
@@ -193,11 +207,22 @@ export class PeopleService {
       await this.db.delete(schema.facts).where(and(eq(schema.facts.subjectEntityId, person.id), eq(schema.facts.predicate, IMPORTANT_DATE_PREDICATE)));
       for (const date of dto.importantDates) await this.addImportantDate(person.id, date.label, date.dateIso);
     }
+    if (dto.displayLabel !== undefined || dto.relationshipLabel !== undefined) {
+      await this.searchIndex.upsert({
+        resourceType: "person",
+        resourceId: person.id,
+        ownerUserId: userId,
+        householdId: person.householdId,
+        title: dto.displayLabel ?? person.displayLabel,
+        bodyText: dto.relationshipLabel ?? "",
+      });
+    }
   }
 
   async deletePerson(id: string, userId: string) {
     const person = await this.assertOwnedPerson(id, userId);
     await this.db.delete(schema.canonicalEntities).where(eq(schema.canonicalEntities.id, person.id));
+    await this.searchIndex.remove("person", person.id);
   }
 
   private async setRelationshipLabel(entityId: string, label: string) {

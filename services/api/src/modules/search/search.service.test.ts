@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { generateId } from "@veynlo/core";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { eq, inArray } from "drizzle-orm";
 import { SearchService } from "./search.service";
+import type { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
 
 /**
  * §54.2 launch criteria — a real authorization test against the actual local Postgres, not a mock,
@@ -59,6 +60,47 @@ afterAll(async () => {
   await db.delete(schema.searchDocuments).where(inArray(schema.searchDocuments.ownerUserId, [ownerAId, ownerBId]));
   await db.delete(schema.documents).where(inArray(schema.documents.id, [documentAId, documentBId]));
   await db.delete(schema.users).where(inArray(schema.users.id, [ownerAId, ownerBId]));
+});
+
+describe("SearchService.ask — warranties/subscriptions/shipments/return cases/people reach the grounding context", () => {
+  const warrantyOwnerId = generateId("user");
+  const warrantyId = generateId("warranty");
+
+  beforeAll(async () => {
+    await db.insert(schema.users).values({ id: warrantyOwnerId, displayName: "Warranty Test User" });
+    await db.insert(schema.warranties).values({
+      id: warrantyId,
+      ownerUserId: warrantyOwnerId,
+      productLabel: "Refrigerator",
+      warrantyLengthMonths: 24,
+      expirationDate: { date: "2027-03-01", precision: "date", instantUtc: null, timezone: null, sourceText: null },
+    });
+  });
+
+  afterAll(async () => {
+    await db.delete(schema.warranties).where(eq(schema.warranties.id, warrantyId));
+    await db.delete(schema.askQueryLog).where(eq(schema.askQueryLog.ownerUserId, warrantyOwnerId));
+    await db.delete(schema.users).where(eq(schema.users.id, warrantyOwnerId));
+  });
+
+  it("answers the spec's own canonical example — a warranty is genuinely present in Ask's grounding context, not silently excluded", async () => {
+    let capturedUserContent = "";
+    const fakeAi = {
+      isConfigured: () => true,
+      extractStructured: vi.fn(async (request: { userContent: string }) => {
+        capturedUserContent = request.userContent;
+        return { data: { answer: "Your refrigerator warranty expires 2027-03-01.", evidenceResourceIds: [warrantyId], insufficientEvidence: false }, confidenceScore: 1, modelUsed: "test", inputTokens: 0, outputTokens: 0 };
+      }),
+    } as unknown as AnthropicExtractionService;
+    const fakeBilling = { getCapability: vi.fn(async () => null) };
+    const askSearch = new SearchService(db, fakeAi, fakeBilling as never);
+
+    const result = await askSearch.ask(warrantyOwnerId, "When does my fridge warranty expire?");
+
+    expect(capturedUserContent).toContain("Refrigerator");
+    expect(capturedUserContent).toContain("warranty");
+    expect(result.evidence.some((e) => e.resourceId === warrantyId)).toBe(true);
+  });
 });
 
 describe("SearchService.structuredSearch — cross-user isolation", () => {

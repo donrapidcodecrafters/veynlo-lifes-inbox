@@ -42,7 +42,7 @@ export class SearchService {
    */
   async structuredSearch(userId: string, query: string) {
     const q = query.trim();
-    if (!q) return { purchases: [], bills: [], documents: [], events: [] };
+    if (!q) return { purchases: [], bills: [], documents: [], events: [], warranties: [], subscriptions: [], shipments: [], returnCases: [], people: [] };
 
     const matches = await this.db.execute<{ resource_type: string; resource_id: string }>(sql`
       select resource_type, resource_id
@@ -64,12 +64,36 @@ export class SearchService {
     const billIds = idsByType.get("bill") ?? [];
     const documentIds = idsByType.get("document") ?? [];
     const eventIds = idsByType.get("calendar_event") ?? [];
+    // §54.2 launch criteria #2/ASK-002 — warranties/subscriptions/shipments/return cases/people are now
+    // indexed (see SearchIndexService callers) but structured Search never fetched them even so.
+    const warrantyIds = idsByType.get("warranty") ?? [];
+    const subscriptionIds = idsByType.get("subscription") ?? [];
+    const shipmentIds = idsByType.get("shipment") ?? [];
+    const returnCaseIds = idsByType.get("return_case") ?? [];
+    const personIds = idsByType.get("person") ?? [];
 
-    const [purchases, bills, documents, events] = await Promise.all([
+    const [purchases, bills, documents, events, warranties, subscriptionRows, shipments, returnCaseRows, people] = await Promise.all([
       purchaseIds.length ? this.db.select().from(schema.purchases).where(inArray(schema.purchases.id, purchaseIds)) : [],
       billIds.length ? this.db.select().from(schema.bills).where(inArray(schema.bills.id, billIds)) : [],
       documentIds.length ? this.db.select().from(schema.documents).where(inArray(schema.documents.id, documentIds)) : [],
       eventIds.length ? this.db.select().from(schema.calendarEvents).where(inArray(schema.calendarEvents.id, eventIds)) : [],
+      warrantyIds.length ? this.db.select().from(schema.warranties).where(inArray(schema.warranties.id, warrantyIds)) : [],
+      subscriptionIds.length
+        ? this.db
+            .select({ subscription: schema.subscriptions, stream: schema.recurringStreams })
+            .from(schema.subscriptions)
+            .innerJoin(schema.recurringStreams, eq(schema.recurringStreams.id, schema.subscriptions.recurringStreamId))
+            .where(inArray(schema.subscriptions.id, subscriptionIds))
+        : [],
+      shipmentIds.length ? this.db.select().from(schema.shipments).where(inArray(schema.shipments.id, shipmentIds)) : [],
+      returnCaseIds.length
+        ? this.db
+            .select({ returnCase: schema.returnCases, purchase: schema.purchases })
+            .from(schema.returnCases)
+            .innerJoin(schema.purchases, eq(schema.purchases.id, schema.returnCases.purchaseId))
+            .where(inArray(schema.returnCases.id, returnCaseIds))
+        : [],
+      personIds.length ? this.db.select().from(schema.canonicalEntities).where(inArray(schema.canonicalEntities.id, personIds)) : [],
     ]);
 
     // search_documents rows above already came back rank-ordered — re-sort each fetched set to match, since
@@ -84,6 +108,17 @@ export class SearchService {
       bills: byRank(bills, billIds),
       documents: byRank(documents, documentIds),
       events: byRank(events, eventIds),
+      warranties: byRank(warranties, warrantyIds),
+      subscriptions: byRank(
+        subscriptionRows.map((r) => ({ id: r.subscription.id, ...r })),
+        subscriptionIds,
+      ),
+      shipments: byRank(shipments, shipmentIds),
+      returnCases: byRank(
+        returnCaseRows.map((r) => ({ id: r.returnCase.id, ...r })),
+        returnCaseIds,
+      ),
+      people: byRank(people, personIds),
     };
   }
 
@@ -119,7 +154,7 @@ export class SearchService {
       }
     }
 
-    const [purchases, bills, events, merchants, documentRows] = await Promise.all([
+    const [purchases, bills, events, merchants, documentRows, warranties, subscriptionRows, shipments, returnCaseRows, people] = await Promise.all([
       this.db.select().from(schema.purchases).where(eq(schema.purchases.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.ownerUserId, userId)).limit(50),
@@ -129,6 +164,28 @@ export class SearchService {
         .from(schema.documents)
         .leftJoin(schema.documentVersions, eq(schema.documentVersions.id, schema.documents.currentVersionId))
         .where(eq(schema.documents.ownerUserId, userId))
+        .limit(50),
+      // §54.2 launch criteria #2/ASK-001 — warranties/subscriptions/shipments/return cases/people were
+      // never part of Ask's grounding context at all, so the spec's own canonical example ("when does my
+      // fridge warranty expire") literally could not be answered no matter how it was indexed elsewhere.
+      this.db.select().from(schema.warranties).where(eq(schema.warranties.ownerUserId, userId)).limit(50),
+      this.db
+        .select({ subscription: schema.subscriptions, stream: schema.recurringStreams })
+        .from(schema.subscriptions)
+        .innerJoin(schema.recurringStreams, eq(schema.recurringStreams.id, schema.subscriptions.recurringStreamId))
+        .where(eq(schema.recurringStreams.ownerUserId, userId))
+        .limit(50),
+      this.db.select().from(schema.shipments).where(eq(schema.shipments.ownerUserId, userId)).limit(50),
+      this.db
+        .select({ returnCase: schema.returnCases, purchase: schema.purchases })
+        .from(schema.returnCases)
+        .innerJoin(schema.purchases, eq(schema.purchases.id, schema.returnCases.purchaseId))
+        .where(eq(schema.purchases.ownerUserId, userId))
+        .limit(50),
+      this.db
+        .select()
+        .from(schema.canonicalEntities)
+        .where(and(eq(schema.canonicalEntities.ownerUserId, userId), eq(schema.canonicalEntities.type, "person")))
         .limit(50),
     ]);
 
@@ -154,6 +211,31 @@ export class SearchService {
         resourceId: r.document.id,
         // Truncated per item so a handful of long OCR'd documents don't dominate the prompt.
         text: `Document "${r.document.title}"${r.version?.ocrText ? `. Extracted text: ${r.version.ocrText.slice(0, 1000)}` : " (no extracted text available)."}`,
+      })),
+      ...warranties.map((w) => ({
+        resourceType: "warranty",
+        resourceId: w.id,
+        text: `Warranty for "${w.productLabel}"${w.expirationDate.date ? `, expires ${w.expirationDate.date}` : ""}${w.warrantyLengthMonths ? ` (${w.warrantyLengthMonths} months)` : ""}.`,
+      })),
+      ...subscriptionRows.map((r) => ({
+        resourceType: "subscription",
+        resourceId: r.subscription.id,
+        text: `Subscription to "${r.stream.serviceLabel}", ${r.stream.cadence}${r.stream.typicalAmountMinorUnits ? `, ${(r.stream.typicalAmountMinorUnits / 100).toFixed(2)} ${r.stream.typicalAmountCurrency ?? ""}` : ""}, state ${r.subscription.state}.`,
+      })),
+      ...shipments.map((s) => ({
+        resourceType: "shipment",
+        resourceId: s.id,
+        text: `Shipment via ${s.carrier}, tracking ${s.trackingNumber}, status ${s.status}.`,
+      })),
+      ...returnCaseRows.map((r) => ({
+        resourceType: "return_case",
+        resourceId: r.returnCase.id,
+        text: `Return window for order ${r.purchase.orderNumber ?? "n/a"}${r.returnCase.deadline.date ? `, deadline ${r.returnCase.deadline.date}` : ""}, state ${r.returnCase.state}.`,
+      })),
+      ...people.map((p) => ({
+        resourceType: "person",
+        resourceId: p.id,
+        text: `Person "${p.displayLabel}".`,
       })),
     ];
 

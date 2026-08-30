@@ -524,14 +524,25 @@ export class IngestionService {
 
       if (result.data.returnDeadline) {
         const deadline = toTemporalValue(result.data.returnDeadline);
+        const returnCaseId = generateId("returnCase");
         await this.db.insert(schema.returnCases).values({
-          id: generateId("returnCase"),
+          id: returnCaseId,
           purchaseId,
           state: "eligible",
           deadline,
           deadlineSort: temporalToSortDate(deadline),
           valueAtStakeMinorUnits: result.data.totalAmountMinorUnits,
           valueAtStakeCurrency: result.data.currency,
+        });
+        // §54.2 launch criteria #2/ASK-001 — return cases were never indexed, so Ask couldn't answer
+        // "what's my return window for X" questions at all.
+        await this.searchIndex.upsert({
+          resourceType: "return_case",
+          resourceId: returnCaseId,
+          ownerUserId: ctx.ownerUserId,
+          householdId: ctx.householdId,
+          title: `Return window — ${merchantName}`,
+          bodyText: result.data.orderNumber ?? "",
         });
       }
     }
@@ -611,6 +622,16 @@ export class IngestionService {
         isGiftPrivate: false,
       });
     }
+    // §54.2 launch criteria #2/ASK-001 — shipments were never indexed, so Ask couldn't answer "where's my
+    // package"-style questions at all.
+    await this.searchIndex.upsert({
+      resourceType: "shipment",
+      resourceId: shipmentId,
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      title: `${carrier} package`,
+      bodyText: result.data.trackingNumber,
+    });
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
@@ -926,6 +947,16 @@ export class IngestionService {
         cancellationInstructionsUrl: result.data.cancellationInstructionsUrl,
       });
     }
+    // §54.2 launch criteria #2/ASK-001 — subscriptions were never indexed, so Ask couldn't answer
+    // questions about them at all.
+    await this.searchIndex.upsert({
+      resourceType: "subscription",
+      resourceId: subscriptionId,
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      title: result.data.serviceLabel,
+      bodyText: "",
+    });
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
@@ -1082,6 +1113,16 @@ export class IngestionService {
       expirationDate,
       expirationDateSort: temporalToSortDate(expirationDate),
       registrationConfirmed: result.data.registrationConfirmed,
+    });
+    // §54.2 launch criteria #2/ASK-001 — warranties were never indexed at all, so Ask couldn't answer the
+    // spec's own canonical example ("when does my fridge warranty expire") no matter how it was phrased.
+    await this.searchIndex.upsert({
+      resourceType: "warranty",
+      resourceId: warrantyId,
+      ownerUserId: ctx.ownerUserId,
+      householdId: ctx.householdId,
+      title: result.data.productLabel,
+      bodyText: "",
     });
 
     await this.fileInboxItem({
