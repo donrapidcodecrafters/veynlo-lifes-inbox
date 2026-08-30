@@ -1207,3 +1207,31 @@ still open:
   implied one, but every mutation actually checked here already had (or needed) its OWN natural dedup key
   derived from the request's real content/identity, not an opaque client-generated token: building a
   generic framework nothing calls yet would be scaffolding, not a fix. Test accounts deleted afterward.
+
+- **Nineteenth gap-closing pass (2026-08-29): test coverage for the email-parsing pipeline — a real bug
+  found by writing real tests, not just added coverage.** Only 9 test files existed anywhere in the repo,
+  all pure-function unit tests (money math, entitlements, recurrence rules, temporal parsing, URL safety,
+  prefilter logic, quiet hours) — none for `gmail-message-parser.ts`/`outlook-message-parser.ts`, the two
+  small, pure, genuinely tricky modules every single piece of connected-inbox data passes through before
+  anything else touches it. Wrote real tests against realistic Gmail API / Graph API payload shapes (21
+  new tests total) rather than picking a coverage-percentage target.
+  1. **A real bug**: `extractPlainText`'s single depth-first traversal returned whichever of a
+     `multipart/alternative` body's text/plain or text/html parts it happened to encounter FIRST — which
+     only ever "preferred" plain text because real Gmail messages conventionally list it before their HTML
+     sibling (an RFC 2046 convention, not something the code itself enforced). A test fixture with the two
+     parts in the other order caught it immediately: the function silently returned tag-stripped HTML
+     instead of clean plain text. Fixed with two separate whole-tree searches (plain first, HTML only as a
+     genuine fallback if no plain text exists anywhere in the tree) — correct regardless of part ordering,
+     rather than relying on a provider convention nothing here actually checked.
+  2. Also covered while writing these: header lowercasing and missing-header defaults (both parsers),
+     recursive nested-multipart traversal, the 20,000-character body cap, Gmail's attachment-vs-inline-part
+     distinction (`filename` + `attachmentId` both required), Outlook's recipient-list joining (filtering
+     out an unresolvable address rather than joining an empty entry), and — a plain-text vs. html
+     `contentType` distinction Outlook's parser has that Gmail's doesn't need — confirming a literal `<tag>`
+     substring in a genuinely plain-text Outlook body is never mistaken for markup and stripped.
+  **Verified**: all 21 new tests pass, all 61 tests repo-wide still pass, typecheck/lint/build clean, and a
+  live smoke test (real sign-up → manual capture → real `sourceEventId` returned) confirmed the fix didn't
+  regress the broader ingestion pipeline the parser feeds into. Real Gmail/Outlook OAuth isn't available in
+  this dev environment, so the fixed parser itself couldn't be exercised against a genuinely live connected
+  inbox — the same "verify to the real external-dependency boundary" pattern used for every other optional
+  integration this session. Test account deleted afterward.

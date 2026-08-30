@@ -14,18 +14,30 @@ function decodeBase64Url(data: string): string {
   return Buffer.from(data, "base64url").toString("utf8");
 }
 
-function extractPlainText(part: gmail_v1.Schema$MessagePart | undefined): string {
-  if (!part) return "";
-  if (part.mimeType === "text/plain" && part.body?.data) {
-    return decodeBase64Url(part.body.data);
-  }
-  if (part.mimeType === "text/html" && part.body?.data && !part.parts) {
-    // Extremely small tag-strip; the sanitized-viewer / OCR pipeline handles anything richer downstream.
-    return decodeBase64Url(part.body.data).replace(/<[^>]+>/g, " ");
-  }
+/** Depth-first search for the first leaf part matching `mimeType` anywhere in the tree — order-independent,
+ * unlike a single combined traversal that just returns whichever type it happens to encounter first. */
+function findPart(part: gmail_v1.Schema$MessagePart | undefined, mimeType: string): gmail_v1.Schema$MessagePart | undefined {
+  if (!part) return undefined;
+  if (part.mimeType === mimeType && part.body?.data && !part.parts) return part;
   for (const child of part.parts ?? []) {
-    const text = extractPlainText(child);
-    if (text) return text;
+    const found = findPart(child, mimeType);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Caught by a real test, not inferred: a single combined depth-first traversal returning whichever of
+ * text/plain or text/html it encountered FIRST only "prefers" plain text when the message happens to list
+ * that part before its HTML sibling — true for a real Gmail multipart/alternative body per RFC 2046
+ * convention, but not something the code itself ever enforced. Two separate whole-tree searches (plain
+ * first, html only as a genuine fallback) make that preference real regardless of part ordering. */
+function extractPlainText(part: gmail_v1.Schema$MessagePart | undefined): string {
+  const plainPart = findPart(part, "text/plain");
+  if (plainPart?.body?.data) return decodeBase64Url(plainPart.body.data);
+  const htmlPart = findPart(part, "text/html");
+  if (htmlPart?.body?.data) {
+    // Extremely small tag-strip; the sanitized-viewer / OCR pipeline handles anything richer downstream.
+    return decodeBase64Url(htmlPart.body.data).replace(/<[^>]+>/g, " ");
   }
   return "";
 }
