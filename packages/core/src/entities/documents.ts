@@ -30,6 +30,13 @@ export const DocumentProcessingStateSchema = z.enum([
   "superseded",
   "archived",
   "deleted",
+  // A malware-infected upload is recorded (not silently rejected pre-record) so the user has real
+  // visibility that something was flagged, with no version/blob ever stored for the infected bytes.
+  "quarantined",
+  // OCR/extraction genuinely threw (e.g. a password-protected or corrupted PDF) rather than just finding
+  // no text — distinct from "classified" (which also means "no OCR text" but for the ordinary, non-error
+  // case of an unconfigured AI or unreadable-but-harmless content).
+  "failed_user_action",
 ]);
 export type DocumentProcessingState = z.infer<typeof DocumentProcessingStateSchema>;
 

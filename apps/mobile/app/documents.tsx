@@ -22,6 +22,7 @@ interface DocumentRow {
   title: string;
   documentType: string;
   processingState: string;
+  processingError: string | null;
   tags: string[];
   retentionPolicy: string;
   householdId: string | null;
@@ -79,13 +80,15 @@ const DOCUMENT_TYPES = [
   { value: "other", label: "Other" },
 ];
 
-const STATE_TONE: Record<string, "positive" | "warning" | "neutral"> = {
+const STATE_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   extracted: "positive",
   verified: "positive",
   classified: "neutral",
   uploaded: "neutral",
   malware_scan: "warning",
   ocr_parsing: "warning",
+  quarantined: "critical",
+  failed_user_action: "warning",
 };
 
 export default function DocumentsScreen() {
@@ -185,7 +188,7 @@ export default function DocumentsScreen() {
     try {
       const fields: Record<string, string> = { title: file.name, documentType };
       if (force) fields.force = "true";
-      const result = await api.upload<{ documentId: string; duplicate?: true; duplicateOfTitle?: string }>(
+      const result = await api.upload<{ documentId: string; duplicate?: true; duplicateOfTitle?: string; quarantined?: true }>(
         "/v1/documents/upload",
         fields,
         file,
@@ -194,6 +197,9 @@ export default function DocumentsScreen() {
         setPendingDuplicate({ file, duplicateOfTitle: result.duplicateOfTitle ?? "an existing document" });
       } else {
         setPendingDuplicate(null);
+        if (result.quarantined) {
+          setUploadError("This file was flagged as potentially malicious and wasn't stored — see the quarantined item below.");
+        }
         await load();
       }
     } catch (err) {
@@ -365,12 +371,17 @@ export default function DocumentsScreen() {
                     {doc.documentType.replace(/_/g, " ")}
                     {doc.tags.length > 0 && ` · ${doc.tags.join(", ")}`}
                   </Text>
+                  {doc.processingError && (
+                    <Text style={{ fontSize: 12, color: theme.colors.critical }}>{doc.processingError}</Text>
+                  )}
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>{doc.processingState.replace(/_/g, " ")}</Badge>
-                  <Button variant="ghost" onPress={() => openDocument(doc.id)} loading={openingId === doc.id}>
-                    Open
-                  </Button>
+                  {doc.processingState !== "quarantined" && (
+                    <Button variant="ghost" onPress={() => openDocument(doc.id)} loading={openingId === doc.id}>
+                      Open
+                    </Button>
+                  )}
                 </View>
               </Pressable>
               {expandedId === doc.id && (

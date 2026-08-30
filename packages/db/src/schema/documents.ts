@@ -19,6 +19,11 @@ export const documents = pgTable(
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     visibility: visibilityEnum("visibility").notNull().default("private"),
     processingState: text("processing_state").notNull().default("uploaded"),
+    // Set alongside processingState "quarantined" (malware detected — the signature name) or
+    // "failed_user_action" (OCR/extraction genuinely threw, e.g. a password-protected PDF) — the real,
+    // user-facing reason, instead of the previous silently-server-log-only posture. Cleared implicitly by
+    // never being set again once processing succeeds normally.
+    processingError: encryptedText("processing_error"),
     currentVersionId: text("current_version_id"),
     // DOC-008 "retention policy" — "full_original" keeps the actual file bytes in S3 (the default);
     // "extracted_only" or "delete_after_processing" both mean the blob is deleted (their OCR'd text, which

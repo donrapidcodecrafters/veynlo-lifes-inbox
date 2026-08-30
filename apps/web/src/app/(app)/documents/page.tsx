@@ -15,6 +15,7 @@ interface DocumentRow {
   title: string;
   documentType: string;
   processingState: string;
+  processingError: string | null;
   tags: string[];
   createdAt: string;
   retentionPolicy: string;
@@ -55,13 +56,15 @@ const DOCUMENT_TYPES = [
   { value: "other", label: "Other" },
 ];
 
-const STATE_TONE: Record<string, "positive" | "warning" | "neutral"> = {
+const STATE_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   extracted: "positive",
   verified: "positive",
   classified: "neutral",
   uploaded: "neutral",
   malware_scan: "warning",
   ocr_parsing: "warning",
+  quarantined: "critical",
+  failed_user_action: "warning",
 };
 
 interface DocumentsPageResponse {
@@ -175,7 +178,7 @@ export default function DocumentsPage() {
       formData.append("documentType", documentType);
       if (force) formData.append("force", "true");
       formData.append("file", file);
-      const result = await api.upload<{ documentId: string; duplicate?: true; duplicateOfTitle?: string }>(
+      const result = await api.upload<{ documentId: string; duplicate?: true; duplicateOfTitle?: string; quarantined?: true }>(
         "/v1/documents/upload",
         formData,
       );
@@ -183,6 +186,9 @@ export default function DocumentsPage() {
         setPendingDuplicate({ file, duplicateOfTitle: result.duplicateOfTitle ?? "an existing document" });
       } else {
         setPendingDuplicate(null);
+        if (result.quarantined) {
+          setUploadError("This file was flagged as potentially malicious and wasn't stored — see the quarantined item below.");
+        }
         refresh();
       }
     } catch (err) {
@@ -352,13 +358,18 @@ export default function DocumentsPage() {
                           {doc.documentType.replace(/_/g, " ")}
                           {doc.tags.length > 0 && ` · ${doc.tags.join(", ")}`}
                         </p>
+                        {doc.processingError && (
+                          <p className="text-xs text-critical">{doc.processingError}</p>
+                        )}
                       </button>
                     </div>
                     <div className="flex shrink-0 items-center gap-3 pl-7 sm:pl-0">
                       <Badge tone={STATE_TONE[doc.processingState] ?? "neutral"}>{doc.processingState.replace(/_/g, " ")}</Badge>
-                      <Button size="sm" variant="ghost" onClick={() => openDocument(doc.id)}>
-                        Open
-                      </Button>
+                      {doc.processingState !== "quarantined" && (
+                        <Button size="sm" variant="ghost" onClick={() => openDocument(doc.id)}>
+                          Open
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}>
                         {expandedId === doc.id ? "Close" : "Edit"}
                       </Button>

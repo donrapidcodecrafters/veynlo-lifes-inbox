@@ -232,6 +232,13 @@
       "when": 1788113089418,
       "tag": "0032_eminent_silver_centurion",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788114052996,
+      "tag": "0033_silly_true_believers",
+      "breakpoints": true
     }
   ]
 }

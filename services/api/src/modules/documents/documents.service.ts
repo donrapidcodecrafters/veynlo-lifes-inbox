@@ -115,7 +115,7 @@ export class DocumentsService {
     linkedResourceId?: string;
     /** CAP-004 "duplicate hash detection" — set once the caller has seen a `duplicate: true` response and wants to upload anyway (e.g. a genuinely separate copy for another purpose). */
     force?: boolean;
-  }): Promise<{ documentId: string; duplicate?: true; duplicateOfTitle?: string }> {
+  }): Promise<{ documentId: string; duplicate?: true; duplicateOfTitle?: string; quarantined?: true }> {
     if (params.buffer.length === 0) {
       throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
     }
@@ -132,11 +132,11 @@ export class DocumentsService {
 
     await this.assertStorageQuota(params.ownerUserId, params.buffer.length);
 
-    // Scanned before any DB row or storage write exists, so a rejected upload never leaves a partial
-    // document behind to clean up. Skipped (not failed) when unconfigured — CLAMD_HOST unset means this
-    // deployment hasn't wired up a scanner yet, same graceful-degradation posture as the optional
-    // connectors; but once it IS configured, a scan failure fails closed (rejects the upload) rather than
-    // silently accepting an unscanned file — see MalwareScannerService's own doc comment.
+    // Scanned before any DB row or storage write exists, so the infected bytes are never written to
+    // object storage no matter what happens next. Skipped (not failed) when unconfigured — CLAMD_HOST
+    // unset means this deployment hasn't wired up a scanner yet, same graceful-degradation posture as the
+    // optional connectors; but once it IS configured, a scan failure fails closed (rejects the upload)
+    // rather than silently accepting an unscanned file — see MalwareScannerService's own doc comment.
     if (this.malwareScanner.isConfigured()) {
       let result: { infected: boolean; signature?: string };
       try {
@@ -149,10 +149,25 @@ export class DocumentsService {
         });
       }
       if (result.infected) {
-        throw new BadRequestException({
-          code: "MALWARE_DETECTED",
-          message: `This file was flagged as malicious (${result.signature}) and was not uploaded.`,
+        // Previously a hard pre-record rejection with no lasting trace at all. A real, visible,
+        // deletable record instead — never a version/blob for the infected bytes themselves — so the
+        // user actually knows something was uploaded and flagged, rather than just seeing an error toast.
+        const quarantinedId = generateId("document");
+        await this.db.insert(schema.documents).values({
+          id: quarantinedId,
+          ownerUserId: params.ownerUserId,
+          householdId: params.householdId,
+          documentType: params.documentType,
+          title: params.title,
+          tags: [],
+          sensitivity: "sensitive",
+          visibility: "private",
+          processingState: "quarantined",
+          processingError: `This file was flagged as malicious (${result.signature ?? "unknown signature"}) and was not stored.`,
+          currentVersionId: null,
+          linkedEntityIds: [],
         });
+        return { documentId: quarantinedId, quarantined: true };
       }
     }
 
@@ -201,6 +216,11 @@ export class DocumentsService {
 
     let ocrText: string | null = null;
     let ocrConfidence: number | null = null;
+    // Previously silently server-log-only — the document just landed with no text and zero explanation
+    // or next step visible to the user. Distinct from "no AI configured" or "genuinely nothing to read"
+    // (both legitimately leave ocrText null with no error): this specifically means extraction itself
+    // threw, e.g. a password-protected or corrupted PDF Claude's document API rejected outright.
+    let ocrError: string | null = null;
     if (params.mimeType === "text/plain") {
       ocrText = params.buffer.toString("utf8").slice(0, 50_000);
       ocrConfidence = 1;
@@ -210,6 +230,7 @@ export class DocumentsService {
         ocrConfidence = ocrText ? 0.75 : null;
       } catch (err) {
         this.logger.warn(`OCR extraction failed for ${documentId}: ${String(err)}`);
+        ocrError = "Couldn't read this file — it may be password-protected, corrupted, or in an unsupported format.";
       }
     }
 
@@ -247,7 +268,8 @@ export class DocumentsService {
     await this.db
       .update(schema.documents)
       .set({
-        processingState: ocrText ? "extracted" : "classified",
+        processingState: ocrError ? "failed_user_action" : ocrText ? "extracted" : "classified",
+        processingError: ocrError,
         ...(classifiedType ? { documentType: classifiedType } : {}),
         ...(deadline
           ? { extractedDeadline: deadline.deadline, extractedDeadlineSort: deadline.deadlineSort, extractedDeadlineLabel: deadline.label, extractedDeadlineConfidenceBand: deadline.confidenceBand }
@@ -601,6 +623,9 @@ export class DocumentsService {
 
     let ocrText: string | null = null;
     let ocrConfidence: number | null = null;
+    // See upload()'s identical ocrError handling — genuinely thrown extraction (not just "nothing to
+    // read"), now surfaced on the document instead of server-log-only.
+    let ocrError: string | null = null;
     if (params.mimeType === "text/plain") {
       ocrText = params.buffer.toString("utf8").slice(0, 50_000);
       ocrConfidence = 1;
@@ -610,6 +635,7 @@ export class DocumentsService {
         ocrConfidence = ocrText ? 0.75 : null;
       } catch (err) {
         this.logger.warn(`OCR extraction failed for ${documentId} v${nextVersionNumber}: ${String(err)}`);
+        ocrError = "Couldn't read this file — it may be password-protected, corrupted, or in an unsupported format.";
       }
     }
 
@@ -645,7 +671,8 @@ export class DocumentsService {
       .update(schema.documents)
       .set({
         currentVersionId: versionId,
-        processingState: ocrText ? "extracted" : "classified",
+        processingState: ocrError ? "failed_user_action" : ocrText ? "extracted" : "classified",
+        processingError: ocrError,
         ...(classifiedType ? { documentType: classifiedType } : {}),
         ...(deadline
           ? { extractedDeadline: deadline.deadline, extractedDeadlineSort: deadline.deadlineSort, extractedDeadlineLabel: deadline.label, extractedDeadlineConfidenceBand: deadline.confidenceBand }
