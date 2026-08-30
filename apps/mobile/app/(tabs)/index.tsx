@@ -174,7 +174,12 @@ export default function HomeScreen() {
             {today.map((item) => {
               const route = item.kind === "event" ? `/event/${item.id}` : item.kind === "bill" ? `/bill/${item.id}` : "/(tabs)/life";
               return (
-                <Pressable key={`${item.kind}-${item.id}`} onPress={() => router.push(route)}>
+                <Pressable
+                  key={`${item.kind}-${item.id}`}
+                  onPress={() => router.push(route)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title}, ${TODAY_KIND_LABEL[item.kind]}`}
+                >
                   <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{item.title}</Text>
                   <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
                     {TODAY_KIND_LABEL[item.kind]} · {new Date(item.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
@@ -301,6 +306,8 @@ function AttentionItemCard({
             <Pressable
               key={opt.label}
               onPress={() => onSnooze(opt.ms)}
+              accessibilityRole="button"
+              accessibilityLabel={`Snooze ${opt.label}`}
               style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: theme.colors.bgSurface }}
             >
               <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textPrimary }}>{opt.label}</Text>
@@ -315,6 +322,8 @@ function AttentionItemCard({
             <Pressable
               key={m.userId}
               onPress={() => m.userId && onDelegate(m.userId)}
+              accessibilityRole="button"
+              accessibilityLabel={`Delegate to ${m.displayName ?? "Household member"}`}
               style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: theme.colors.bgSurface }}
             >
               <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textPrimary }}>{m.displayName ?? "Household member"}</Text>

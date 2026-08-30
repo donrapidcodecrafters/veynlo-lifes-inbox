@@ -268,6 +268,8 @@ export default function InboxScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
         <Pressable
           onPress={() => setCategory("")}
+          accessibilityRole="button"
+          accessibilityLabel="All categories"
           style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: category === "" ? theme.colors.bgSurface : "transparent", borderWidth: 1, borderColor: theme.colors.borderSubtle }}
         >
           <Text style={{ fontSize: 12, color: category === "" ? theme.colors.textPrimary : theme.colors.textTertiary }}>All categories</Text>
@@ -276,6 +278,8 @@ export default function InboxScreen() {
           <Pressable
             key={c}
             onPress={() => setCategory(c)}
+            accessibilityRole="button"
+            accessibilityLabel={c.replace("_", " ")}
             style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: theme.radius.sm, backgroundColor: category === c ? theme.colors.bgSurface : "transparent", borderWidth: 1, borderColor: theme.colors.borderSubtle }}
           >
             <Text style={{ fontSize: 12, color: category === c ? theme.colors.textPrimary : theme.colors.textTertiary }}>{c.replace("_", " ")}</Text>
@@ -361,6 +365,8 @@ export default function InboxScreen() {
                           <Pressable
                             key={c}
                             onPress={() => setRuleCategory(c)}
+                            accessibilityRole="button"
+                            accessibilityLabel={c.replace("_", " ")}
                             style={{
                               paddingVertical: 6,
                               paddingHorizontal: 10,
@@ -478,6 +484,8 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
             <Pressable
               key={m}
               onPress={() => setMode(m)}
+              accessibilityRole="button"
+              accessibilityLabel={m === "text" ? "Paste text" : m === "url" ? "From a URL" : "Voice note"}
               style={{
                 flex: 1,
                 paddingVertical: 8,

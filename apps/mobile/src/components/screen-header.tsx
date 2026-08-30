@@ -10,7 +10,13 @@ export function ScreenHeader({ title, subtitle }: { title: string; subtitle?: st
   return (
     <View style={{ gap: 4 }}>
       {router.canGoBack() && (
-        <Pressable onPress={() => router.back()} hitSlop={8} style={{ alignSelf: "flex-start", paddingVertical: 4 }}>
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={{ alignSelf: "flex-start", paddingVertical: 4 }}
+        >
           <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.brandDefault }}>‹ Back</Text>
         </Pressable>
       )}

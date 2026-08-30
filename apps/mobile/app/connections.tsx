@@ -278,6 +278,8 @@ export default function ConnectionsScreen() {
               <Pressable
                 key={opt.value}
                 onPress={() => setHistoryDepthDays(opt.value)}
+                accessibilityRole="button"
+                accessibilityLabel={opt.label}
                 style={{
                   flex: 1,
                   paddingVertical: 8,

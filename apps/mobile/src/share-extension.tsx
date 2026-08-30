@@ -35,15 +35,33 @@ export default function ShareExtension(props: InitialProps) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Save to Veynlo</Text>
-      <TextInput style={styles.input} value={subject} onChangeText={setSubject} placeholder="Subject" allowFontScaling={false} />
+      <TextInput
+        style={styles.input}
+        value={subject}
+        onChangeText={setSubject}
+        placeholder="Subject"
+        allowFontScaling={false}
+        accessibilityLabel="Subject"
+      />
       <Text style={styles.preview} numberOfLines={4}>
         {body || "Nothing to save."}
       </Text>
       <View style={styles.row}>
-        <Pressable style={[styles.button, styles.cancelButton]} onPress={() => close()}>
+        <Pressable
+          style={[styles.button, styles.cancelButton]}
+          onPress={() => close()}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+        >
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
-        <Pressable style={[styles.button, styles.saveButton]} onPress={save} disabled={saving || !body}>
+        <Pressable
+          style={[styles.button, styles.saveButton]}
+          onPress={save}
+          disabled={saving || !body}
+          accessibilityRole="button"
+          accessibilityLabel="Save"
+        >
           {saving ? <ActivityIndicator color={colors.textOnBrand} /> : <Text style={styles.saveText}>Save</Text>}
         </Pressable>
       </View>

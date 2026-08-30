@@ -77,6 +77,8 @@ export default function SavedScreen() {
             <Card key={item.id} style={{ gap: 10 }}>
               <Pressable
                 onPress={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.title}, ${item.category}`}
                 style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
               >
                 <View style={{ flex: 1 }}>
@@ -136,6 +138,9 @@ function AddForm({ onDone }: { onDone: () => void }) {
             <Pressable
               key={String(place)}
               onPress={() => setIsPlace(place)}
+              accessibilityRole="button"
+              accessibilityLabel={place ? "A place" : "Link or note"}
+              accessibilityState={{ selected: active }}
               style={{ flex: 1, paddingVertical: 6, borderRadius: theme.radius.sm, backgroundColor: active ? theme.colors.bgSurface : "transparent", alignItems: "center" }}
             >
               <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>

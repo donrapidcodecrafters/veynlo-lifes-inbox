@@ -275,6 +275,9 @@ export default function HouseholdScreen() {
                     <Pressable
                       key={m.userId}
                       onPress={() => setDelegateUserId(m.userId)}
+                      accessibilityRole="button"
+                      accessibilityLabel={m.displayName ?? m.userId ?? "Household member"}
+                      accessibilityState={{ selected: isSelected }}
                       style={{
                         padding: 10,
                         borderRadius: theme.radius.sm,
@@ -295,6 +298,9 @@ export default function HouseholdScreen() {
                   <Pressable
                     key={scope}
                     onPress={() => toggleScope(scope)}
+                    accessibilityRole="button"
+                    accessibilityLabel={scope}
+                    accessibilityState={{ selected: isSelected }}
                     style={{
                       paddingHorizontal: 10,
                       paddingVertical: 6,

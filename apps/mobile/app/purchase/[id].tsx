@@ -79,6 +79,9 @@ export default function PurchaseDetailScreen() {
               <Pressable
                 key={s.value}
                 onPress={() => markState(s.value)}
+                accessibilityRole="button"
+                accessibilityLabel={s.label}
+                accessibilityState={{ selected: active }}
                 style={{
                   paddingVertical: 6,
                   paddingHorizontal: 10,

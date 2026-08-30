@@ -166,6 +166,8 @@ export default function BillingScreen() {
                         <Pressable
                           key={interval}
                           onPress={() => setIntervalByPlan((prev) => ({ ...prev, [planKey]: interval }))}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${PLAN_LABELS[planKey]}, ${interval === "month" ? "Monthly" : "Annual"}`}
                           style={{
                             flex: 1,
                             paddingVertical: 6,

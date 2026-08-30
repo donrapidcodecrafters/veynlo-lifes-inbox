@@ -80,6 +80,8 @@ export default function SettingsScreen() {
               <Pressable
                 key={opt.value}
                 onPress={() => setMode(opt.value)}
+                accessibilityRole="button"
+                accessibilityLabel={opt.label}
                 style={{
                   flex: 1,
                   paddingVertical: 8,

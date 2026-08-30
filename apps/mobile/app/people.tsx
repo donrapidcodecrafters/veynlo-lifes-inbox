@@ -161,7 +161,12 @@ export default function PeopleScreen() {
       {people && people.length > 0 && (
         <View style={{ gap: 8 }}>
           {people.map((p) => (
-            <Pressable key={p.id} onPress={() => router.push(`/person/${p.id}`)}>
+            <Pressable
+              key={p.id}
+              onPress={() => router.push(`/person/${p.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${p.displayLabel}${p.relationshipLabel ? `, ${p.relationshipLabel}` : ""}`}
+            >
               <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{p.displayLabel}</Text>

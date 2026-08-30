@@ -74,6 +74,9 @@ export default function NotificationPreferencesScreen() {
               <Pressable
                 key={opt.value}
                 onPress={() => updatePrefs({ intensity: opt.value })}
+                accessibilityRole="button"
+                accessibilityLabel={opt.label}
+                accessibilityState={{ selected: active }}
                 style={{
                   flex: 1,
                   paddingVertical: 8,

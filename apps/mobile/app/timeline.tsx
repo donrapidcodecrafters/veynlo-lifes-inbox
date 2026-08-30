@@ -189,6 +189,9 @@ export default function TimelineScreen() {
             <Pressable
               key={z}
               onPress={() => setZoom(z)}
+              accessibilityRole="button"
+              accessibilityLabel={z}
+              accessibilityState={{ selected: active }}
               style={{ flex: 1, paddingVertical: 8, borderRadius: theme.radius.sm, backgroundColor: active ? theme.colors.bgSurface : "transparent", alignItems: "center" }}
             >
               <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary, textTransform: "capitalize" }}>
@@ -206,6 +209,9 @@ export default function TimelineScreen() {
             <Pressable
               key={f.value || "all"}
               onPress={() => setKindFilter(f.value)}
+              accessibilityRole="button"
+              accessibilityLabel={f.label}
+              accessibilityState={{ selected: active }}
               style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: theme.radius.sm, backgroundColor: active ? theme.colors.bgSurface : theme.colors.bgSubtle }}
             >
               <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>{f.label}</Text>
@@ -237,7 +243,11 @@ export default function TimelineScreen() {
               <View style={{ gap: 8 }}>
                 {groupItems.map((item) => (
                   <View key={`${item.kind}-${item.id}`}>
-                    <Pressable onPress={() => router.push(KIND_ROUTE[item.kind](item.resourceId))}>
+                    <Pressable
+                      onPress={() => router.push(KIND_ROUTE[item.kind](item.resourceId))}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${item.title}, ${KIND_LABEL[item.kind]}`}
+                    >
                       <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 }}>
                           <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>

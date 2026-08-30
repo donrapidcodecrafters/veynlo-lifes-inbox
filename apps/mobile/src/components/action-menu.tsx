@@ -37,6 +37,7 @@ export function ActionMenu({ items }: { items: ActionMenuItem[] }) {
         >
           <Pressable
             accessibilityViewIsModal
+            accessibilityRole="none"
             style={{
               backgroundColor: theme.colors.bgSurface,
               borderTopLeftRadius: theme.radius.xl,

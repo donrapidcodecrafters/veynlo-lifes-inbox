@@ -156,6 +156,8 @@ function GoalsStep({ onChoose, onSkip }: { onChoose: (goal: OnboardingGoal) => v
           <Pressable
             key={g.value}
             onPress={() => onChoose(g.value)}
+            accessibilityRole="button"
+            accessibilityLabel={`${g.label}, ${g.description}`}
             style={{ borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.borderDefault, padding: 12 }}
           >
             <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>{g.label}</Text>
@@ -163,7 +165,7 @@ function GoalsStep({ onChoose, onSkip }: { onChoose: (goal: OnboardingGoal) => v
           </Pressable>
         ))}
       </View>
-      <Pressable onPress={onSkip}>
+      <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip setup for now">
         <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textTertiary }}>Skip setup for now</Text>
       </Pressable>
     </Card>
@@ -236,6 +238,9 @@ function ConnectStep({
                 <Pressable
                   key={opt.value}
                   onPress={() => onHistoryDepthDaysChange(opt.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={opt.label}
+                  accessibilityState={{ selected: active }}
                   style={{
                     paddingVertical: 6,
                     paddingHorizontal: 10,
@@ -274,7 +279,7 @@ function ConnectStep({
       </View>
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Pressable onPress={onSkip}>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip setup for now">
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textTertiary }}>Skip setup for now</Text>
         </Pressable>
         <Button variant="secondary" onPress={onContinue}>

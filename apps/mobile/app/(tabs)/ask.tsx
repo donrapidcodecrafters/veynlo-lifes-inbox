@@ -126,6 +126,8 @@ export default function AskScreen() {
             <Pressable
               key={m}
               onPress={() => setMode(m)}
+              accessibilityRole="button"
+              accessibilityLabel={m === "ask" ? "Ask" : "Search"}
               style={{ flex: 1, paddingVertical: 8, borderRadius: theme.radius.md, backgroundColor: active ? theme.colors.bgSurface : "transparent", alignItems: "center" }}
             >
               <Text style={{ fontSize: 14, fontWeight: "600", color: active ? theme.colors.textPrimary : theme.colors.textTertiary }}>
@@ -161,7 +163,12 @@ export default function AskScreen() {
                 <View style={{ gap: 6 }}>
                   <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Purchases</Text>
                   {searchResult.purchases.map((p) => (
-                    <Pressable key={p.id} onPress={() => router.push(`/purchase/${p.id}`)}>
+                    <Pressable
+                      key={p.id}
+                      onPress={() => router.push(`/purchase/${p.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Order ${p.orderNumber ?? p.id}`}
+                    >
                       <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>Order {p.orderNumber ?? p.id}</Text>
                     </Pressable>
                   ))}
@@ -172,7 +179,12 @@ export default function AskScreen() {
                 <View style={{ gap: 6 }}>
                   <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Bills</Text>
                   {searchResult.bills.map((b) => (
-                    <Pressable key={b.id} onPress={() => router.push(`/bill/${b.id}`)}>
+                    <Pressable
+                      key={b.id}
+                      onPress={() => router.push(`/bill/${b.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={b.billerLabel}
+                    >
                       <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{b.billerLabel}</Text>
                     </Pressable>
                   ))}
@@ -183,7 +195,12 @@ export default function AskScreen() {
                 <View style={{ gap: 6 }}>
                   <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Documents</Text>
                   {searchResult.documents.map((d) => (
-                    <Pressable key={d.id} onPress={() => openDocument(d.id)}>
+                    <Pressable
+                      key={d.id}
+                      onPress={() => openDocument(d.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={d.title}
+                    >
                       <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{d.title}</Text>
                     </Pressable>
                   ))}
@@ -194,7 +211,12 @@ export default function AskScreen() {
                 <View style={{ gap: 6 }}>
                   <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Events</Text>
                   {searchResult.events.map((e) => (
-                    <Pressable key={e.id} onPress={() => router.push(`/event/${e.id}`)}>
+                    <Pressable
+                      key={e.id}
+                      onPress={() => router.push(`/event/${e.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={e.title}
+                    >
                       <Text style={{ fontSize: 14, color: theme.colors.brandDefault }}>{e.title}</Text>
                     </Pressable>
                   ))}
@@ -261,10 +283,17 @@ export default function AskScreen() {
                     setQuestion(sq.questionText);
                     ask(sq.questionText);
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={sq.questionText}
                 >
                   <Text style={{ fontSize: 13, color: theme.colors.textSecondary }}>{sq.questionText}</Text>
                 </Pressable>
-                <Pressable onPress={() => deleteSavedQuery(sq.id)} style={{ paddingHorizontal: 4 }}>
+                <Pressable
+                  onPress={() => deleteSavedQuery(sq.id)}
+                  style={{ paddingHorizontal: 4 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete saved question: ${sq.questionText}`}
+                >
                   <Text style={{ fontSize: 15, color: theme.colors.textTertiary }}>×</Text>
                 </Pressable>
               </View>
@@ -282,6 +311,8 @@ export default function AskScreen() {
                 setQuestion(s);
                 ask(s);
               }}
+              accessibilityRole="button"
+              accessibilityLabel={s}
               style={{ borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.colors.borderDefault, paddingHorizontal: 12, paddingVertical: 6 }}
             >
               <Text style={{ fontSize: 13, color: theme.colors.textSecondary }}>{s}</Text>

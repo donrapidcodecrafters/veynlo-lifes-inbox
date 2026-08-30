@@ -229,6 +229,8 @@ export default function LifeScreen() {
                 <Pressable
                   key={e.id}
                   onPress={() => router.push(`/event/${e.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${e.title}${when ? `, ${when}` : ""}`}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -318,7 +320,12 @@ export default function LifeScreen() {
               const days = daysUntil(r.returnCase.deadline);
               const value = formatMoneyMinorUnits(r.returnCase.valueAtStakeMinorUnits, r.returnCase.valueAtStakeCurrency);
               return (
-                <Pressable key={r.returnCase.id} onPress={() => router.push(`/return-case/${r.returnCase.id}`)}>
+                <Pressable
+                  key={r.returnCase.id}
+                  onPress={() => router.push(`/return-case/${r.returnCase.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Return for order ${r.purchase.orderNumber ?? "unknown"}${days != null ? `, ${days > 0 ? `${days} days left` : "due today"}` : ""}`}
+                >
                   <Card style={{ gap: 6 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                       <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
@@ -349,6 +356,8 @@ export default function LifeScreen() {
                 <Pressable
                   key={s.subscription.id}
                   onPress={() => router.push(`/subscription/${s.subscription.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${s.stream.serviceLabel}, ${s.stream.cadence}${amount ? `, ${amount}` : ""}`}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -389,6 +398,8 @@ export default function LifeScreen() {
                 <Pressable
                   key={b.bill.id}
                   onPress={() => router.push(`/bill/${b.bill.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${b.bill.billerLabel}${due ? `, due ${due}` : ""}`}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -426,6 +437,8 @@ export default function LifeScreen() {
                 <Pressable
                   key={w.id}
                   onPress={() => router.push(`/warranty/${w.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${w.productLabel}${expires ? `, expires ${expires}` : ""}`}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -462,6 +475,8 @@ export default function LifeScreen() {
                 <Pressable
                   key={s.id}
                   onPress={() => router.push(`/shipment/${s.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${s.merchantName ?? s.carrier}, ${s.carrier}, ${s.status.replace(/_/g, " ")}`}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
@@ -502,6 +517,8 @@ export default function LifeScreen() {
                 <Pressable
                   key={p.id}
                   onPress={() => router.push(`/purchase/${p.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${p.merchantName ?? `Order ${p.orderNumber ?? "—"}`}${date ? `, ${date}` : ""}`}
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
