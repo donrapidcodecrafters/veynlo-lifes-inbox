@@ -180,9 +180,18 @@ export class BillingService {
       throw err;
     }
 
-    const userId =
-      (event.data.object as { metadata?: Record<string, string>; client_reference_id?: string }).metadata?.veynloUserId ??
-      (event.data.object as { client_reference_id?: string }).client_reference_id;
+    // checkout.session.completed carries client_reference_id/metadata directly, but Charge/Invoice/
+    // Subscription objects generally don't — Stripe doesn't propagate a checkout session's custom metadata
+    // onto the objects it later generates. Without the reverse stripeCustomerId lookup below, `userId`
+    // resolved to undefined for exactly those event types, and the FK-constrained billing_events insert
+    // just below would throw on every single `charge.refunded`/`invoice.payment_failed` delivery — meaning
+    // refund reconciliation and payment-failure notifications never actually ran in practice, only in the
+    // checkout/subscription-metadata-carrying cases this always worked for.
+    const userId = await this.resolveEventUserId(event);
+    if (!userId) {
+      this.logger.warn(`Stripe webhook ${event.id} (${event.type}) — no resolvable Veynlo user, skipping.`);
+      return;
+    }
 
     // Stripe (and RevenueCat) retry any delivery that doesn't get a 2xx back — a replayed event must not
     // double-process. `onConflictDoNothing` against the (source, externalEventId) unique index means a
@@ -191,7 +200,7 @@ export class BillingService {
       .insert(schema.billingEvents)
       .values({
         id: generateId("billingEvent"),
-        userId: userId ?? "unknown",
+        userId,
         source: "web_stripe",
         externalEventId: event.id,
         eventType: event.type,
@@ -204,7 +213,7 @@ export class BillingService {
       return;
     }
 
-    if (event.type === "checkout.session.completed" && userId) {
+    if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const planKey = (session.metadata?.planKey as PlanKey) ?? "plus";
       await this.db.insert(schema.entitlements).values({
@@ -223,7 +232,7 @@ export class BillingService {
       }
     }
 
-    if ((event.type === "customer.subscription.deleted" || event.type === "customer.subscription.updated") && userId) {
+    if (event.type === "customer.subscription.deleted" || event.type === "customer.subscription.updated") {
       const subscription = event.data.object as Stripe.Subscription;
       if (subscription.status === "canceled" || subscription.status === "unpaid") {
         await this.db
@@ -265,21 +274,17 @@ export class BillingService {
 
     // §54.2 launch criteria — refund reconciliation was previously entirely unhandled: a refunded charge
     // left the entitlement it paid for active forever, a real "got their money back, kept the feature"
-    // billing bug. `charge.refunded` carries no client_reference_id/metadata (only checkout.session does),
-    // so the user is resolved via the reverse stripeCustomerId lookup checkout already persists.
+    // billing bug. `userId` here came from the reverse stripeCustomerId lookup in resolveEventUserId
+    // (charge.refunded carries no client_reference_id/metadata — only checkout.session does).
     if (event.type === "charge.refunded") {
       const charge = event.data.object as Stripe.Charge;
-      const customerId = typeof charge.customer === "string" ? charge.customer : charge.customer?.id;
       // `refunded` is only true once the FULL charge amount has been refunded — a partial/goodwill refund
       // (amount_refunded < amount, refunded still false) shouldn't cut off an otherwise-paying subscriber.
-      if (charge.refunded && customerId) {
-        const refundedUserId = await this.resolveUserIdByStripeCustomer(customerId);
-        if (refundedUserId) {
-          await this.db
-            .update(schema.entitlements)
-            .set({ effectiveTo: new Date() })
-            .where(and(eq(schema.entitlements.userId, refundedUserId), eq(schema.entitlements.source, "web_stripe"), isNull(schema.entitlements.effectiveTo)));
-        }
+      if (charge.refunded) {
+        await this.db
+          .update(schema.entitlements)
+          .set({ effectiveTo: new Date() })
+          .where(and(eq(schema.entitlements.userId, userId), eq(schema.entitlements.source, "web_stripe"), isNull(schema.entitlements.effectiveTo)));
       }
     }
 
@@ -295,36 +300,42 @@ export class BillingService {
     // actual revocation once Stripe's own retries are truly exhausted.
     if (event.type === "invoice.payment_failed") {
       const invoice = event.data.object as Stripe.Invoice;
-      const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
-      if (customerId) {
-        const failedUserId = await this.resolveUserIdByStripeCustomer(customerId);
-        if (failedUserId) {
-          await this.notifications.createAndEnqueue({
-            ownerUserId: failedUserId,
-            // Deduped per invoice, not per attempt — Stripe retries the same invoice several times before
-            // giving up, and re-notifying on every retry would be exactly the "notification fatigue" risk
-            // §54.1 names, not a second useful signal.
-            dedupeKey: `stripe-payment-failed:${invoice.id}`,
-            priority: "important",
-            title: "We couldn't process your payment",
-            body: invoice.hosted_invoice_url
-              ? `Your payment for Veynlo didn't go through. Update your payment method to keep your plan active: ${invoice.hosted_invoice_url}`
-              : "Your payment for Veynlo didn't go through. Update your payment method in Billing to keep your plan active.",
-            // "billing" is intentionally NOT one of the user-mutable categories in NOTIFICATION_CATEGORIES
-            // (apps/web/settings, apps/mobile/notification-preferences) — silencing "you're about to lose
-            // access" is a real harm a category mute shouldn't be able to cause, unlike muting e.g. bill
-            // reminders. Still respects quiet hours (priority "important", not "critical") since this
-            // isn't a security emergency, just an account-status heads up.
-            category: "billing",
-          });
-        }
-      }
+      await this.notifications.createAndEnqueue({
+        ownerUserId: userId,
+        // Deduped per invoice, not per attempt — Stripe retries the same invoice several times before
+        // giving up, and re-notifying on every retry would be exactly the "notification fatigue" risk
+        // §54.1 names, not a second useful signal.
+        dedupeKey: `stripe-payment-failed:${invoice.id}`,
+        priority: "important",
+        title: "We couldn't process your payment",
+        body: invoice.hosted_invoice_url
+          ? `Your payment for Veynlo didn't go through. Update your payment method to keep your plan active: ${invoice.hosted_invoice_url}`
+          : "Your payment for Veynlo didn't go through. Update your payment method in Billing to keep your plan active.",
+        // "billing" is intentionally NOT one of the user-mutable categories in NOTIFICATION_CATEGORIES
+        // (apps/web/settings, apps/mobile/notification-preferences) — silencing "you're about to lose
+        // access" is a real harm a category mute shouldn't be able to cause, unlike muting e.g. bill
+        // reminders. Still respects quiet hours (priority "important", not "critical") since this
+        // isn't a security emergency, just an account-status heads up.
+        category: "billing",
+      });
     }
   }
 
   private async resolveUserIdByStripeCustomer(customerId: string): Promise<string | null> {
     const [row] = await this.db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.stripeCustomerId, customerId)).limit(1);
     return row?.id ?? null;
+  }
+
+  /** Every event type this handler reacts to, resolved to a real Veynlo user. Checkout sessions carry
+   * client_reference_id/metadata directly; everything else (charges, invoices, subscriptions) falls back
+   * to the reverse stripeCustomerId lookup, since Stripe doesn't propagate a checkout session's custom
+   * metadata onto the objects it generates afterward. */
+  private async resolveEventUserId(event: Stripe.Event): Promise<string | null> {
+    const object = event.data.object as { metadata?: Record<string, string>; client_reference_id?: string; customer?: string | { id: string } };
+    const direct = object.metadata?.veynloUserId ?? object.client_reference_id;
+    if (direct) return direct;
+    const customerId = typeof object.customer === "string" ? object.customer : object.customer?.id;
+    return customerId ? this.resolveUserIdByStripeCustomer(customerId) : null;
   }
 
   /**
