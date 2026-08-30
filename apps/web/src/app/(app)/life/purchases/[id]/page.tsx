@@ -109,6 +109,7 @@ export default function PurchaseDetailPage() {
                   <span className="text-primary">
                     {line.quantity > 1 ? `${line.quantity}× ` : ""}
                     {line.productLabel}
+                    {line.serialNumber && <span className="ml-2 text-xs text-tertiary">S/N {line.serialNumber}</span>}
                   </span>
                   {line.unitPriceMinorUnits != null && (
                     <span className="text-tertiary">{formatMoneyMinorUnits(line.unitPriceMinorUnits, purchase.totalCurrency)}</span>

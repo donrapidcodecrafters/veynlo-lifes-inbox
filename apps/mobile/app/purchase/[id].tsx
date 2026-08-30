@@ -30,7 +30,7 @@ interface PurchaseDetail {
     confidenceBand: string;
     merchantName: string | null;
   };
-  lines: Array<{ id: string; productLabel: string; quantity: number; unitPriceMinorUnits: number | null }>;
+  lines: Array<{ id: string; productLabel: string; quantity: number; unitPriceMinorUnits: number | null; serialNumber: string | null }>;
   returns: Array<{ id: string; state: string; deadline: TemporalValueLike }>;
   shipments: Array<{ id: string; carrier: string; trackingNumber: string; status: string }>;
   evidence: Evidence | null;
@@ -101,10 +101,13 @@ export default function PurchaseDetailScreen() {
           <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Items</Text>
           {lines.map((line) => (
             <View key={line.id} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }}>
-                {line.quantity > 1 ? `${line.quantity}× ` : ""}
-                {line.productLabel}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>
+                  {line.quantity > 1 ? `${line.quantity}× ` : ""}
+                  {line.productLabel}
+                </Text>
+                {line.serialNumber && <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>S/N {line.serialNumber}</Text>}
+              </View>
               {line.unitPriceMinorUnits != null && (
                 <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{formatMoneyMinorUnits(line.unitPriceMinorUnits, purchase.totalCurrency)}</Text>
               )}
