@@ -475,7 +475,7 @@ export default function DashboardPage() {
                                 <button
                                   onClick={() => refundCharge(c.id)}
                                   disabled={refundingId === c.id}
-                                  className="rounded-lg bg-critical px-3 py-1 text-xs font-medium text-white hover:brightness-95 disabled:opacity-50"
+                                  className="rounded-lg bg-critical-solid px-3 py-1 text-xs font-medium text-white hover:brightness-95 disabled:opacity-50"
                                 >
                                   {refundingId === c.id ? "Refunding…" : `Confirm refund of ${formatMoney(c.amountMinorUnits, c.currency)}`}
                                 </button>

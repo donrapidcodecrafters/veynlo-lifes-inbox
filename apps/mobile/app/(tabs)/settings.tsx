@@ -115,7 +115,7 @@ export default function SettingsScreen() {
               value={lockEnabled}
               onValueChange={onToggleLock}
               disabled={!lockReady || !lockSupported}
-              trackColor={{ true: theme.colors.brandDefault }}
+              trackColor={{ false: theme.colors.borderStrong, true: theme.colors.brandDefault }}
             />
           </View>
           {lockError && <Text style={{ fontSize: 13, color: theme.colors.critical, marginTop: 6 }}>{lockError}</Text>}

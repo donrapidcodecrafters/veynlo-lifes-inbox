@@ -578,7 +578,7 @@ function DocumentEditor({
             <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Visible to household</Text>
             <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Let household members with documents access see this document.</Text>
           </View>
-          <Switch value={visibility === "household"} onValueChange={toggleVisibility} trackColor={{ true: theme.colors.brandDefault }} />
+          <Switch value={visibility === "household"} onValueChange={toggleVisibility} trackColor={{ false: theme.colors.borderStrong, true: theme.colors.brandDefault }} />
         </View>
       )}
 

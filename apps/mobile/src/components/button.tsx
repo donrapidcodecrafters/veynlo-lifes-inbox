@@ -16,7 +16,7 @@ export function Button({ variant = "primary", loading, disabled, children, style
     variant === "primary"
       ? theme.colors.brandDefault
       : variant === "critical"
-        ? theme.colors.critical
+        ? theme.colors.criticalSolid
         : variant === "secondary"
           ? theme.colors.bgSurface
           : "transparent";

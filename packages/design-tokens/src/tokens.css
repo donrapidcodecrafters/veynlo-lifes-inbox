@@ -46,6 +46,13 @@
   --semantic-critical: #d64545;
   --semantic-critical-subtle-bg: #fef2f2;
   --semantic-critical-subtle-text: #8f2929;
+  /* Deliberately theme-invariant (not redefined in either dark-mode block below) — for a solid
+     destructive-button fill that needs to stay dark enough for white text on top in both themes.
+     --semantic-critical itself is tuned as a foreground/text color per mode and is far too pale in
+     dark mode (#e9807f) to double as a button background — white-on-that computes to ~2.7:1 contrast,
+     below the WCAG 4.5:1 minimum. This token fixes that without changing --semantic-critical's own
+     correct behavior as error text/icon color. */
+  --semantic-critical-solid: #b83636;
   --semantic-warning: #c98a1f;
   --semantic-warning-subtle-bg: #fff8ec;
   --semantic-warning-subtle-text: #7a5210;

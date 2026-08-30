@@ -14,7 +14,7 @@ const variantClasses: Record<Variant, string> = {
   primary: "bg-brand text-on-brand hover:bg-brand-hover active:bg-brand-active shadow-xs",
   secondary: "bg-surface text-primary border border-border-default hover:bg-subtle",
   ghost: "bg-transparent text-primary hover:bg-subtle",
-  critical: "bg-critical text-white hover:brightness-95",
+  critical: "bg-critical-solid text-white hover:brightness-95",
 };
 
 const sizeClasses: Record<Size, string> = {

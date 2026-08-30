@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, useColorScheme } from "react-native";
 import { close, openHostApp, Text, TextInput, View, type InitialProps } from "expo-share-extension";
-import { lightSemanticColors, darkSemanticColors, brand } from "@veynlo/design-tokens";
+import { lightSemanticColors, darkSemanticColors } from "@veynlo/design-tokens";
 
 // Long shared content gets truncated before being encoded into the deep-link URL that hands off to the
 // main app — openHostApp's native side does a naive "&"/"="-split with no percent-decoding of its own, so
@@ -79,7 +79,7 @@ function createStyles(colors: Record<keyof typeof lightSemanticColors, string>) 
     button: { flex: 1, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" },
     cancelButton: { backgroundColor: colors.bgSubtle },
     cancelText: { color: colors.textPrimary, fontWeight: "600" },
-    saveButton: { backgroundColor: brand[500] },
+    saveButton: { backgroundColor: colors.brandDefault },
     saveText: { color: colors.textOnBrand, fontWeight: "600" },
   });
 }

@@ -118,6 +118,11 @@ export const lightSemanticColors = {
   critical: semantic.critical[500],
   criticalSubtleBg: semantic.critical[50],
   criticalSubtleText: semantic.critical[700],
+  // Deliberately the SAME value in both lightSemanticColors and darkSemanticColors — unlike `critical`
+  // (which is intentionally re-tuned per mode as a foreground/text color, and much too pale in dark mode
+  // to double as a button fill), this is for a solid destructive-button background that needs to stay dark
+  // enough for white text on top in both themes. See criticalSolid below for the failure this fixes.
+  criticalSolid: semantic.critical[600],
   warning: semantic.warning[500],
   warningSubtleBg: semantic.warning[50],
   warningSubtleText: semantic.warning[700],
@@ -161,6 +166,8 @@ export const darkSemanticColors = {
   critical: "#e9807f",
   criticalSubtleBg: "rgba(214, 69, 69, 0.16)",
   criticalSubtleText: "#f4b3b2",
+  // Same fixed value as lightSemanticColors.criticalSolid — see that comment for why this one doesn't flip.
+  criticalSolid: semantic.critical[600],
   warning: "#e8b463",
   warningSubtleBg: "rgba(201, 138, 31, 0.16)",
   warningSubtleText: "#f0cf94",

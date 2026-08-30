@@ -112,7 +112,7 @@ export default function EventDetailScreen() {
               <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Visible to household</Text>
               <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Let household members with schedule access see this event.</Text>
             </View>
-            <Switch value={event.visibility === "household"} onValueChange={toggleVisibility} trackColor={{ true: theme.colors.brandDefault }} />
+            <Switch value={event.visibility === "household"} onValueChange={toggleVisibility} trackColor={{ false: theme.colors.borderStrong, true: theme.colors.brandDefault }} />
           </View>
         )}
         <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 12 }}>

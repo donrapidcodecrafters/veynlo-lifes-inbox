@@ -34,6 +34,7 @@
   --color-critical: var(--semantic-critical);
   --color-critical-subtle: var(--semantic-critical-subtle-bg);
   --color-critical-subtle-text: var(--semantic-critical-subtle-text);
+  --color-critical-solid: var(--semantic-critical-solid);
   --color-warning: var(--semantic-warning);
   --color-warning-subtle: var(--semantic-warning-subtle-bg);
   --color-warning-subtle-text: var(--semantic-warning-subtle-text);
