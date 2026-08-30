@@ -185,6 +185,14 @@ export default function HouseholdScreen() {
     await load();
   }
 
+  /** §HH-001 "revoke invite" — same fix as web's Household page: a mistyped/changed-their-mind invite
+   * previously had no way to be undone, and permanently blocked that email from ever being re-invited. */
+  async function revokeInvite(membershipId: string) {
+    if (!active) return;
+    await api.post(`/v1/households/${active.household.id}/members/${membershipId}/revoke-invite`);
+    await load();
+  }
+
   if (households && households.length === 0) {
     return (
       <Screen>
@@ -227,9 +235,16 @@ export default function HouseholdScreen() {
                 </Text>
                 <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{m.relationshipLabel ?? ROLE_LABEL[m.role] ?? m.role}</Text>
               </View>
-              <Badge tone={m.status === "active" ? "positive" : m.status === "invited" ? "warning" : "neutral"}>
-                {m.status === "active" ? ROLE_LABEL[m.role] ?? m.role : m.status}
-              </Badge>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Badge tone={m.status === "active" ? "positive" : m.status === "invited" ? "warning" : "neutral"}>
+                  {m.status === "active" ? ROLE_LABEL[m.role] ?? m.role : m.status}
+                </Badge>
+                {canManage && m.status === "invited" && (
+                  <Button variant="ghost" onPress={() => revokeInvite(m.id)}>
+                    Revoke
+                  </Button>
+                )}
+              </View>
             </View>
           ))}
         </Card>

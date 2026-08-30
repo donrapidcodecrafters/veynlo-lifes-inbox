@@ -137,9 +137,14 @@ function HouseholdDetail({ householdId, householdName, myRole }: { householdId: 
                   <p className="font-medium text-primary">{m.displayName ?? m.invitedEmail ?? "Unknown"}</p>
                   <p className="text-tertiary">{m.relationshipLabel ?? ROLE_LABEL[m.role] ?? m.role}</p>
                 </div>
-                <Badge tone={m.status === "active" ? "positive" : m.status === "invited" ? "warning" : "neutral"}>
-                  {m.status === "active" ? ROLE_LABEL[m.role] ?? m.role : m.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone={m.status === "active" ? "positive" : m.status === "invited" ? "warning" : "neutral"}>
+                    {m.status === "active" ? ROLE_LABEL[m.role] ?? m.role : m.status}
+                  </Badge>
+                  {canManage && m.status === "invited" && (
+                    <RevokeInviteButton householdId={householdId} membershipId={m.id} onRevoked={() => mutateMembers()} />
+                  )}
+                </div>
               </div>
             ))}
           </CardBody>
@@ -441,6 +446,26 @@ function RevokeDelegationButton({
     setRevoking(true);
     try {
       await api.post(`/v1/households/${householdId}/delegations/${delegationId}/revoke`);
+      onRevoked();
+    } finally {
+      setRevoking(false);
+    }
+  }
+  return (
+    <Button variant="ghost" size="sm" onClick={revoke} disabled={revoking}>
+      {revoking ? "Revoking…" : "Revoke"}
+    </Button>
+  );
+}
+
+/** §HH-001 "revoke invite" — a mistyped/changed-their-mind invite previously had no way to be undone, and
+ * permanently blocked that email from ever being re-invited. */
+function RevokeInviteButton({ householdId, membershipId, onRevoked }: { householdId: string; membershipId: string; onRevoked: () => void }) {
+  const [revoking, setRevoking] = useState(false);
+  async function revoke() {
+    setRevoking(true);
+    try {
+      await api.post(`/v1/households/${householdId}/members/${membershipId}/revoke-invite`);
       onRevoked();
     } finally {
       setRevoking(false);

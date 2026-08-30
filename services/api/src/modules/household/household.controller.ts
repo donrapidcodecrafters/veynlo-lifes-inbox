@@ -46,6 +46,15 @@ export class HouseholdController {
     return this.households.invite(householdId, user.userId, dto);
   }
 
+  @Post(":householdId/members/:membershipId/revoke-invite")
+  revokeInvite(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("householdId") householdId: string,
+    @Param("membershipId") membershipId: string,
+  ) {
+    return this.households.revokeInvite(householdId, membershipId, user.userId);
+  }
+
   @Post(":householdId/dependents")
   @UsePipes(new ZodValidationPipe(CreateDependentDtoSchema))
   addDependent(

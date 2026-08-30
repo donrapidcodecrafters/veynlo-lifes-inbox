@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -124,10 +124,21 @@ export class HouseholdService {
     if (membership.role !== "household_owner" && membership.role !== "adult_member") {
       throw new ForbiddenException({ code: "INSUFFICIENT_ROLE", message: "Only adult members can invite." });
     }
+    // Excludes "removed" — previously matched ANY row regardless of status, so a revoked/mistyped invite
+    // blocked that email from ever being re-invited to this household again. "left" is still excluded from
+    // re-invite eligibility here for a different reason: someone who already left isn't re-invited via
+    // this same flow (that's ALREADY_INVITED's original intent for a former real member), only a genuinely
+    // never-accepted invite should be revocable and retryable.
     const [existingInvite] = await this.db
       .select()
       .from(schema.householdMemberships)
-      .where(and(eq(schema.householdMemberships.householdId, householdId), eq(schema.householdMemberships.invitedEmail, dto.email)))
+      .where(
+        and(
+          eq(schema.householdMemberships.householdId, householdId),
+          eq(schema.householdMemberships.invitedEmail, dto.email),
+          ne(schema.householdMemberships.status, "removed"),
+        ),
+      )
       .limit(1);
     if (existingInvite) {
       throw new BadRequestException({ code: "ALREADY_INVITED", message: "This person has already been invited." });
@@ -194,6 +205,33 @@ export class HouseholdService {
     } catch (err) {
       this.logger.warn(`Failed to send household invite email to ${inviteeEmail}: ${String(err)}`);
     }
+  }
+
+  /**
+   * §HH-001 "resend, revoke... invite" — previously nonexistent: a mistyped invite email or a
+   * changed-their-mind invite had no way to be undone, and (see the fixed ALREADY_INVITED check above)
+   * permanently blocked that email from ever being invited to this household again. Only a still-pending
+   * ("invited") row can be revoked — an already-accepted member is a different, bigger action
+   * (remove-member) this doesn't attempt.
+   */
+  async revokeInvite(householdId: string, membershipId: string, requestingUserId: string) {
+    const requester = await this.assertOwnerOrAdult(householdId, requestingUserId);
+    if (requester.role !== "household_owner" && requester.role !== "adult_member") {
+      throw new ForbiddenException({ code: "INSUFFICIENT_ROLE", message: "Only adult members can revoke invites." });
+    }
+    const [membership] = await this.db
+      .select()
+      .from(schema.householdMemberships)
+      .where(and(eq(schema.householdMemberships.id, membershipId), eq(schema.householdMemberships.householdId, householdId)))
+      .limit(1);
+    if (!membership) throw new NotFoundException({ code: "MEMBERSHIP_NOT_FOUND", message: "Not found." });
+    if (membership.status !== "invited") {
+      throw new BadRequestException({ code: "NOT_A_PENDING_INVITE", message: "Only a still-pending invite can be revoked." });
+    }
+    await this.db.update(schema.householdMemberships).set({ status: "removed" }).where(eq(schema.householdMemberships.id, membershipId));
+    await this.recordAudit(requestingUserId, "household.revoke_invite", "household", householdId, {
+      beforeJson: { invitedEmail: membership.invitedEmail },
+    });
   }
 
   async addDependent(householdId: string, requestingUserId: string, dto: CreateDependentDto) {
