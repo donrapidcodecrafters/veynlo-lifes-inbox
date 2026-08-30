@@ -4,7 +4,9 @@ Infrastructure-as-code for Veynlo's production AWS footprint (architecture
 blueprint §5–17). This is written and validated (`terraform validate`
 against the real `hashicorp/aws` provider schema — no AWS account or
 credentials needed for that) but **never applied** — there is no AWS
-account behind this yet.
+account behind this yet. CI runs `terraform fmt -check` and `validate` for
+all three environments on every push, plus an informational (non-blocking)
+`checkov` security scan — see the `terraform` job in `.github/workflows/ci.yml`.
 
 ## Layout
 

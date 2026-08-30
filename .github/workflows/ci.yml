@@ -145,3 +145,41 @@ jobs:
           format: cyclonedx-json
           output-file: sbom-api.cyclonedx.json
           upload-artifact: true
+
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Only needs to run once — not per-environment — so it's pinned to one matrix leg.
+      - name: Format check
+        if: matrix.environment == 'dev'
+        run: terraform fmt -check -recursive -diff infrastructure/terraform
+
+      # No AWS account exists yet (see infrastructure/terraform/README.md), so there's no backend and no
+      # credentials here — `init -backend=false` + `validate` need neither, unlike `plan`/`apply`.
+      - name: Init
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+        run: terraform init -backend=false -input=false
+
+      - name: Validate
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+        run: terraform validate
+
+      # Informational only, not blocking: real findings here (VPC flow logs, S3 versioning/replication, ALB
+      # WAF, Secrets Manager rotation, RDS backup plan, ...) are genuine hardening gaps, but several are
+      # deliberately deferred/Tier-3 scope for this project stage (AWS WAF has real ongoing runtime cost;
+      # see docs/DEPLOYMENT.md and SECURITY.md) rather than oversights to gate merges on. Surfacing them
+      # keeps the backlog visible without blocking on remediation work that isn't in scope yet.
+      - name: Security scan (checkov, informational)
+        if: matrix.environment == 'dev'
+        run: |
+          pip install checkov
+          checkov -d infrastructure/terraform --framework terraform --compact --quiet || true
