@@ -14,6 +14,7 @@ import {
   type DataExportJobData,
   type DataRetentionScanJobData,
   type NotificationEscalationScanJobData,
+  type ExpectedEventScanJobData,
 } from "./queue-names";
 
 /**
@@ -56,6 +57,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly notificationEscalationScanQueue = new Queue<NotificationEscalationScanJobData>(QUEUE_NAMES.notificationEscalationScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly expectedEventScanQueue = new Queue<ExpectedEventScanJobData>(QUEUE_NAMES.expectedEventScan, {
     connection: getRedisConnection(),
   });
 
@@ -219,6 +223,17 @@ export class QueueProducerService implements OnModuleDestroy {
     await this.notificationEscalationScanQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "notification-escalation-scan" });
   }
 
+  /**
+   * Notifications backlog "expected-event monitor" (absent paycheck/missing bill detection) — finds
+   * essential recurring streams whose nextExpectedDate has passed and files attention_items for them (see
+   * AttentionService.scanForMissingExpectedEvents). Every 6 hours rather than attentionScan's hourly
+   * cadence: this only ever fires after a multi-day grace window has already passed, so there's no value
+   * polling more often than that, just more load.
+   */
+  async scheduleRecurringExpectedEventScan(): Promise<void> {
+    await this.expectedEventScanQueue.add("scan", {}, { repeat: { every: 6 * 60 * 60 * 1000 }, jobId: "expected-event-scan" });
+  }
+
   /** §Operations "job/queue health monitoring" — the admin console previously only had connection-level
    * (per-connector) and model-level (per-AI-extractor) health, despite the spec explicitly asking for
    * "connector/job/model health." Reuses these same Queue instances (one already exists per queue for
@@ -236,6 +251,7 @@ export class QueueProducerService implements OnModuleDestroy {
       [QUEUE_NAMES.dataExport]: this.dataExportQueue,
       [QUEUE_NAMES.dataRetentionScan]: this.dataRetentionScanQueue,
       [QUEUE_NAMES.notificationEscalationScan]: this.notificationEscalationScanQueue,
+      [QUEUE_NAMES.expectedEventScan]: this.expectedEventScanQueue,
     };
     const entries = await Promise.all(
       Object.entries(queues).map(async ([name, queue]) => {
@@ -259,6 +275,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.dataExportQueue.close(),
       this.dataRetentionScanQueue.close(),
       this.notificationEscalationScanQueue.close(),
+      this.expectedEventScanQueue.close(),
     ]);
   }
 }

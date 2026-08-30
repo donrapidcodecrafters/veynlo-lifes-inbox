@@ -6,6 +6,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { SharingService } from "../shared/sharing.service";
+import { temporalToSortDate } from "../ingestion/temporal.util";
 
 const LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
 // HOME-004 "freshness SLA" — connector sync runs on a 15-minute repeat tick (queue-producer.service.ts);
@@ -45,6 +46,46 @@ function urgencyFor(days: number): "critical" | "important" | "useful" {
 
 function money(minorUnits: number, currency: string): string {
   return `${(minorUnits / 100).toFixed(2)} ${currency}`;
+}
+
+// A genuinely late essential recurring event (paycheck/bill/subscription charge) — 3 days is generous
+// enough that a normal clock/timezone wobble or a payment landing mid-day doesn't false-positive, while
+// still catching something that actually looks missing.
+const MISSING_EVENT_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+// Bounds how many consecutive missed cycles one scan tick will catch up on for a single stream (e.g. 24
+// missed monthly cycles is 2 years of backlog) — a safety cap, not a correctness boundary, since whatever
+// isn't caught up this tick just continues on the next one.
+const MISSING_EVENT_ADVANCE_CAP = 24;
+
+/**
+ * recurringStreams.nextExpectedDate has exactly one writer in the app (IngestionService.extractSubscription,
+ * moving it forward only when a new email evidences the next cycle) and no cadence-driven advancement
+ * anywhere — so once a cycle is missed and no further email ever arrives, nextExpectedDate would otherwise
+ * sit in the past forever. That's fine for detecting the FIRST missed cycle (checking it's stuck in the past
+ * IS the "nothing arrived to move it forward" signal), but without moving it forward ourselves after filing,
+ * a second, later missed cycle for the same essential stream could never be detected — this computes that
+ * next occurrence from the stream's own cadence. Returns null for "irregular" (or any cadence with no
+ * reliable next-occurrence math), which deliberately leaves nextExpectedDate untouched.
+ */
+function advanceByCadence(from: Date, cadence: string): Date | null {
+  const next = new Date(from.getTime());
+  switch (cadence) {
+    case "weekly":
+      next.setUTCDate(next.getUTCDate() + 7);
+      break;
+    case "monthly":
+      next.setUTCMonth(next.getUTCMonth() + 1);
+      break;
+    case "quarterly":
+      next.setUTCMonth(next.getUTCMonth() + 3);
+      break;
+    case "annual":
+      next.setUTCFullYear(next.getUTCFullYear() + 1);
+      break;
+    default:
+      return null;
+  }
+  return next;
 }
 
 @Injectable()
@@ -440,6 +481,71 @@ export class AttentionService {
         linkedResourceId: `${person.id}:${nextOccurrence.getFullYear()}`,
         primaryActions: ["review"],
       });
+    }
+  }
+
+  /**
+   * Part 4 of the Notifications backlog item — "expected-event monitor" (absent paycheck/missing bill
+   * detection). recurringStreams is this codebase's only "we expect this to recur" table today, and it
+   * only actually gets populated by subscription-style extraction (IngestionService.extractSubscription) —
+   * bills.recurringStreamId exists in the schema but has no writer anywhere, so there's no real per-cycle
+   * "a bill showed up" signal to join against. The only real, current signal for "this essential recurring
+   * thing hasn't arrived" is nextExpectedDate itself sitting stuck in the past — see advanceByCadence's
+   * comment for why that's actually sufficient, not just a shortcut.
+   *
+   * Same recurring-worker-tick shape as scanAndFileDeadlines (see queue-producer.service.ts/worker-main.ts).
+   */
+  async scanForMissingExpectedEvents(): Promise<void> {
+    const now = new Date();
+    const streams = await this.db.select().from(schema.recurringStreams).where(eq(schema.recurringStreams.essential, true));
+
+    for (const stream of streams) {
+      let expected = stream.nextExpectedDate;
+      let advancedTo: TemporalValue | null = null;
+
+      for (let i = 0; i < MISSING_EVENT_ADVANCE_CAP; i++) {
+        if (!expected) break;
+        const expectedAt = temporalToSortDate(expected);
+        if (!expectedAt || now.getTime() - expectedAt.getTime() < MISSING_EVENT_GRACE_MS) break;
+
+        const expectedDateKey = expected.date ?? expectedAt.toISOString().slice(0, 10);
+        const daysLate = Math.max(0, Math.ceil((now.getTime() - expectedAt.getTime()) / 86_400_000));
+        const amount =
+          stream.typicalAmountMinorUnits != null && stream.typicalAmountCurrency
+            ? ` of ${money(stream.typicalAmountMinorUnits, stream.typicalAmountCurrency)}`
+            : "";
+        await this.fileIfNew({
+          ownerUserId: stream.ownerUserId,
+          householdId: stream.householdId,
+          reasonCode: "expected_event_missing",
+          reasonText: `${stream.serviceLabel}${amount} was expected around ${expectedDateKey} but hasn't arrived — ${daysLate} day${daysLate === 1 ? "" : "s"} late.`,
+          // urgencyFor is written for "days until due" (soon = urgent, far off = not); daysLate runs the
+          // opposite direction (further overdue = more concerning), so it needs its own mapping rather
+          // than reusing that helper directly — otherwise a severely overdue essential event would rank
+          // as the LEAST urgent case instead of the most.
+          urgency: daysLate >= 7 ? "critical" : "important",
+          dueAt: expected,
+          dueAtSort: expectedAt,
+          moneyAtStakeMinorUnits: stream.typicalAmountMinorUnits,
+          moneyAtStakeCurrency: stream.typicalAmountCurrency,
+          confidenceBand: "needs_review", // an inferred absence, not an observed fact — never "verified"
+          linkedResourceType: "recurring_stream",
+          linkedResourceId: `${stream.id}:${expectedDateKey}`,
+          primaryActions: ["review"],
+        });
+
+        const nextAt = advanceByCadence(expectedAt, stream.cadence);
+        if (!nextAt) break;
+        expected = { precision: "date", instantUtc: null, date: nextAt.toISOString().slice(0, 10), timezone: expected.timezone, sourceText: null };
+        advancedTo = expected;
+      }
+
+      if (advancedTo) {
+        await this.db
+          .update(schema.recurringStreams)
+          .set({ nextExpectedDate: advancedTo, updatedAt: new Date() })
+          .where(eq(schema.recurringStreams.id, stream.id));
+      }
     }
   }
 

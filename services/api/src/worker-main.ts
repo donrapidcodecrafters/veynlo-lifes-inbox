@@ -22,6 +22,7 @@ import {
   type DataExportJobData,
   type DataRetentionScanJobData,
   type NotificationEscalationScanJobData,
+  type ExpectedEventScanJobData,
 } from "./queue/queue-names";
 import { classifyConnectorError, extractRetryAfterMs } from "./modules/connectors/connector-errors";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
@@ -464,6 +465,14 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  const expectedEventScanWorker = new Worker<ExpectedEventScanJobData>(
+    QUEUE_NAMES.expectedEventScan,
+    async () => {
+      await attention.scanForMissingExpectedEvents();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
@@ -476,6 +485,7 @@ async function bootstrap() {
     dataExportWorker,
     dataRetentionScanWorker,
     notificationEscalationScanWorker,
+    expectedEventScanWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
@@ -489,9 +499,10 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringAttentionScan();
   await queueProducer.scheduleRecurringDataRetentionScan();
   await queueProducer.scheduleRecurringNotificationEscalationScan();
+  await queueProducer.scheduleRecurringExpectedEventScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan, notification-escalation-scan",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan, notification-escalation-scan, expected-event-scan",
   );
 
   const shutdown = async () => {
@@ -508,6 +519,7 @@ async function bootstrap() {
       dataExportWorker.close(),
       dataRetentionScanWorker.close(),
       notificationEscalationScanWorker.close(),
+      expectedEventScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);

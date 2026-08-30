@@ -15,6 +15,7 @@ export const QUEUE_NAMES = {
   dataExport: "data-export",
   dataRetentionScan: "data-retention-scan",
   notificationEscalationScan: "notification-escalation-scan",
+  expectedEventScan: "expected-event-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -61,3 +62,6 @@ export type DataRetentionScanJobData = Record<string, never>;
 
 /** Recurring tick with no payload — its processor (NotificationDeliveryService.escalateUnacknowledged) finds due critical unacknowledged notifications itself. */
 export type NotificationEscalationScanJobData = Record<string, never>;
+
+/** Recurring tick with no payload — its processor (AttentionService.scanForMissingExpectedEvents) finds overdue essential recurring streams itself. */
+export type ExpectedEventScanJobData = Record<string, never>;
