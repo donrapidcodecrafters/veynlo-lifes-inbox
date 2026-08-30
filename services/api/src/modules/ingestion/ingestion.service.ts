@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, gte, lte, ne } from "drizzle-orm";
+import { and, desc, eq, gte, lte, ne } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
 import { generateId, confidenceToBand, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -25,6 +25,7 @@ import { DocumentsService } from "../documents/documents.service";
 import { SearchIndexService } from "../search/search-index.service";
 import { FeatureFlagsService } from "../feature-flags/feature-flags.service";
 import { RiskPolicyService } from "../intelligence/risk-policy.service";
+import { normalizeMerchantName } from "../admin/admin.service";
 
 interface EmailAttachment {
   filename: string;
@@ -585,7 +586,7 @@ export class IngestionService {
       ? await this.findExistingPurchaseByOrderNumberOnly(ctx.ownerUserId, result.data.orderNumber)
       : null;
 
-    const existingShipment = await this.findExistingShipment(ctx.ownerUserId, result.data.trackingNumber);
+    const existingShipment = await this.findExistingShipment(ctx.ownerUserId, carrier, result.data.trackingNumber);
     const shipmentId = existingShipment?.id ?? generateId("shipment");
     if (existingShipment) {
       await this.db
@@ -684,14 +685,34 @@ export class IngestionService {
    * Fixed a real cross-tenant bug: this used to match on `trackingNumber` alone with no owner scoping,
    * so two different users' packages sharing a tracking number (carrier number-range reuse isn't rare)
    * would collide onto the same shipment row. Scoped by owner now, same as every other domain's dedup.
+   *
+   * §40.1 also requires matching on carrier+tracking number, not tracking number alone — a reused tracking
+   * number (carriers do recycle them, and an old/already-delivered shipment reusing a number is exactly the
+   * case the spec calls out) would otherwise silently absorb an update meant for an unrelated new shipment.
    */
-  private async findExistingShipment(ownerUserId: string, trackingNumber: string) {
+  private async findExistingShipment(ownerUserId: string, carrier: string, trackingNumber: string) {
     const [existing] = await this.db
       .select()
       .from(schema.shipments)
-      .where(and(eq(schema.shipments.ownerUserId, ownerUserId), eq(schema.shipments.trackingNumber, trackingNumber)))
+      .where(
+        and(eq(schema.shipments.ownerUserId, ownerUserId), eq(schema.shipments.carrier, carrier), eq(schema.shipments.trackingNumber, trackingNumber)),
+      )
       .limit(1);
     return existing ?? null;
+  }
+
+  /**
+   * §40.1 subscription entity resolution — previously nonexistent: every renewal/trial/price-change email
+   * for the same subscription created a brand-new recurringStreams+subscriptions row pair, silently
+   * duplicating every recurring subscription on each new email about it. serviceLabel is encrypted (so it
+   * can't be looked up by equality in SQL, same constraint noted throughout this file's other
+   * encrypted-column comments) — a user's recurring-stream count is small and bounded, so this fetches all
+   * of them and compares in memory, the same pattern findMatchingPurchaseLine below already uses.
+   */
+  private async findExistingRecurringStream(ownerUserId: string, serviceLabel: string) {
+    const candidates = await this.db.select().from(schema.recurringStreams).where(eq(schema.recurringStreams.ownerUserId, ownerUserId));
+    const normalized = normalizeMerchantName(serviceLabel);
+    return candidates.find((c) => normalizeMerchantName(c.serviceLabel) === normalized) ?? null;
   }
 
   /** Used by extractWarranty — see its call site for why this deliberately requires an exact match. */
@@ -842,42 +863,81 @@ export class IngestionService {
     const nextExpectedDate = toTemporalValue(result.data.nextBillingDate);
     const trialEndsAt = toTemporalValue(result.data.trialEndsDate);
 
-    // No dedup against an existing recurring stream — same precedent as extractBill just above, which also
-    // creates a fresh row per extraction rather than matching an existing one. (serviceLabel is encrypted
-    // too, so it couldn't be looked up by equality anyway — see every other encrypted-column comment.)
-    const recurringStreamId = generateId("recurringStream");
-    await this.db.insert(schema.recurringStreams).values({
-      id: recurringStreamId,
-      ownerUserId: ctx.ownerUserId,
-      householdId: ctx.householdId,
-      merchantId,
-      serviceLabel: result.data.serviceLabel,
-      cadence: result.data.cadence ?? "irregular",
-      typicalAmountMinorUnits: result.data.amountMinorUnits,
-      typicalAmountCurrency: result.data.currency,
-      nextExpectedDate,
-    });
+    const existingStream = await this.findExistingRecurringStream(ctx.ownerUserId, result.data.serviceLabel);
+    const recurringStreamId = existingStream?.id ?? generateId("recurringStream");
+    if (existingStream) {
+      await this.db
+        .update(schema.recurringStreams)
+        .set({
+          merchantId: merchantId ?? existingStream.merchantId,
+          cadence: result.data.cadence ?? existingStream.cadence,
+          typicalAmountMinorUnits: result.data.amountMinorUnits ?? existingStream.typicalAmountMinorUnits,
+          typicalAmountCurrency: result.data.currency ?? existingStream.typicalAmountCurrency,
+          nextExpectedDate: nextExpectedDate ?? existingStream.nextExpectedDate,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.recurringStreams.id, recurringStreamId));
+    } else {
+      await this.db.insert(schema.recurringStreams).values({
+        id: recurringStreamId,
+        ownerUserId: ctx.ownerUserId,
+        householdId: ctx.householdId,
+        merchantId,
+        serviceLabel: result.data.serviceLabel,
+        cadence: result.data.cadence ?? "irregular",
+        typicalAmountMinorUnits: result.data.amountMinorUnits,
+        typicalAmountCurrency: result.data.currency,
+        nextExpectedDate,
+      });
+    }
 
-    const subscriptionId = generateId("subscription");
-    await this.db.insert(schema.subscriptions).values({
-      id: subscriptionId,
-      recurringStreamId,
-      state: result.data.isTrial ? "trial" : "candidate",
-      confidenceBand,
-      trialEndsAt,
-      cancellationInstructionsUrl: result.data.cancellationInstructionsUrl,
-    });
+    // A repeat email for the same stream updates the existing subscription row instead of creating a new
+    // one — matching every other domain's dedup-then-update pattern (extractShipment above, extractBill/
+    // extractReceipt below). "candidate" -> "trial" is the only state upgrade a fresh extraction can cause;
+    // never downgrades an existing trial back to candidate, and never touches any state a real user action
+    // may set in the future (subscriptions.state has no other real writer today).
+    const [existingSubscription] = existingStream
+      ? await this.db
+          .select({ id: schema.subscriptions.id, state: schema.subscriptions.state })
+          .from(schema.subscriptions)
+          .where(eq(schema.subscriptions.recurringStreamId, recurringStreamId))
+          .orderBy(desc(schema.subscriptions.createdAt))
+          .limit(1)
+      : [];
+    const subscriptionId = existingSubscription?.id ?? generateId("subscription");
+    if (existingSubscription) {
+      await this.db
+        .update(schema.subscriptions)
+        .set({
+          state: existingSubscription.state === "candidate" && result.data.isTrial ? "trial" : existingSubscription.state,
+          confidenceBand,
+          trialEndsAt: trialEndsAt ?? undefined,
+          cancellationInstructionsUrl: result.data.cancellationInstructionsUrl ?? undefined,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.subscriptions.id, subscriptionId));
+    } else {
+      await this.db.insert(schema.subscriptions).values({
+        id: subscriptionId,
+        recurringStreamId,
+        state: result.data.isTrial ? "trial" : "candidate",
+        confidenceBand,
+        trialEndsAt,
+        cancellationInstructionsUrl: result.data.cancellationInstructionsUrl,
+      });
+    }
 
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "subscription",
-      summary: `${result.data.serviceLabel} subscription detected`,
+      summary: existingSubscription ? `${result.data.serviceLabel} subscription updated` : `${result.data.serviceLabel} subscription detected`,
       linkedResourceType: "subscription",
       linkedResourceId: subscriptionId,
       sourceEventId: ctx.sourceEventId,
       suggestedActions: ["confirm", "correct", "dismiss"],
       confidenceBand,
+      isDuplicate: Boolean(existingSubscription),
     });
     return true;
   }
