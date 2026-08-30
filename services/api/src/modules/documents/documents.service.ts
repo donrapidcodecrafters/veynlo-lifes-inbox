@@ -13,6 +13,7 @@ import { AnthropicExtractionService } from "../intelligence/anthropic-extraction
 import { HouseholdService } from "../household/household.service";
 import { SharingService } from "../shared/sharing.service";
 import { SearchIndexService } from "../search/search-index.service";
+import { BillingService } from "../billing/billing.service";
 import { StorageService } from "./storage.service";
 import { MalwareScannerService } from "./malware-scanner.service";
 
@@ -39,7 +40,30 @@ export class DocumentsService {
     private readonly households: HouseholdService,
     private readonly sharing: SharingService,
     private readonly searchIndex: SearchIndexService,
+    private readonly billing: BillingService,
   ) {}
+
+  /** §46 entitlement enforcement — `document_storage_mb` was defined in `PLAN_CATALOG` (free: 250MB, up to
+   * pro_agent: 200GB) with nothing anywhere checking it. Sums every version's `sizeBytes` (not just each
+   * document's current version) — an old version still occupies real storage until its retention policy
+   * deletes the blob, so it has to count against the cap the same way. */
+  private async assertStorageQuota(ownerUserId: string, incomingBytes: number): Promise<void> {
+    const maxMb = await this.billing.getCapability(ownerUserId, "document_storage_mb");
+    if (maxMb === null) return; // unlimited
+    const [row] = await this.db
+      .select({ totalBytes: sql<string>`coalesce(sum(${schema.documentVersions.sizeBytes}), 0)` })
+      .from(schema.documentVersions)
+      .innerJoin(schema.documents, eq(schema.documentVersions.documentId, schema.documents.id))
+      .where(eq(schema.documents.ownerUserId, ownerUserId));
+    const currentBytes = Number(row?.totalBytes ?? 0);
+    const maxBytes = (maxMb as number) * 1024 * 1024;
+    if (currentBytes + incomingBytes > maxBytes) {
+      throw new ForbiddenException({
+        code: "PLAN_LIMIT_REACHED",
+        message: `You've reached your plan's ${maxMb}MB document storage limit. Upgrade your plan or delete some documents to free up space.`,
+      });
+    }
+  }
 
   /**
    * FAM-006 enforcement, mirroring CommerceService/ScheduleService's identically-named helper. A
@@ -77,6 +101,8 @@ export class DocumentsService {
         message: `${params.mimeType} isn't supported yet. Try PDF, JPG, PNG, HEIC, or plain text.`,
       });
     }
+
+    await this.assertStorageQuota(params.ownerUserId, params.buffer.length);
 
     // Scanned before any DB row or storage write exists, so a rejected upload never leaves a partial
     // document behind to clean up. Skipped (not failed) when unconfigured — CLAMD_HOST unset means this
@@ -392,12 +418,13 @@ export class DocumentsService {
    * incrementing `versionNumber` instead of always starting a fresh document.
    */
   async addVersion(documentId: string, userId: string, params: { mimeType: string; buffer: Buffer }): Promise<{ versionId: string }> {
-    await this.assertOwnedDocument(documentId, userId);
+    const doc = await this.assertOwnedDocument(documentId, userId);
     if (params.buffer.length === 0) throw new BadRequestException({ code: "EMPTY_FILE", message: "The uploaded file is empty." });
     if (params.buffer.length > MAX_UPLOAD_BYTES) throw new BadRequestException({ code: "FILE_TOO_LARGE", message: "Files must be 25MB or smaller." });
     if (!ALLOWED_MIME_TYPES.has(params.mimeType)) {
       throw new BadRequestException({ code: "UNSUPPORTED_FILE_TYPE", message: `${params.mimeType} isn't supported yet. Try PDF, JPG, PNG, HEIC, or plain text.` });
     }
+    await this.assertStorageQuota(doc.ownerUserId, params.buffer.length);
     if (this.malwareScanner.isConfigured()) {
       const result = await this.malwareScanner.scan(params.buffer).catch(() => {
         throw new ServiceUnavailableException({ code: "MALWARE_SCAN_UNAVAILABLE", message: "Couldn't scan this file right now. Please try again shortly." });

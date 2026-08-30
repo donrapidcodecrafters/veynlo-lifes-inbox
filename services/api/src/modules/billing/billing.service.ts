@@ -25,6 +25,28 @@ export class BillingService {
     return new Stripe(key);
   }
 
+  /**
+   * §46 "centralized entitlement evaluation" — the one thing every quota/capability gate elsewhere in the
+   * app should call instead of hardcoding a `plan === "plus"` check. Was previously only ever computed as
+   * part of `currentEntitlements` (the whole-capability-set view `GET /v1/billing/entitlements` returns) —
+   * nothing outside this module actually resolved a single capability to gate an action with, which meant
+   * real quotas (connector counts, Ask's per-day cap, document storage, household size) existed only as
+   * numbers in `PLAN_CATALOG` with nothing anywhere checking them.
+   */
+  async getCapability(userId: string, key: CapabilityKey): Promise<ReturnType<typeof resolveCapability>> {
+    const now = new Date();
+    const active = await this.db
+      .select({ planKey: schema.entitlements.planKey, effectiveFrom: schema.entitlements.effectiveFrom, effectiveTo: schema.entitlements.effectiveTo })
+      .from(schema.entitlements)
+      .where(
+        and(
+          eq(schema.entitlements.userId, userId),
+          or(isNull(schema.entitlements.effectiveTo), gt(schema.entitlements.effectiveTo, now)),
+        ),
+      );
+    return resolveCapability(active as { planKey: PlanKey; effectiveFrom: Date; effectiveTo: Date | null }[], key, now);
+  }
+
   async currentEntitlements(userId: string) {
     const now = new Date();
     const active = await this.db

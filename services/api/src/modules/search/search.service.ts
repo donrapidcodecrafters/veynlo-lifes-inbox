@@ -1,11 +1,12 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { AnthropicExtractionService } from "../intelligence/anthropic-extraction.service";
+import { BillingService } from "../billing/billing.service";
 
 const AskAnswerSchema = z.object({
   answer: z.string().describe("Concise, direct answer. If the evidence doesn't support a confident answer, say so plainly instead of guessing."),
@@ -25,6 +26,7 @@ export class SearchService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly ai: AnthropicExtractionService,
+    private readonly billing: BillingService,
   ) {}
 
   /**
@@ -99,6 +101,24 @@ export class SearchService {
    * result. Capped to the last 5 turns so a long conversation doesn't unboundedly grow the prompt.
    */
   async ask(userId: string, question: string, history: Array<{ question: string; answer: string }> = []) {
+    // §46 entitlement enforcement — `ask_queries_per_day` was defined in PLAN_CATALOG with nothing
+    // anywhere counting real usage against it. Checked first, before any of the context-fetching work
+    // below, so a user over their cap fails cheaply rather than after several queries have already run.
+    const maxPerDay = await this.billing.getCapability(userId, "ask_queries_per_day");
+    if (maxPerDay !== null) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recent = await this.db
+        .select({ id: schema.askQueryLog.id })
+        .from(schema.askQueryLog)
+        .where(and(eq(schema.askQueryLog.ownerUserId, userId), gt(schema.askQueryLog.occurredAt, since)));
+      if (recent.length >= (maxPerDay as number)) {
+        throw new ForbiddenException({
+          code: "PLAN_LIMIT_REACHED",
+          message: `You've reached your plan's limit of ${maxPerDay} Ask questions per day. Try again later or upgrade your plan.`,
+        });
+      }
+    }
+
     const [purchases, bills, events, merchants, documentRows] = await Promise.all([
       this.db.select().from(schema.purchases).where(eq(schema.purchases.ownerUserId, userId)).limit(50),
       this.db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, userId)).limit(50),
@@ -160,6 +180,10 @@ export class SearchService {
             .map((turn) => `Q: ${turn.question}\nA: ${turn.answer}`)
             .join("\n")}\n\n`
         : "";
+
+    // Recorded here, not earlier — only a query that actually reaches the AI (past the "no context"/"AI
+    // not configured" early returns above) counts against the daily cap.
+    await this.db.insert(schema.askQueryLog).values({ id: generateId("askQueryLog"), ownerUserId: userId });
 
     const result = await this.ai.extractStructured({
       extractorName: "ask_synthesis_v1",

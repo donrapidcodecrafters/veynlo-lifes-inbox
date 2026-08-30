@@ -64,6 +64,7 @@ export const ID_PREFIXES = {
   passwordResetToken: "prt",
   passkey: "pky",
   searchDocument: "srd",
+  askQueryLog: "aql",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

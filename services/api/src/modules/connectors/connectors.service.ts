@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -14,6 +14,16 @@ export class ConnectorsService {
 
   async listForUser(userId: string) {
     return this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, userId));
+  }
+
+  /** §46 entitlement enforcement — counts only currently-active connections (a disconnected one shouldn't
+   * count against the cap it's no longer consuming). */
+  async countActiveConnections(userId: string, providers: string[]): Promise<number> {
+    const rows = await this.db
+      .select({ id: schema.connections.id })
+      .from(schema.connections)
+      .where(and(eq(schema.connections.ownerUserId, userId), isNull(schema.connections.disconnectedAt), inArray(schema.connections.provider, providers)));
+    return rows.length;
   }
 
   async getOwned(connectionId: string, userId: string) {

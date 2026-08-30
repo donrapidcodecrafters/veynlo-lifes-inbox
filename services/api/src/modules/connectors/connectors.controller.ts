@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Res, ServiceUnavailableException, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Query, Res, ServiceUnavailableException, UseGuards, UsePipes } from "@nestjs/common";
 import { SignJWT, jwtVerify } from "jose";
 import type { FastifyReply } from "fastify";
 import { AuthGuard } from "../../common/auth.guard";
@@ -6,6 +6,7 @@ import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { BillingService } from "../billing/billing.service";
 import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
@@ -21,6 +22,7 @@ import { IcsConnectDtoSchema, type IcsConnectDto } from "./dto";
 export class ConnectorsController {
   constructor(
     private readonly connectors: ConnectorsService,
+    private readonly billing: BillingService,
     private readonly gmail: GmailAdapter,
     private readonly outlook: OutlookAdapter,
     private readonly ics: IcsAdapter,
@@ -29,6 +31,25 @@ export class ConnectorsController {
     private readonly googleTasks: GoogleTasksAdapter,
     private readonly microsoftTodo: MicrosoftTodoAdapter,
   ) {}
+
+  /**
+   * §46 entitlement enforcement — connector counts were the clearest unenforced quota: `PLAN_CATALOG`
+   * defines `email_connections_max`/`calendar_connections_max` for every plan, but nothing anywhere
+   * checked either before this. Checked at the *authorize* step (before generating an OAuth redirect) so a
+   * user hitting their cap never wastes a full OAuth round-trip only to be rejected at the callback; the
+   * one POST-based connect flow (ICS) checks at the same point, right before actually connecting.
+   */
+  private async assertConnectionQuota(userId: string, capability: "email_connections_max" | "calendar_connections_max", providers: string[]) {
+    const max = await this.billing.getCapability(userId, capability);
+    if (max === null) return; // unlimited
+    const current = await this.connectors.countActiveConnections(userId, providers);
+    if (current >= (max as number)) {
+      throw new ForbiddenException({
+        code: "PLAN_LIMIT_REACHED",
+        message: `Your plan allows up to ${max} ${capability === "email_connections_max" ? "email" : "calendar"} connection${max === 1 ? "" : "s"}. Upgrade your plan or disconnect one to add another.`,
+      });
+    }
+  }
 
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {
@@ -44,6 +65,7 @@ export class ConnectorsController {
           "Gmail isn't configured on this deployment yet. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to enable it.",
       });
     }
+    await this.assertConnectionQuota(user.userId, "email_connections_max", ["gmail", "outlook"]);
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/gmail/callback`;
     const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
@@ -84,6 +106,7 @@ export class ConnectorsController {
           "Outlook isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
       });
     }
+    await this.assertConnectionQuota(user.userId, "email_connections_max", ["gmail", "outlook"]);
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/outlook/callback`;
     const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
@@ -119,6 +142,7 @@ export class ConnectorsController {
           "Google Calendar isn't configured on this deployment yet. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to enable it.",
       });
     }
+    await this.assertConnectionQuota(user.userId, "calendar_connections_max", ["google_calendar", "microsoft_calendar", "ics"]);
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/google-calendar/callback`;
     const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
@@ -154,6 +178,7 @@ export class ConnectorsController {
           "Microsoft Calendar isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
       });
     }
+    await this.assertConnectionQuota(user.userId, "calendar_connections_max", ["google_calendar", "microsoft_calendar", "ics"]);
     const env = loadEnv();
     const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/microsoft-calendar/callback`;
     const state = await signConnectState(user.userId, parseHistoryDepthDays(historyDepthDaysRaw));
@@ -251,6 +276,7 @@ export class ConnectorsController {
   @Post("ics/connect")
   @UsePipes(new ZodValidationPipe(IcsConnectDtoSchema))
   async icsConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: IcsConnectDto) {
+    await this.assertConnectionQuota(user.userId, "calendar_connections_max", ["google_calendar", "microsoft_calendar", "ics"]);
     try {
       const result = await this.ics.connect({ dto, ownerUserId: user.userId, householdId: null });
       return { connectionId: result.connectionId };

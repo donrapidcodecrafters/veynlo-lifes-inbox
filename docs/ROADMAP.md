@@ -1235,3 +1235,57 @@ still open:
   this dev environment, so the fixed parser itself couldn't be exercised against a genuinely live connected
   inbox — the same "verify to the real external-dependency boundary" pattern used for every other optional
   integration this session. Test account deleted afterward.
+
+- **Twentieth gap-closing pass (2026-08-29): entitlement/quota enforcement — the last real MVP gap.** A
+  full audit of the Phase 1 table against actual code (every ✅ row spot-checked, every 🟡/caveated row
+  re-verified) found exactly one genuine, user/business-impacting gap left: `PLAN_CATALOG` (§46, in
+  `packages/core/src/entitlements/plans.ts`) defines 15 real capability keys and `resolveCapability()`
+  correctly computes them, but the only place in the entire API that ever called it was `BillingService`
+  itself — nothing anywhere actually GATED an action by a plan limit. Billing/checkout/webhooks all fully
+  work, but a free-tier account could add unlimited email/calendar connectors, ask unlimited Ask questions,
+  upload unlimited document storage, and invite unlimited household members — identical to a paying
+  account. Wired up the four capabilities with a real, checkable numeric/boolean limit that this app
+  actually has a surface for today (the other 11 — `purchases_returns_tracking`, `automation_rules_max`,
+  `emergency_binder`, etc. — gate features that either don't have a distinct code path to gate yet or are
+  booleans this pass didn't have a natural single choke point to wire in the time available; noted as a
+  follow-up, not silently skipped).
+  1. Added `BillingService.getCapability(userId, key)` — a single-capability resolver reusing the same
+     active-entitlements query `currentEntitlements` already ran, so every gate below calls one shared,
+     correct implementation rather than re-deriving plan logic per call site.
+  2. **`email_connections_max`/`calendar_connections_max`**: checked in `ConnectorsController` at the
+     *authorize* step (before generating an OAuth redirect, so a capped user never wastes a full OAuth
+     round-trip only to be rejected at the callback) for Gmail/Outlook (email) and Google Calendar/
+     Microsoft Calendar/ICS (calendar) — counting only currently-active connections via a new
+     `ConnectorsService.countActiveConnections`. Google Tasks/Microsoft To Do are deliberately left
+     ungated — `PLAN_CATALOG` has no capability key for task connectors specifically, and inventing one
+     would be scope creep beyond wiring up capabilities that already exist.
+  3. **`household_members_max`**: checked in `HouseholdService.invite()` against the household's BILLING
+     OWNER's plan (not the inviting member's own — a household is one shared entitlement), counting
+     "invited" alongside "active" members since an outstanding invite is already a claimed seat.
+  4. **`document_storage_mb`**: checked in `DocumentsService` at both `upload()` and `addVersion()` — sums
+     every version's `sizeBytes` (not just each document's current version, since an old version still
+     occupies real storage until its retention policy deletes the blob) against the owner's cap;
+     `addVersion` correctly checks the DOCUMENT OWNER's quota, not the acting caller's, since a household
+     delegate can add a version to someone else's document.
+  5. **`ask_queries_per_day`**: the one capability with no existing usage record to count at all. Added a
+     new minimal `ask_query_log` table (migration `0028_ask_query_log.sql`) — a plain append-only
+     occurrence log, deliberately NOT storing the question/answer content itself (unnecessary for rate-
+     limiting and would just be a second copy of sensitive user content to protect). Checked against a
+     rolling 24h window (not a calendar day, which could be trivially doubled by asking right before/after
+     local midnight) at the very top of `SearchService.ask()`, before any context-fetching work; the log
+     row is only written once a query passes both the "no context" and "AI not configured" early returns,
+     so a query that never actually reached the AI never counts against the cap.
+  **Verified live** against the real API for all four: household invite correctly rejected at the free
+  tier's 1-member cap and correctly allowed once a real `family`-plan entitlement was granted (6-member
+  cap); document upload correctly rejected once a seeded 270MB of existing usage exceeded the free tier's
+  250MB cap (and correctly allowed below it); `POST /v1/ask` correctly rejected once 10 real
+  `ask_query_log` rows existed for a free-tier account, failing before ever reaching the "AI not
+  configured" branch; connector authorize correctly rejected a second email connector once a real active
+  Gmail connection existed at the free tier's 1-connector cap (verified with temporarily-set fake
+  `GOOGLE_OAUTH_CLIENT_ID/SECRET` env vars so the authorize route's own "not configured" guard didn't
+  short-circuit the test, restarted clean afterward). All four `PLAN_LIMIT_REACHED` rejections and their
+  corresponding allowed-below-cap cases were confirmed with real seeded data, not just code review. A full
+  typecheck/lint/vitest pass and a final broad smoke test (sign-up → upload → list documents → billing
+  entitlements) all stayed green throughout. Test accounts and every seeded row (documents, versions,
+  connections, ask_query_log, entitlements) cleaned up afterward — confirmed cascaded away correctly via
+  the account-deletion worker, not left orphaned.

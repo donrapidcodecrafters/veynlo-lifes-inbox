@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv } from "../../config/env";
 import { MailerService } from "../notifications/mailer.service";
+import { BillingService } from "../billing/billing.service";
 import type { CreateDependentDto, CreateHouseholdDto, GrantDelegationDto, InviteMemberDto } from "./dto";
 
 @Injectable()
@@ -15,6 +16,7 @@ export class HouseholdService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly mailer: MailerService,
+    private readonly billing: BillingService,
   ) {}
 
   /**
@@ -130,6 +132,29 @@ export class HouseholdService {
     if (existingInvite) {
       throw new BadRequestException({ code: "ALREADY_INVITED", message: "This person has already been invited." });
     }
+
+    // §46 entitlement enforcement — household_members_max was defined in PLAN_CATALOG (free: 1, family: 6)
+    // with nothing anywhere checking it, so a free-tier household could invite unlimited members. Counted
+    // against the household's BILLING OWNER's plan (not the inviter's own — a household is one shared
+    // entitlement, not per-member), and counts "invited" alongside "active": an outstanding invite is
+    // already a claimed seat, not a free one to hand out again before it's even accepted.
+    const [household] = await this.db.select({ billingOwnerUserId: schema.households.billingOwnerUserId }).from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+    if (household) {
+      const maxMembers = await this.billing.getCapability(household.billingOwnerUserId, "household_members_max");
+      if (maxMembers !== null) {
+        const existingMembers = await this.db
+          .select({ id: schema.householdMemberships.id })
+          .from(schema.householdMemberships)
+          .where(and(eq(schema.householdMemberships.householdId, householdId), inArray(schema.householdMemberships.status, ["active", "invited"])));
+        if (existingMembers.length >= (maxMembers as number)) {
+          throw new ForbiddenException({
+            code: "PLAN_LIMIT_REACHED",
+            message: `Your plan allows up to ${maxMembers} household member${maxMembers === 1 ? "" : "s"}. Upgrade your plan to invite more.`,
+          });
+        }
+      }
+    }
+
     const id = generateId("membership");
     await this.db.insert(schema.householdMemberships).values({
       id,

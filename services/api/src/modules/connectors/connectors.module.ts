@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { IdentityModule } from "../identity/identity.module";
 import { IngestionModule } from "../ingestion/ingestion.module";
+import { BillingModule } from "../billing/billing.module";
 import { CredentialVault } from "../../common/credential-vault";
 import { ConnectorsController } from "./connectors.controller";
 import { ConnectorsService } from "./connectors.service";
@@ -13,7 +14,7 @@ import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftTodoAdapter } from "./microsoft-todo.adapter";
 
 @Module({
-  imports: [IdentityModule, IngestionModule],
+  imports: [IdentityModule, IngestionModule, BillingModule],
   controllers: [ConnectorsController],
   providers: [
     ConnectorsService,
