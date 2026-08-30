@@ -50,6 +50,33 @@ const MODEL_BY_TIER = {
 } as const;
 
 /**
+ * §39.2 real per-extraction calibration — previously a hardcoded `0.82` for every single extraction
+ * regardless of domain or quality, which meant nothing could ever cross `RISK_THRESHOLDS.highThreshold`
+ * (0.85) OR drop below `reviewThreshold` (0.55): every AI-derived fact was permanently stuck in the
+ * "needs_review" band, with no way for a user to tell a solid extraction from a shaky one.
+ *
+ * Anthropic doesn't return a calibrated probability, so this derives a real signal from what's actually
+ * already present in every domain extraction schema (`ReceiptExtractionSchema`, `BillExtractionSchema`,
+ * etc. — see `extraction-schemas.ts`): every one already has nullable fields the model is explicitly
+ * instructed to leave `null` rather than guess, plus a `confidenceNotes: string` field it's prompted to
+ * fill with anything ambiguous. Both are real per-extraction signals, not per-domain special-casing — this
+ * function works generically across every schema's shape without knowing which fields exist.
+ */
+export function calibrateConfidence(data: unknown): number {
+  if (typeof data !== "object" || data === null) return 0.75; // nothing to inspect — a neutral fallback, not the normal path
+  const entries = Object.entries(data as Record<string, unknown>).filter(([key]) => key !== "confidenceNotes");
+  const nullCount = entries.filter(([, value]) => value === null).length;
+  const nullRatio = entries.length > 0 ? nullCount / entries.length : 0;
+  const notes = (data as Record<string, unknown>).confidenceNotes;
+  const hasUncertaintyNote = typeof notes === "string" && notes.trim().length > 0;
+
+  let score = 0.95; // baseline for a clean, complete extraction with nothing flagged
+  score -= nullRatio * 0.4; // every field the model couldn't confidently fill pulls this down
+  if (hasUncertaintyNote) score -= 0.25; // the model itself flagged something ambiguous
+  return Math.max(0.4, Math.min(0.97, score));
+}
+
+/**
  * Thin wrapper around the Anthropic API used for stages 2-3 of the pipeline
  * (domain classification + structured extraction, §39.1) and stage 6
  * (Ask synthesis). Every call is schema-constrained tool use — free-form
@@ -112,7 +139,7 @@ export class AnthropicExtractionService {
       await this.finishRun(runId, "success", null, startedAt);
       return {
         data: parsed.data,
-        confidenceScore: 0.82, // conservative default until per-domain calibration evaluations are wired (§39.2)
+        confidenceScore: calibrateConfidence(parsed.data),
         modelUsed: model,
         inputTokens: toolUseInput.usage.inputTokens,
         outputTokens: toolUseInput.usage.outputTokens,
