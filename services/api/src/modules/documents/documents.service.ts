@@ -77,6 +77,30 @@ export class DocumentsService {
     return or(eq(ownerCol, userId), and(inArray(householdCol, householdIds), ne(visibilityCol, "private")))!;
   }
 
+  /**
+   * The MIME check above is just the client-supplied Content-Type header — fully attacker-controlled, so
+   * an executable or HTML file mislabeled as "application/pdf" would otherwise sail straight through it and
+   * get stored/served back under that claimed type. This sniffs the file's real magic bytes (via the
+   * `file-type` package, ESM-only hence the dynamic import from this CommonJS module) and rejects any
+   * mismatch between what's claimed and what the content actually is.
+   */
+  private async assertMagicBytesMatchClaimedMime(buffer: Buffer, claimedMimeType: string): Promise<void> {
+    type FileTypeModule = { fileTypeFromBuffer: (b: Buffer) => Promise<{ ext: string; mime: string } | undefined> };
+    // @ts-expect-error -- file-type is ESM-only; this repo's Node10 moduleResolution can't resolve its
+    // `exports` map for type-checking, but the dynamic import itself works fine at runtime under Node.
+    const { fileTypeFromBuffer } = (await import("file-type")) as FileTypeModule;
+    const detected = await fileTypeFromBuffer(buffer);
+    // file-type only detects binary formats by design (it has no signature for plain text) — a confident
+    // binary-format detection here means the buffer isn't really plain text no matter what was claimed.
+    const mismatch = claimedMimeType === "text/plain" ? Boolean(detected) : detected?.mime !== claimedMimeType;
+    if (mismatch) {
+      throw new BadRequestException({
+        code: "FILE_CONTENT_MISMATCH",
+        message: "This file's content doesn't match its claimed type.",
+      });
+    }
+  }
+
   async upload(params: {
     ownerUserId: string;
     householdId: string | null;
@@ -101,6 +125,7 @@ export class DocumentsService {
         message: `${params.mimeType} isn't supported yet. Try PDF, JPG, PNG, HEIC, or plain text.`,
       });
     }
+    await this.assertMagicBytesMatchClaimedMime(params.buffer, params.mimeType);
 
     await this.assertStorageQuota(params.ownerUserId, params.buffer.length);
 
@@ -445,6 +470,7 @@ export class DocumentsService {
     if (!ALLOWED_MIME_TYPES.has(params.mimeType)) {
       throw new BadRequestException({ code: "UNSUPPORTED_FILE_TYPE", message: `${params.mimeType} isn't supported yet. Try PDF, JPG, PNG, HEIC, or plain text.` });
     }
+    await this.assertMagicBytesMatchClaimedMime(params.buffer, params.mimeType);
     await this.assertStorageQuota(doc.ownerUserId, params.buffer.length);
     if (this.malwareScanner.isConfigured()) {
       const result = await this.malwareScanner.scan(params.buffer).catch(() => {
