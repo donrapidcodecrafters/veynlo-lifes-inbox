@@ -129,24 +129,36 @@ describe("AdminService — job health and system status", () => {
     await queueProducer.onModuleDestroy();
   });
 
-  it("jobHealthSummary reports real counts for every queue against a real Redis connection", async () => {
-    const counts = await adminWithQueues.jobHealthSummary();
-    // Every queue this app defines shows up, each with real numeric counts (not undefined/missing).
-    expect(Object.keys(counts).length).toBeGreaterThanOrEqual(10);
-    for (const queueCounts of Object.values(counts)) {
-      expect(typeof queueCounts.waiting).toBe("number");
-      expect(typeof queueCounts.active).toBe("number");
-      expect(typeof queueCounts.failed).toBe("number");
-    }
-  });
+  // Constructing QueueProducerService opens 10 real BullMQ Queue clients against Redis (each doing its
+  // own connection/script-loading round trips) — comfortably under a second locally, but slower on a
+  // loaded CI runner; vitest's 5s default timeout genuinely isn't enough headroom for that, not a sign
+  // anything is actually wrong.
+  it(
+    "jobHealthSummary reports real counts for every queue against a real Redis connection",
+    async () => {
+      const counts = await adminWithQueues.jobHealthSummary();
+      // Every queue this app defines shows up, each with real numeric counts (not undefined/missing).
+      expect(Object.keys(counts).length).toBeGreaterThanOrEqual(10);
+      for (const queueCounts of Object.values(counts)) {
+        expect(typeof queueCounts.waiting).toBe("number");
+        expect(typeof queueCounts.active).toBe("number");
+        expect(typeof queueCounts.failed).toBe("number");
+      }
+    },
+    20_000,
+  );
 
-  it("systemStatus composes real DB, Redis, connector, model, and job checks into one payload", async () => {
-    const status = await adminWithQueues.systemStatus();
-    expect(status.database).toMatchObject({ ok: true });
-    expect(status.redis).toMatchObject({ ok: true });
-    expect(status.connectors).toHaveProperty("total");
-    expect(status.models).toHaveProperty("totalRuns");
-    expect(Object.keys(status.jobs as Record<string, unknown>).length).toBeGreaterThanOrEqual(10);
-    expect(typeof status.checkedAt).toBe("string");
-  });
+  it(
+    "systemStatus composes real DB, Redis, connector, model, and job checks into one payload",
+    async () => {
+      const status = await adminWithQueues.systemStatus();
+      expect(status.database).toMatchObject({ ok: true });
+      expect(status.redis).toMatchObject({ ok: true });
+      expect(status.connectors).toHaveProperty("total");
+      expect(status.models).toHaveProperty("totalRuns");
+      expect(Object.keys(status.jobs as Record<string, unknown>).length).toBeGreaterThanOrEqual(10);
+      expect(typeof status.checkedAt).toBe("string");
+    },
+    20_000,
+  );
 });
