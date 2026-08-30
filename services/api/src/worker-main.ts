@@ -23,6 +23,7 @@ import {
   type DataRetentionScanJobData,
   type NotificationEscalationScanJobData,
   type ExpectedEventScanJobData,
+  type DataIntegrityScanJobData,
 } from "./queue/queue-names";
 import { classifyConnectorError, extractRetryAfterMs } from "./modules/connectors/connector-errors";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
@@ -39,6 +40,7 @@ import { AttentionService } from "./modules/attention/attention.service";
 import { QueueProducerService } from "./queue/queue-producer.service";
 import { DataExportService } from "./modules/data-export/data-export.service";
 import { FeatureFlagsService } from "./modules/feature-flags/feature-flags.service";
+import { DataIntegrityService } from "./modules/data-integrity/data-integrity.service";
 
 const logger = new Logger("Worker");
 
@@ -71,6 +73,7 @@ async function bootstrap() {
   const queueProducer = appContext.get(QueueProducerService);
   const dataExport = appContext.get(DataExportService);
   const featureFlags = appContext.get(FeatureFlagsService);
+  const dataIntegrity = appContext.get(DataIntegrityService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -473,6 +476,14 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  const dataIntegrityScanWorker = new Worker<DataIntegrityScanJobData>(
+    QUEUE_NAMES.dataIntegrityScan,
+    async () => {
+      await dataIntegrity.scanForOrphans();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   for (const worker of [
     connectorSyncWorker,
     connectorScanWorker,
@@ -486,6 +497,7 @@ async function bootstrap() {
     dataRetentionScanWorker,
     notificationEscalationScanWorker,
     expectedEventScanWorker,
+    dataIntegrityScanWorker,
   ]) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
@@ -500,9 +512,10 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringDataRetentionScan();
   await queueProducer.scheduleRecurringNotificationEscalationScan();
   await queueProducer.scheduleRecurringExpectedEventScan();
+  await queueProducer.scheduleRecurringDataIntegrityScan();
 
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan, notification-escalation-scan, expected-event-scan",
+    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, data-retention-scan, notification-escalation-scan, expected-event-scan, data-integrity-scan",
   );
 
   const shutdown = async () => {
@@ -520,6 +533,7 @@ async function bootstrap() {
       dataRetentionScanWorker.close(),
       notificationEscalationScanWorker.close(),
       expectedEventScanWorker.close(),
+      dataIntegrityScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);

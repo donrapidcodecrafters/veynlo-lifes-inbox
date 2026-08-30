@@ -15,6 +15,7 @@ import {
   type DataRetentionScanJobData,
   type NotificationEscalationScanJobData,
   type ExpectedEventScanJobData,
+  type DataIntegrityScanJobData,
 } from "./queue-names";
 
 /**
@@ -60,6 +61,9 @@ export class QueueProducerService implements OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly expectedEventScanQueue = new Queue<ExpectedEventScanJobData>(QUEUE_NAMES.expectedEventScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly dataIntegrityScanQueue = new Queue<DataIntegrityScanJobData>(QUEUE_NAMES.dataIntegrityScan, {
     connection: getRedisConnection(),
   });
 
@@ -234,6 +238,16 @@ export class QueueProducerService implements OnModuleDestroy {
     await this.expectedEventScanQueue.add("scan", {}, { repeat: { every: 6 * 60 * 60 * 1000 }, jobId: "expected-event-scan" });
   }
 
+  /**
+   * §Operations "data-integrity/orphan-check job" — finds cross-table links (attention_items/notifications/
+   * the JSONB *_entity_ids arrays) whose target row no longer exists (see DataIntegrityService.scanForOrphans).
+   * Daily, not hourly like attentionScan: this is a slow-changing signal (rows go orphaned only when
+   * something is deleted elsewhere), so there's no value polling more often, just more load.
+   */
+  async scheduleRecurringDataIntegrityScan(): Promise<void> {
+    await this.dataIntegrityScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-integrity-scan" });
+  }
+
   /** §Operations "job/queue health monitoring" — the admin console previously only had connection-level
    * (per-connector) and model-level (per-AI-extractor) health, despite the spec explicitly asking for
    * "connector/job/model health." Reuses these same Queue instances (one already exists per queue for
@@ -252,6 +266,7 @@ export class QueueProducerService implements OnModuleDestroy {
       [QUEUE_NAMES.dataRetentionScan]: this.dataRetentionScanQueue,
       [QUEUE_NAMES.notificationEscalationScan]: this.notificationEscalationScanQueue,
       [QUEUE_NAMES.expectedEventScan]: this.expectedEventScanQueue,
+      [QUEUE_NAMES.dataIntegrityScan]: this.dataIntegrityScanQueue,
     };
     const entries = await Promise.all(
       Object.entries(queues).map(async ([name, queue]) => {
@@ -276,6 +291,7 @@ export class QueueProducerService implements OnModuleDestroy {
       this.dataRetentionScanQueue.close(),
       this.notificationEscalationScanQueue.close(),
       this.expectedEventScanQueue.close(),
+      this.dataIntegrityScanQueue.close(),
     ]);
   }
 }

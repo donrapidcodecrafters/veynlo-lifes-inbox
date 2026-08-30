@@ -16,6 +16,7 @@ export const QUEUE_NAMES = {
   dataRetentionScan: "data-retention-scan",
   notificationEscalationScan: "notification-escalation-scan",
   expectedEventScan: "expected-event-scan",
+  dataIntegrityScan: "data-integrity-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -65,3 +66,6 @@ export type NotificationEscalationScanJobData = Record<string, never>;
 
 /** Recurring tick with no payload — its processor (AttentionService.scanForMissingExpectedEvents) finds overdue essential recurring streams itself. */
 export type ExpectedEventScanJobData = Record<string, never>;
+
+/** Recurring tick with no payload — its processor (DataIntegrityService.scanForOrphans) finds every orphaned cross-table link itself. */
+export type DataIntegrityScanJobData = Record<string, never>;

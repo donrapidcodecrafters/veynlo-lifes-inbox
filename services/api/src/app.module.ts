@@ -30,6 +30,7 @@ import { SharedModule } from "./modules/shared/shared.module";
 import { HistoryModule } from "./modules/history/history.module";
 import { PeopleModule } from "./modules/people/people.module";
 import { SavedItemsModule } from "./modules/saved-items/saved-items.module";
+import { DataIntegrityModule } from "./modules/data-integrity/data-integrity.module";
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { SavedItemsModule } from "./modules/saved-items/saved-items.module";
     HistoryModule,
     PeopleModule,
     SavedItemsModule,
+    DataIntegrityModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
