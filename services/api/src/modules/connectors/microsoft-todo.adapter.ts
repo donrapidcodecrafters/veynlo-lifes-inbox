@@ -41,9 +41,12 @@ interface GraphTodoTask {
  * `provider: "microsoft_todo"` row, same `MICROSOFT_OAUTH_CLIENT_ID/SECRET`). Structurally like the
  * calendar connectors, not OutlookAdapter: a Graph to-do task already IS a task, so there's no domain
  * classification/AI extraction step — see `IngestionService.ingestFeedTask`, shared with Google Tasks and
- * Apple Reminders. Pull-only: no write-back to Microsoft, matching Apple Reminders' existing scope.
- * Uses Graph's `tasks/delta` on the user's default list, same shape as MicrosoftCalendarAdapter's
- * `calendarView/delta`.
+ * Apple Reminders. Uses Graph's `tasks/delta` on the user's default list, same shape as
+ * MicrosoftCalendarAdapter's `calendarView/delta`.
+ *
+ * TASK-002 "write-back capability" — `pushTask` closes what used to be a pull-only connector: an explicit,
+ * user-triggered push of a Veynlo task to this connection's Microsoft To Do, same bounded scope as
+ * MicrosoftCalendarAdapter.pushEvent (one-way, on explicit action, not continuous two-way sync).
  */
 @Injectable()
 export class MicrosoftTodoAdapter {
@@ -135,6 +138,33 @@ export class MicrosoftTodoAdapter {
     const defaultList = page.value.find((l) => l.wellknownListName === "defaultList") ?? page.value[0];
     if (!defaultList) throw new Error("Microsoft To Do account has no task lists");
     return defaultList.id;
+  }
+
+  /**
+   * TASK-002 "write-back capability" — creates on first push (no `externalSyncId` yet) and updates in
+   * place on every push after, same create-vs-update decision as MicrosoftCalendarAdapter.pushEvent, keyed
+   * off `tasks.externalSyncId` (this connector has no dedicated provider-id column — see
+   * schedule.service.ts). Needs the default list id first since To Do (unlike Calendar) scopes tasks to a
+   * list.
+   */
+  async pushTask(
+    connectionId: string,
+    task: { externalSyncId: string | null; title: string; dueDate: string | null; notes: string | null; completed: boolean },
+  ): Promise<{ providerTaskId: string }> {
+    const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
+    if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
+    const listId = await this.defaultListId(connection);
+
+    const body = {
+      title: task.title,
+      status: task.completed ? "completed" : "notStarted",
+      dueDateTime: task.dueDate ? { dateTime: task.dueDate.replace("Z", ""), timeZone: "UTC" } : undefined,
+      body: task.notes ? { content: task.notes, contentType: "text" } : undefined,
+    };
+    const result = task.externalSyncId
+      ? await this.graphWrite<{ id: string }>(connection, `${GRAPH_BASE}/me/todo/lists/${listId}/tasks/${task.externalSyncId}`, "PATCH", body)
+      : await this.graphWrite<{ id: string }>(connection, `${GRAPH_BASE}/me/todo/lists/${listId}/tasks`, "POST", body);
+    return { providerTaskId: result.id };
   }
 
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
@@ -263,6 +293,29 @@ export class MicrosoftTodoAdapter {
     }
     if (!response.ok) {
       const err = new Error(`Microsoft Graph request failed: ${response.status} ${await response.text()}`) as Error & { status: number; retryAfterHeader?: string };
+      err.status = response.status;
+      err.retryAfterHeader = response.headers.get("retry-after") ?? undefined;
+      throw err;
+    }
+    return response.json() as Promise<T>;
+  }
+
+  /** Same transparent-refresh-on-401 shape as graphGet, for POST/PATCH writes (task create/update). */
+  private async graphWrite<T>(connection: { credentialRef: string | null }, url: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
+    if (!connection.credentialRef) throw new Error("Connection has no credentialRef");
+    const credentials = await this.vault.read(connection.credentialRef);
+    if (!credentials) throw new Error("Connection has a credentialRef with no matching vault entry");
+    const { access_token, refresh_token } = credentials as unknown as MicrosoftCredentials;
+    const headers = { authorization: `Bearer ${access_token}`, "content-type": "application/json" };
+
+    let response = await fetch(url, { method, headers, body: JSON.stringify(body) });
+    if (response.status === 401) {
+      const refreshed = await this.refreshAccessToken(refresh_token);
+      await this.vault.rotate(connection.credentialRef, { access_token: refreshed.accessToken, refresh_token: refreshed.refreshToken }, refreshed.expiresAt);
+      response = await fetch(url, { method, headers: { authorization: `Bearer ${refreshed.accessToken}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    }
+    if (!response.ok) {
+      const err = new Error(`Microsoft Graph write failed: ${response.status} ${await response.text()}`) as Error & { status: number; retryAfterHeader?: string };
       err.status = response.status;
       err.retryAfterHeader = response.headers.get("retry-after") ?? undefined;
       throw err;

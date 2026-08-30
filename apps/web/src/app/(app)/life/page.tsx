@@ -118,6 +118,7 @@ export default function LifePage() {
 
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
+  const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
 
   async function createTask() {
     if (!newTaskTitle.trim()) return;
@@ -139,6 +140,16 @@ export default function LifePage() {
   async function deleteTask(id: string) {
     await api.delete(`/v1/tasks/${id}`);
     mutateTasks();
+  }
+
+  async function syncTask(id: string) {
+    setSyncingTaskId(id);
+    try {
+      await api.post(`/v1/tasks/${id}/push-to-tasklist`);
+      mutateTasks();
+    } finally {
+      setSyncingTaskId(null);
+    }
   }
 
   return (
@@ -222,6 +233,9 @@ export default function LifePage() {
                     <div className="flex gap-2">
                       <Button size="sm" variant="secondary" onClick={() => completeTask(t.id)}>
                         Done
+                      </Button>
+                      <Button size="sm" variant="ghost" loading={syncingTaskId === t.id} onClick={() => syncTask(t.id)}>
+                        {t.externalSyncProvider ? "Sync changes" : "Sync to Google/Microsoft Tasks"}
                       </Button>
                       {!t.externalSyncProvider && (
                         <Button size="sm" variant="ghost" onClick={() => deleteTask(t.id)}>

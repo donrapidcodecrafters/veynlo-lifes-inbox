@@ -31,3 +31,13 @@ export const PushEventToCalendarDtoSchema = z.preprocess(
   }),
 );
 export type PushEventToCalendarDto = z.infer<typeof PushEventToCalendarDtoSchema>;
+
+// TASK-002 — same z.preprocess shape as PushEventToCalendarDtoSchema, for the same reason: a bodyless POST
+// gives Fastify `undefined`, not `{}`, so this normalizes it to an empty object before validation.
+export const PushTaskDtoSchema = z.preprocess(
+  (value) => value ?? {},
+  z.object({
+    destinationProvider: z.enum(["google_tasks", "microsoft_todo"]).optional(),
+  }),
+);
+export type PushTaskDto = z.infer<typeof PushTaskDtoSchema>;

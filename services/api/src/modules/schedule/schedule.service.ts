@@ -9,6 +9,8 @@ import { ownerOrDelegatedHouseholdCondition } from "../../common/household-scope
 import { HouseholdService } from "../household/household.service";
 import { GoogleCalendarAdapter } from "../connectors/google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "../connectors/microsoft-calendar.adapter";
+import { GoogleTasksAdapter } from "../connectors/google-tasks.adapter";
+import { MicrosoftTodoAdapter } from "../connectors/microsoft-todo.adapter";
 import { SharingService } from "../shared/sharing.service";
 import { parseRecurrenceRule, nextOccurrence } from "./recurrence.util";
 import type { CreateTaskDto, UpdateTaskDto } from "./dto";
@@ -24,6 +26,8 @@ export class ScheduleService {
     private readonly households: HouseholdService,
     private readonly googleCalendar: GoogleCalendarAdapter,
     private readonly microsoftCalendar: MicrosoftCalendarAdapter,
+    private readonly googleTasks: GoogleTasksAdapter,
+    private readonly microsoftTodo: MicrosoftTodoAdapter,
     private readonly sharing: SharingService,
   ) {}
 
@@ -357,6 +361,61 @@ export class ScheduleService {
     if (!task) throw new NotFoundException({ code: "TASK_NOT_FOUND", message: "Not found." });
     if (task.ownerUserId !== userId) throw new BadRequestException({ code: "NOT_OWNER", message: "Not your task." });
     return task;
+  }
+
+  /**
+   * TASK-002 "write-back to Google Tasks/Microsoft To Do" — mirrors pushEventToCalendar exactly: explicit,
+   * user-triggered push; picks whichever connection the user has, Google-first by default when both are
+   * connected; `destinationProvider` overrides that default. Unlike deleteTask's `EXTERNAL_TASK_NOT_DELETABLE`
+   * guard, a task pulled in FROM a provider is still push-eligible here — deleting a synced task would
+   * misrepresent what happened (it'd just resurrect on the next pull), but pushing it onward is a genuinely
+   * different, harmless operation, including round-tripping back to the same provider it came from. The
+   * `externalSyncId` is only reused as the provider's existing-task id when `externalSyncProvider` already
+   * matches the destination — a task synced in from a different provider (or created locally) has no id in
+   * that provider's id-space, so it's created fresh there instead of mistakenly patching an unrelated task.
+   */
+  async pushTaskToProvider(
+    taskId: string,
+    userId: string,
+    options: { destinationProvider?: "google_tasks" | "microsoft_todo" } = {},
+  ): Promise<{ provider: string; providerTaskId: string }> {
+    const task = await this.assertOwnedTask(taskId, userId);
+
+    const connections = await this.db
+      .select()
+      .from(schema.connections)
+      .where(
+        and(
+          eq(schema.connections.ownerUserId, userId),
+          inArray(schema.connections.provider, ["google_tasks", "microsoft_todo"]),
+          ne(schema.connections.health, "disconnected"),
+        ),
+      );
+    const googleConnection = connections.find((c) => c.provider === "google_tasks");
+    const microsoftConnection = connections.find((c) => c.provider === "microsoft_todo");
+    if (!googleConnection && !microsoftConnection) {
+      throw new BadRequestException({ code: "NO_TASKLIST_CONNECTION", message: "Connect Google Tasks or Microsoft To Do first to push tasks there." });
+    }
+    if (options.destinationProvider === "google_tasks" && !googleConnection) {
+      throw new BadRequestException({ code: "NO_TASKLIST_CONNECTION", message: "Connect Google Tasks first to push tasks there." });
+    }
+    if (options.destinationProvider === "microsoft_todo" && !microsoftConnection) {
+      throw new BadRequestException({ code: "NO_TASKLIST_CONNECTION", message: "Connect Microsoft To Do first to push tasks there." });
+    }
+
+    const useGoogle = options.destinationProvider ? options.destinationProvider === "google_tasks" : Boolean(googleConnection);
+    const provider = useGoogle ? "google_tasks" : "microsoft_todo";
+    const pushArgs = {
+      externalSyncId: task.externalSyncProvider === provider ? task.externalSyncId : null,
+      title: task.title,
+      dueDate: task.dueCondition?.date ? `${task.dueCondition.date}T00:00:00.000Z` : null,
+      notes: task.consequence,
+      completed: task.state === "completed",
+    };
+    const result = useGoogle ? await this.googleTasks.pushTask(googleConnection!.id, pushArgs) : await this.microsoftTodo.pushTask(microsoftConnection!.id, pushArgs);
+
+    await this.db.update(schema.tasks).set({ externalSyncProvider: provider, externalSyncId: result.providerTaskId, updatedAt: new Date() }).where(eq(schema.tasks.id, taskId));
+    return { provider, providerTaskId: result.providerTaskId };
   }
 
   /**

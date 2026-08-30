@@ -110,6 +110,7 @@ export default function LifeScreen() {
   const [conflicts, setConflicts] = useState<ScheduleConflict[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
 
@@ -161,6 +162,16 @@ export default function LifeScreen() {
   async function deleteTask(id: string) {
     await api.delete(`/v1/tasks/${id}`);
     setTasks((prev) => prev?.filter((t) => t.id !== id) ?? null);
+  }
+
+  async function syncTask(id: string) {
+    setSyncingTaskId(id);
+    try {
+      await api.post(`/v1/tasks/${id}/push-to-tasklist`);
+      await load();
+    } finally {
+      setSyncingTaskId(null);
+    }
   }
 
   const openConflicts = conflicts.filter((c) => !c.resolvedAt);
@@ -295,6 +306,9 @@ export default function LifeScreen() {
                   </View>
                   <Button variant="secondary" onPress={() => completeTask(t.id)} loading={completingTaskId === t.id}>
                     Done
+                  </Button>
+                  <Button variant="ghost" onPress={() => syncTask(t.id)} loading={syncingTaskId === t.id}>
+                    {t.externalSyncProvider ? "Sync changes" : "Sync to Google/Microsoft Tasks"}
                   </Button>
                   {!t.externalSyncProvider && (
                     <Button variant="ghost" onPress={() => deleteTask(t.id)}>

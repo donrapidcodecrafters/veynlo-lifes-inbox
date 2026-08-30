@@ -18,7 +18,7 @@ import { PeopleService } from "./people.service";
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const db: Database = createDbClient(DATABASE_URL);
 const commerce = new CommerceService(db, {} as never);
-const schedule = new ScheduleService(db, {} as never, {} as never, {} as never, new SharingService(db));
+const schedule = new ScheduleService(db, {} as never, {} as never, {} as never, {} as never, {} as never, new SharingService(db));
 const people = new PeopleService(db, new SearchIndexService(db));
 
 const ownerId = generateId("user");

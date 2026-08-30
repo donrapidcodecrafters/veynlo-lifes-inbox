@@ -4,7 +4,16 @@ import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ScheduleService } from "./schedule.service";
-import { CreateTaskDtoSchema, type CreateTaskDto, UpdateTaskDtoSchema, type UpdateTaskDto, PushEventToCalendarDtoSchema, type PushEventToCalendarDto } from "./dto";
+import {
+  CreateTaskDtoSchema,
+  type CreateTaskDto,
+  UpdateTaskDtoSchema,
+  type UpdateTaskDto,
+  PushEventToCalendarDtoSchema,
+  type PushEventToCalendarDto,
+  PushTaskDtoSchema,
+  type PushTaskDto,
+} from "./dto";
 
 @Controller("v1")
 @UseGuards(AuthGuard)
@@ -106,5 +115,11 @@ export class ScheduleController {
   @Post("tasks/:id/complete")
   complete(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.schedule.completeTask(id, user.userId);
+  }
+
+  @Post("tasks/:id/push-to-tasklist")
+  @UsePipes(new ZodValidationPipe(PushTaskDtoSchema))
+  pushTaskToProvider(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: PushTaskDto = {}) {
+    return this.schedule.pushTaskToProvider(id, user.userId, dto);
   }
 }

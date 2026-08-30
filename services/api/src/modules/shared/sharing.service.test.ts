@@ -16,7 +16,7 @@ const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_p
 
 const db: Database = createDbClient(DATABASE_URL);
 const sharing = new SharingService(db);
-const schedule = new ScheduleService(db, {} as never, {} as never, {} as never, sharing);
+const schedule = new ScheduleService(db, {} as never, {} as never, {} as never, {} as never, {} as never, sharing);
 
 const ownerId = generateId("user");
 const strangerId = generateId("user");

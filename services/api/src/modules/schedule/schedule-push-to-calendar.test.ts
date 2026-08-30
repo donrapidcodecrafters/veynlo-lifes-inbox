@@ -62,7 +62,7 @@ async function makeEvent(ownerId: string): Promise<string> {
 function makeService() {
   const googleCalendar = { pushEvent: vi.fn(async () => ({ providerEventId: "google_evt_1" })) };
   const microsoftCalendar = { pushEvent: vi.fn(async () => ({ providerEventId: "ms_evt_1" })) };
-  const schedule = new ScheduleService(db, households, googleCalendar as never, microsoftCalendar as never, sharing);
+  const schedule = new ScheduleService(db, households, googleCalendar as never, microsoftCalendar as never, {} as never, {} as never, sharing);
   return { schedule, googleCalendar, microsoftCalendar };
 }
 

@@ -20,8 +20,12 @@ const TASKS_SCOPES = ["https://www.googleapis.com/auth/tasks"];
  * domain classification/AI extraction step — see `IngestionService.ingestFeedTask`, shared with Microsoft
  * To Do and Apple Reminders. Reuses the same GOOGLE_OAUTH_CLIENT_ID/SECRET as Gmail/Google Calendar (one
  * Google Cloud OAuth app can request all three scopes), just a separate `provider: "google_tasks"`
- * connection so a user can connect one without the others. Pull-only: no write-back to Google, matching
- * Apple Reminders' existing scope (device push only, no write-back to the device either).
+ * connection so a user can connect one without the others.
+ *
+ * TASK-002 "write-back capability" — `pushTask` closes what used to be a pull-only connector (like Apple
+ * Reminders, which has no write-back API to speak of): an explicit, user-triggered push of a Veynlo task to
+ * this connection's Google Tasks, same bounded scope as GoogleCalendarAdapter.pushEvent (one-way, on
+ * explicit action, not continuous two-way sync).
  *
  * Google Tasks has no syncToken/delta mechanism like Calendar — incremental sync instead polls
  * `tasks.list` with `updatedMin` set to the previous sync's start time, the documented way to poll this
@@ -92,6 +96,31 @@ export class GoogleTasksAdapter {
     const oauth = this.oauthClient(`${loadEnv().API_PUBLIC_URL}/v1/connectors/google-tasks/callback`);
     oauth.setCredentials(credentials);
     return { connection, tasks: google.tasks({ version: "v1", auth: oauth }) };
+  }
+
+  /**
+   * TASK-002 "write-back capability" — creates on first push (no `externalSyncId` yet) and updates in
+   * place on every push after, same create-vs-update decision as GoogleCalendarAdapter.pushEvent, just
+   * keyed off `tasks.externalSyncId` instead of a dedicated provider-id column (tasks has no separate
+   * `connectionId`/provider-id pair the way calendar_events does — see schedule.service.ts).
+   */
+  async pushTask(
+    connectionId: string,
+    task: { externalSyncId: string | null; title: string; dueDate: string | null; notes: string | null; completed: boolean },
+  ): Promise<{ providerTaskId: string }> {
+    const { tasks } = await this.client(connectionId);
+    const requestBody: tasks_v1.Schema$Task = {
+      title: task.title,
+      notes: task.notes ?? undefined,
+      due: task.dueDate ?? undefined,
+      status: task.completed ? "completed" : "needsAction",
+    };
+    if (task.externalSyncId) {
+      const updated = await tasks.tasks.update({ tasklist: "@default", task: task.externalSyncId, requestBody });
+      return { providerTaskId: updated.data.id! };
+    }
+    const created = await tasks.tasks.insert({ tasklist: "@default", requestBody });
+    return { providerTaskId: created.data.id! };
   }
 
   private async ingestTask(connection: typeof schema.connections.$inferSelect, connectionId: string, task: tasks_v1.Schema$Task): Promise<boolean> {
