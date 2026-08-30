@@ -1,0 +1,7 @@
+# gitleaks scans full git history by default, so a finding is anchored to the commit that introduced the
+# line -- an inline `gitleaks:allow` comment added in a *later* commit doesn't retroactively suppress the
+# historical commit's own diff. Real, verified-benign findings go here by fingerprint instead.
+
+# A Claude model identifier ("claude-haiku-4-5-20251001") assigned to a field named `modelKey` in a test
+# fixture -- not a credential. Verified locally with the same gitleaks image CI uses before adding this.
+e1545a57a382fd2966896b02a8e76d050efa8fd8:services/api/src/modules/admin/admin.service.test.ts:generic-api-key:81
