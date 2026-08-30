@@ -22,6 +22,7 @@ import {
   type DataExportJobData,
   type DataRetentionScanJobData,
 } from "./queue/queue-names";
+import { classifyConnectorError } from "./modules/connectors/connector-errors";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
 import { IcsAdapter } from "./modules/connectors/ics.adapter";
@@ -110,9 +111,12 @@ async function bootstrap() {
           await adapter.initialSync(connectionId);
         }
       } catch (err) {
+        // §54.2 launch criteria #6 — classify before recording, so the UI's already-built distinct badges
+        // for rate_limited/reauth_required/provider_outage (previously dead states — everything landed on
+        // "degraded" regardless of cause) actually reflect what went wrong.
         await db
           .update(schema.connections)
-          .set({ health: "degraded", healthDetail: String((err as Error)?.message ?? err) })
+          .set({ health: classifyConnectorError(err), healthDetail: String((err as Error)?.message ?? err) })
           .where(eq(schema.connections.id, connectionId));
         throw err; // let BullMQ's retry/backoff attempt again before giving up
       }
