@@ -1,10 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import useSWR from "swr";
-import { swrFetcher } from "@/lib/api-client";
+import { api } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 
 interface NotificationRecord {
@@ -20,6 +21,11 @@ interface NotificationRecord {
   openedAt: string | null;
 }
 
+interface NotificationsPageResponse {
+  items: NotificationRecord[];
+  nextCursor: string | null;
+}
+
 const STATE_TONE: Record<string, "positive" | "warning" | "neutral"> = {
   sent: "positive",
   queued: "neutral",
@@ -31,7 +37,32 @@ function formatWhen(iso: string): string {
 }
 
 export default function NotificationHistoryPage() {
-  const { data, isLoading } = useSWR<NotificationRecord[]>("/v1/notifications", swrFetcher);
+  const [data, setData] = useState<NotificationRecord[] | undefined>(undefined);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<NotificationsPageResponse>("/v1/notifications")
+      .then((res) => {
+        setData(res.items);
+        setCursor(res.nextCursor);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<NotificationsPageResponse>(`/v1/notifications?before=${encodeURIComponent(cursor)}`);
+      setData((prev) => [...(prev ?? []), ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -85,6 +116,12 @@ export default function NotificationHistoryPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {cursor && (
+        <Button variant="secondary" onClick={loadMore} loading={loadingMore}>
+          Load more
+        </Button>
       )}
     </div>
   );

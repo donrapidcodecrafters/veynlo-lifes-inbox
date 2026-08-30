@@ -5,6 +5,7 @@ import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
+import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { ScreenHeader } from "@/components/screen-header";
 
@@ -21,6 +22,11 @@ interface NotificationRecord {
   openedAt: string | null;
 }
 
+interface NotificationsPageResponse {
+  items: NotificationRecord[];
+  nextCursor: string | null;
+}
+
 const STATE_TONE: Record<string, "positive" | "warning" | "neutral"> = {
   sent: "positive",
   queued: "neutral",
@@ -34,10 +40,27 @@ function formatWhen(iso: string): string {
 export default function NotificationHistoryScreen() {
   const { theme } = useAppTheme();
   const [items, setItems] = useState<NotificationRecord[] | undefined>(undefined);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    api.get<NotificationRecord[]>("/v1/notifications").then(setItems);
+    api.get<NotificationsPageResponse>("/v1/notifications").then((res) => {
+      setItems(res.items);
+      setCursor(res.nextCursor);
+    });
   }, []);
+
+  async function loadMore() {
+    if (!cursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<NotificationsPageResponse>(`/v1/notifications?before=${encodeURIComponent(cursor)}`);
+      setItems((prev) => [...(prev ?? []), ...res.items]);
+      setCursor(res.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <Screen>
@@ -72,6 +95,11 @@ export default function NotificationHistoryScreen() {
               </Text>
             </Card>
           ))}
+          {cursor && (
+            <Button variant="secondary" onPress={loadMore} loading={loadingMore}>
+              Load more
+            </Button>
+          )}
         </View>
       )}
     </Screen>

@@ -61,10 +61,51 @@ afterAll(async () => {
 describe("NotificationsService — cross-user isolation", () => {
   it("list() returns only the requesting user's own notifications", async () => {
     const listA = await notifications.list(userAId);
-    expect(listA.map((n) => n.id)).toEqual([notificationAId]);
+    expect(listA.items.map((n) => n.id)).toEqual([notificationAId]);
+    expect(listA.nextCursor).toBeNull();
 
     const listB = await notifications.list(userBId);
-    expect(listB.map((n) => n.id)).toEqual([notificationBId]);
+    expect(listB.items.map((n) => n.id)).toEqual([notificationBId]);
+  });
+
+  it("list()'s before cursor excludes items at or after the given timestamp", async () => {
+    const middleId = generateId("notification");
+    const oldestId = generateId("notification");
+    const now = new Date();
+    await db.insert(schema.notifications).values([
+      {
+        id: middleId,
+        ownerUserId: userAId,
+        dedupeKey: "test-middle",
+        priority: "useful",
+        channel: "email",
+        title: "Middle",
+        body: "middle",
+        state: "queued",
+        scheduledFor: new Date(now.getTime() - 60_000),
+      },
+      {
+        id: oldestId,
+        ownerUserId: userAId,
+        dedupeKey: "test-oldest",
+        priority: "useful",
+        channel: "email",
+        title: "Oldest",
+        body: "oldest",
+        state: "queued",
+        scheduledFor: new Date(now.getTime() - 120_000),
+      },
+    ]);
+    try {
+      const middleRow = (await db.select({ scheduledFor: schema.notifications.scheduledFor }).from(schema.notifications).where(inArray(schema.notifications.id, [middleId])))[0];
+      const page = await notifications.list(userAId, middleRow!.scheduledFor.toISOString());
+      const ids = page.items.map((n) => n.id);
+      expect(ids).toContain(oldestId);
+      expect(ids).not.toContain(middleId);
+      expect(ids).not.toContain(notificationAId);
+    } finally {
+      await db.delete(schema.notifications).where(inArray(schema.notifications.id, [middleId, oldestId]));
+    }
   });
 
   it("getPreferences() returns only the requesting user's own preferences, never another user's", async () => {

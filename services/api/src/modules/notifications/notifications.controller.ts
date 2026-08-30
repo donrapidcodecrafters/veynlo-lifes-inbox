@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, UseGuards } from "@nestjs/common";
+import { Controller, Get, Put, Body, Query, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -10,8 +10,8 @@ export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
   @Get("notifications")
-  list(@CurrentUser() user: AuthenticatedUser) {
-    return this.notifications.list(user.userId);
+  list(@CurrentUser() user: AuthenticatedUser, @Query("before") before?: string) {
+    return this.notifications.list(user.userId, before);
   }
 
   @Get("notification-preferences")
