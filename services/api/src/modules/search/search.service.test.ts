@@ -35,7 +35,7 @@ beforeAll(async () => {
   ]);
   await db.insert(schema.searchDocuments).values([
     {
-      id: generateId("searchDoc"),
+      id: generateId("searchDocument"),
       ownerUserId: ownerAId,
       resourceType: "document",
       resourceId: documentAId,
@@ -44,7 +44,7 @@ beforeAll(async () => {
       bodyText: "",
     },
     {
-      id: generateId("searchDoc"),
+      id: generateId("searchDocument"),
       ownerUserId: ownerBId,
       resourceType: "document",
       resourceId: documentBId,
