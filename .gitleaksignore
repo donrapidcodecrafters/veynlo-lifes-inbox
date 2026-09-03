@@ -1,0 +1,31 @@
+# gitleaks allowlist — one fingerprint per line, each justified.
+#
+# Nothing here is a real credential. Every entry was inspected individually before being added; do NOT
+# add a fingerprint to this file without checking what the flagged value actually is. If a genuine secret
+# is ever committed, the fix is to rotate it and purge it from history, never to list it here.
+
+# --- Local dev fixture passwords, not credentials to anything ---
+# A hardcoded password used to create throwaway accounts against a local API during tests. It has no
+# meaning outside a developer's own machine — the account it creates does not exist anywhere else.
+94ed6fe12a8c95bfe1c8cb4a36b7bb3b1d3598fc:apps/web/e2e/support/api.ts:generic-api-key:23
+
+# --- AI model IDENTIFIERS flagged purely on entropy ---
+# These are `modelKey` values (model names like "claude-...-YYYYMMDD"). They are public product
+# identifiers, not API keys — the generic-api-key rule matches them only because a versioned model id is
+# high-entropy. The real key is ANTHROPIC_API_KEY, which is read from env and never committed.
+51c621e1e66ae2eb414b3c396ada9ec28fddf1ed:packages/db/src/seed/model-registry.ts:generic-api-key:31
+0852d8037bace2902c64499bce06adee4d280a31:services/api/src/modules/entitlements/entitlements.ai-cost-aggregation.test.ts:generic-api-key:44
+0852d8037bace2902c64499bce06adee4d280a31:services/api/src/modules/ingestion/ingestion.backfill-cost-budget.test.ts:generic-api-key:88
+
+# --- Playwright scratch state accidentally committed once, since removed ---
+# apps/web/.guide-scratch/ held a Playwright run's saved browser state: a localhost session cookie and a
+# seeded demo account's email/password. It is now gitignored (.gitignore:38) and no longer tracked, but it
+# remains in commit 94ed6fe and gitleaks scans full history, so the findings persist.
+#
+# Deliberately allowlisted rather than purged: the cookie is a session for http://localhost signed with a
+# dev-only key, and the account is one this repo's own seed script recreates on demand. It grants access to
+# nothing beyond a developer's own machine, so rewriting published history (a second force-push, on top of
+# 2026-09-03's) would cost far more than it buys. Revisit if these files ever held a real environment.
+94ed6fe12a8c95bfe1c8cb4a36b7bb3b1d3598fc:apps/web/.guide-scratch/state1.json:jwt:5
+94ed6fe12a8c95bfe1c8cb4a36b7bb3b1d3598fc:apps/web/.guide-scratch/state2.json:jwt:5
+94ed6fe12a8c95bfe1c8cb4a36b7bb3b1d3598fc:apps/web/.guide-scratch/seed-info.json:generic-api-key:4

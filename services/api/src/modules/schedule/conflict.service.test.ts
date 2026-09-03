@@ -98,7 +98,7 @@ describe("ConflictService.detectOverlaps", () => {
   it("does not create a duplicate conflict row when the same overlap is detected again", async () => {
     if (!dbAvailable) return;
     const eventA = await insertEvent({ ownerUserId, title: "Standup", startInstant: "2026-10-06T09:00:00.000Z", endInstant: "2026-10-06T09:30:00.000Z" });
-    const eventB = await insertEvent({ ownerUserId, title: "1:1", startInstant: "2026-10-06T09:15:00.000Z", endInstant: "2026-10-06T09:45:00.000Z" });
+    const _eventB = await insertEvent({ ownerUserId, title: "1:1", startInstant: "2026-10-06T09:15:00.000Z", endInstant: "2026-10-06T09:45:00.000Z" });
 
     const first = await conflicts.detectOverlaps(eventA, ownerUserId);
     const second = await conflicts.detectOverlaps(eventA, ownerUserId);

@@ -32,6 +32,7 @@ import {
   type MemoryClassificationJobData,
   type ResurfacingScanJobData,
   type LegacyReleaseInactivityScanJobData,
+  type DataIntegrityScanJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
@@ -61,6 +62,7 @@ import { ConnectorsService } from "./modules/connectors/connectors.service";
 import { CaregiverDayPassService } from "./modules/sharing/caregiver-day-pass.service";
 import { recordConnectorSyncFailure, providerFamilyFor } from "./modules/connectors/connection-health.util";
 import { LegacyReleaseService } from "./modules/sharing/legacy-release.service";
+import { DataIntegrityService } from "./modules/data-integrity/data-integrity.service";
 
 const logger = new Logger("Worker");
 
@@ -106,6 +108,7 @@ async function bootstrap() {
   const connectors = appContext.get(ConnectorsService);
   const caregiverDayPasses = appContext.get(CaregiverDayPassService);
   const legacyRelease = appContext.get(LegacyReleaseService);
+  const dataIntegrity = appContext.get(DataIntegrityService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -543,6 +546,17 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /** §Operations "data-integrity/orphan-check job" — see queue-names.ts's DataIntegrityScanJobData doc
+   * comment and DataIntegrityService.scanForOrphans for what a tick does. Log-only by design: it reports
+   * dangling cross-table links rather than auto-deleting them. */
+  const dataIntegrityScanWorker = new Worker<DataIntegrityScanJobData>(
+    QUEUE_NAMES.dataIntegrityScan,
+    async () => {
+      await dataIntegrity.scanForOrphans();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   /** §29.1 SAVE-001/002 — see queue-names.ts's MemoryClassificationJobData doc comment for why this moved
    * off the synchronous save request. */
   const memoryClassificationWorker = new Worker<MemoryClassificationJobData>(
@@ -582,6 +596,7 @@ async function bootstrap() {
     recallScanWorker,
     caregiverDayPassScanWorker,
     legacyReleaseInactivityScanWorker,
+    dataIntegrityScanWorker,
     memoryClassificationWorker,
     resurfacingScanWorker,
   ]) {
@@ -600,6 +615,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringResurfacingScan();
   await queueProducer.scheduleRecurringCaregiverDayPassScan();
   await queueProducer.scheduleRecurringLegacyReleaseInactivityScan();
+  await queueProducer.scheduleRecurringDataIntegrityScan();
 
   logger.log(
     "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, inbound-email-ingest, document-ocr, voice-transcription, school-source-sync, school-source-scan, recall-check, recall-scan, caregiver-day-pass-scan, legacy-release-inactivity-scan, memory-classification, resurfacing-scan",
@@ -626,6 +642,7 @@ async function bootstrap() {
       recallScanWorker.close(),
       caregiverDayPassScanWorker.close(),
       legacyReleaseInactivityScanWorker.close(),
+      dataIntegrityScanWorker.close(),
       memoryClassificationWorker.close(),
       resurfacingScanWorker.close(),
     ]);

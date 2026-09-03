@@ -116,7 +116,7 @@ describe("AutomationService.undoRun", () => {
     const runsBeforeUndo = await automation.listRuns(ownerUserId);
     expect(runsBeforeUndo.find((r) => r.id === runId)?.canUndo).toBe(true);
 
-    let tasksBefore = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    const tasksBefore = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
     expect(tasksBefore).toHaveLength(1);
 
     await automation.undoRun(runId, ownerUserId);
