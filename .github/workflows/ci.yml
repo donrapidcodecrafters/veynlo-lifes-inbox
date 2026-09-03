@@ -280,7 +280,7 @@ jobs:
       # alone never would have; a broken Dockerfile should fail CI the same day it breaks, not at the next
       # real deploy attempt. No registry push configured yet — see docs/DEPLOYMENT.md once ECR exists.
       - name: Build API image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: services/api/Dockerfile
@@ -291,7 +291,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build worker image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: services/api/Dockerfile
