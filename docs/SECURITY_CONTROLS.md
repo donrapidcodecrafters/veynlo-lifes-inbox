@@ -37,7 +37,7 @@ this session's live re-verification pass (see `SECURITY.md`'s dated entries for 
 | V2.5 | No security questions as sole recovery factor | Applicable | Token-based email reset only, no security questions anywhere | N/A | Yes | `identity.service.ts`'s `forgotPassword`/`resetPassword` |
 | V2.7 | Federated auth (OAuth) does not silently account-link on email match | Applicable | `oauthSignIn` only signs in via an existing `identity_links` row; colliding email with no link is rejected, not merged | No | Yes | `identity.service.ts`, live-tested this session |
 | V2.8 | OAuth `id_token` signature verification | Applicable | Google (`googleapis` `verifyIdToken`) and Microsoft (`jose`/`createRemoteJWKSet` against the real JWKS endpoint) both verified | No | Yes | `identity.service.ts`, fixed and live-verified this session |
-| V2.10 | MFA / passkeys | Applicable | **Not implemented.** `passkeys` table exists in schema, unused | No | N/A | Known gap — password is the only factor; see "Not yet done" |
+| V2.10 | MFA / passkeys | Applicable | **Implemented.** WebAuthn via `@simplewebauthn/server` v13 — real cryptographic `verifyRegistrationResponse`/`verifyAuthenticationResponse`, not a stub. Six endpoints under `v1/auth/passkeys` (list, delete, registration-options/verify, authentication-options/verify), backed by the `passkeys` table. Sign-in uses a discoverable-credential ("usernameless") flow, feature-detected via `browserSupportsWebAuthn()`. Password remains a valid alternative factor, so this is passwordless-capable rather than enforced second-factor | Yes (7 unit tests, `passkey.service.test.ts`) | Yes | `identity/passkey.{controller,service}.ts`; UI at web `/settings/security` + `/sign-in`, mobile `app/security/index.tsx` |
 | V2.11 | Step-up/recent auth for high-impact actions | Applicable | `IdentityService.verifyStepUpPassword` — used by delete-account, data-export, destructive connector-disconnect; no-ops correctly for OAuth-only accounts | Yes (unit-test-shaped live verification this session) | Yes — live tested all three call sites, both password-present and OAuth-only paths | `SECURITY.md`'s 2026-08-31 fifth-pass entry |
 
 ## V3 — Session management
@@ -158,7 +158,7 @@ are tracked in that document's own "Known gaps" section, not duplicated here.
 
 ## Not yet done (tracked here, not hidden)
 
-- **MFA/passkeys** — schema groundwork exists (`passkeys` table), no registration/auth flow built.
+- **Enforced second factor** — passkeys are fully built and usable (see V2.10), but a user may still sign in with a password alone. What is missing is *enforcement*: no per-account "require a second factor" setting, and no admin policy to require one org-wide. Passwordless is available; step-up-on-every-login is not.
 - **Formal, repeatable threat-modeling process** — see `docs/THREAT_MODEL.md` for a first pass covering the highest-risk flows; not yet a standing practice triggered on every trust-boundary change.
 - **OpenTelemetry/Sentry** — no SDK installed; structured logs are the only current observability signal.
 - **IaC scanning** — no Checkov/tfsec/Terrascan wired into CI for the Terraform modules.
