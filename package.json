@@ -19,6 +19,8 @@
     "db:migrate": "pnpm --filter @veynlo/db migrate",
     "db:seed": "pnpm --filter @veynlo/db seed",
     "db:studio": "pnpm --filter @veynlo/db studio",
+    "db:backup": "pnpm --filter @veynlo/db backup",
+    "db:restore-drill": "pnpm --filter @veynlo/db restore-drill",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
   },
   "devDependencies": {
@@ -28,5 +30,11 @@
     "eslint": "^9.17.0",
     "typescript-eslint": "^8.68.0",
     "@types/node": "^22.10.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "ffmpeg-static",
+      "sharp"
+    ]
   }
 }

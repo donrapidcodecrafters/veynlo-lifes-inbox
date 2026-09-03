@@ -1,0 +1,50 @@
+# §28.3 "Require additional review for auth/authorization, cryptography, token vault,
+# billing/entitlements, infrastructure/IAM, data export/delete, migrations, and agent/tool permissions."
+#
+# GitHub only enforces these as *required* reviewers once branch protection turns on "Require review
+# from Code Owners" for the target branch (Settings → Branches) — this file alone doesn't gate anything.
+# @donrapidcodecrafters is the real, verified GitHub account for this repo (`gh auth status`), not a
+# placeholder. Add named owners/teams to the sensitive-path rules below as the team grows — right now
+# every rule resolves to the same one person, which is honest about this being a single-developer repo
+# today, not a real review boundary yet.
+
+* @donrapidcodecrafters
+
+# --- Sensitive paths per §28.3 — narrower ownership belongs here first as the team grows ---
+
+# Authentication, authorization, session management, account recovery
+/services/api/src/common/auth.guard.ts @donrapidcodecrafters
+/services/api/src/common/csrf.ts @donrapidcodecrafters
+/services/api/src/modules/identity/ @donrapidcodecrafters
+/services/api/src/modules/admin/admin.guard.ts @donrapidcodecrafters
+/services/api/src/modules/admin/admin-auth.service.ts @donrapidcodecrafters
+/packages/authz/ @donrapidcodecrafters
+
+# Cryptography and the OAuth token vault
+/packages/db/src/crypto/ @donrapidcodecrafters
+/services/api/src/common/credential-vault.ts @donrapidcodecrafters
+/packages/db/src/schema/encrypted-type.ts @donrapidcodecrafters
+
+# Billing and entitlements
+/services/api/src/modules/billing/ @donrapidcodecrafters
+/services/api/src/modules/entitlements/ @donrapidcodecrafters
+/packages/core/src/entitlements/ @donrapidcodecrafters
+/packages/db/src/schema/entitlements.ts @donrapidcodecrafters
+
+# Infrastructure and IAM-adjacent configuration
+/infrastructure/ @donrapidcodecrafters
+/.github/workflows/ @donrapidcodecrafters
+/services/api/Dockerfile @donrapidcodecrafters
+/services/api/src/config/ @donrapidcodecrafters
+
+# Data export and account/data deletion
+/services/api/src/modules/data-export/ @donrapidcodecrafters
+/services/api/src/worker-main.ts @donrapidcodecrafters
+
+# Database migrations — schema changes are the highest-blast-radius change class in this repo
+/packages/db/src/migrations/ @donrapidcodecrafters
+/packages/db/src/schema/ @donrapidcodecrafters
+
+# Agent/tool permissions (Ask/RAG, prompt construction, model-provider boundary)
+/services/api/src/modules/search/ @donrapidcodecrafters
+/services/api/src/modules/intelligence/ @donrapidcodecrafters

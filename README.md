@@ -14,7 +14,13 @@ to change it again later).
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what's built, what's stubbed, and
 what's next. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the
-system is put together.
+system is put together. See
+[docs/DEV_ENVIRONMENT_MIGRATION.md](docs/DEV_ENVIRONMENT_MIGRATION.md) for
+splitting development across two machines (a tower for everything, a Mac kept
+only for Xcode/iOS Simulator testing). See [SECURITY.md](SECURITY.md) for data protection
+(field-level encryption, key rotation), account deletion, network hardening,
+and an honest pre-submission checklist for the App Store/Play Store/a real
+pentest.
 
 ## Quick start
 
@@ -105,15 +111,19 @@ isn't:
   (accounts are created via a CLI script), most of Phase 2+ domains
   (home/vehicle/travel/family/school/etc.).
 
-The mobile app (`apps/mobile`, Expo + expo-router) covers the same core
-loop as web — sign-in/up, Home, Inbox, Ask, Settings with light/dark theme
-— talking to the real API over a bearer-token session (native has no
-browser cookie jar; see docs/ARCHITECTURE.md's auth section). Verified via
-Playwright against `expo start --web` (a real Chromium instance driving
-the actual React Native codebase): sign-up, session persistence across a
-full reload, tab navigation, and the dark-mode toggle all confirmed live.
-Real device/simulator builds haven't been produced — that needs Xcode/
-Android Studio or EAS Build, neither available in this environment.
+The mobile app (`apps/mobile`, Expo + expo-router) has full screen parity
+with web — Home, Inbox, Ask, Life, Settings, Timeline, Documents,
+Connections — talking to the real API over a bearer-token session (native
+has no browser cookie jar; see docs/ARCHITECTURE.md's auth section). Real
+native builds have been produced and verified on both platforms:
+`expo run:ios` on a real iPhone 16 Pro Simulator and `expo run:android`
+on a real Android emulator (API 36) — see docs/ARCHITECTURE.md's "Native
+mobile build" section for the three genuine upstream Expo/Xcode-26 bugs
+it took to get both working, all fixed via `pnpm patch`. Every screen and
+nav path was also verified interactively via Playwright against
+`expo start --web` (a real Chromium instance driving the actual React
+Native codebase). Real device builds (only simulator/emulator so far)
+are next.
 
 The browser extension (`apps/browser-extension`, Manifest V3, any
 Chromium-based browser) saves the current page or a text selection to your
@@ -129,6 +139,54 @@ toolchain (`rustup.rs`) to build. Verified live in this environment: both
 successfully; production use needs real code signing and the window
 pointed at a deployed web origin instead of localhost. See its own README.
 
+## Internationalization (i18n)
+
+§38.2 of the spec requires all user-facing strings to be externalized (no hardcoded copy, no
+concatenated grammar) and locale-aware date/time/currency formatting. Before this pass, no i18n
+library existed anywhere in this repo and every UI string was a hardcoded English literal, even
+though `users.locale` (`packages/db/src/schema/identity.ts`) has been stored per-user since the
+first migration. What's built now is the real *architecture* the spec's §53.1 extension standard
+demands — English is the only shipped language, but adding a second one is a translation-file
+change, not a re-architecture:
+
+- **`packages/core/src/util/locale.ts`** is the canonical, platform-shared source of truth:
+  `SUPPORTED_UI_LOCALES` (today: `["en"]`), and two resolvers — `resolveUiLocale()` (which
+  translated message bundle to load) and `resolveFormattingLocale()` (which full BCP-47 tag to
+  hand `Intl.NumberFormat`/`DateTimeFormat`, kept regionally precise even when the UI bundle
+  doesn't change). Read that file's header comment for the full fallback-chain design.
+- **`apps/web`** uses `next-intl` (`src/i18n/provider.tsx` + `src/i18n/messages/en.json`), wired
+  into the root layout. **`apps/admin`** uses the same library the same way (`src/i18n/`), except
+  it only resolves device/browser locale — there is no per-admin locale preference to route
+  through (`admins` is a separate table from `users`, see that provider's own doc comment).
+  **`apps/mobile`** uses `i18next`/`react-i18next` (`src/lib/i18n/`, `src/lib/i18n-provider.tsx`).
+- **Where the locale comes from**: a signed-in user's stored `users.locale` preference once the
+  session loads (routed through `apps/web`'s `useSession()` / `apps/mobile`'s `useAuth()`
+  `SessionUser.locale`), falling back to the device/browser locale pre-auth or on `apps/admin`,
+  falling back to English/`en-US` if neither resolves to a shipped locale.
+- **Adding a new locale**: add its base language tag to `SUPPORTED_UI_LOCALES`, drop a translated
+  `messages/<locale>.json` (web/admin) or `lib/i18n/<locale>.json` (mobile) file with the exact
+  same keys as `en.json`, and register it in that app's message loader. Nothing else — the
+  fallback chain, provider wiring, and every `t("...")` call site — needs to change.
+- **Adding a new translatable string**: add the key to the relevant `en.json`/message file
+  (namespaced by feature, e.g. `home.title`, `settings.deleteAccount.cta`) and call
+  `useTranslations("home")` (web/admin) or `useTranslation("translation", { keyPrefix: "home" })`
+  (mobile) in the component instead of hardcoding the literal. A count-dependent string uses ICU
+  plural syntax (`next-intl`) or i18next's `_one`/`_other` key suffixes (mobile) — never
+  concatenated singular/plural fragments (see `apps/web/src/app/(app)/home/page.tsx`'s
+  `degradedBanner` key for a worked example of both the bug this avoids and the fix).
+- **What's covered vs. not**: this pass extracted a representative slice proving the pattern
+  end-to-end — navigation/tab labels, the Home dashboard, the Settings page's header/top
+  sections/sign-out/delete-account, sign-in/sign-up, and one domain list page per platform (Inbox)
+  — not literally every string in the app, which would be enormous effort for zero user-visible
+  benefit while English is the only shipped locale. Untranslated strings are plain literals, same
+  as before this pass; extending coverage is the same `t("<namespace>.<key>")` pattern already
+  used throughout.
+- **What this pass deliberately did NOT do**: translate any string into a non-English language.
+  Real translation needs either a paid translation vendor or substantial human review to be
+  trustworthy for a life-admin app (a wrong machine-translated date/legal/financial string is
+  worse than no translation) — that's a deferred, cost-gated follow-up, not something fabricated
+  here. `SUPPORTED_UI_LOCALES` lists only `"en"` until that follow-up happens.
+
 ## Workspace layout
 
 ```
@@ -142,7 +200,6 @@ services/
 packages/
   core/               Shared domain types, zod schemas, entitlement/plan catalog
   db/                 Drizzle ORM schema, migrations, seed data
-  authz/               Central authorization policy (used by every read/write path)
   design-tokens/       Design system tokens (color/type/spacing/motion), light+dark
 infrastructure/
   docker/              docker-compose for local Postgres/Redis/MinIO/Mailhog
@@ -165,7 +222,7 @@ pnpm build        # build every package/app
 pnpm dev          # run every app/service in dev/watch mode (API + web; NOT the worker — see above)
 pnpm dev:worker   # run the background job worker (connector sync, notification delivery)
 pnpm typecheck    # typecheck the whole workspace
-pnpm lint         # lint backend packages (core/db/authz/api) with the shared root ESLint config;
+pnpm lint         # lint backend packages (core/db/api) with the shared root ESLint config;
                   # apps/web is still a no-op pending a Next-aware config
 pnpm test         # run all test suites
 pnpm db:generate  # generate a new migration from schema changes

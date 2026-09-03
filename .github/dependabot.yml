@@ -1,0 +1,33 @@
+# §28.3 "Scan npm/native/container dependencies continuously; automated updates through
+# Dependabot/Renovate-style workflow; pinned lockfiles; patch SLAs based on severity/exploitability."
+#
+# One npm entry at "/" covers the whole pnpm workspace (apps/*, services/*, packages/*) — Dependabot
+# resolves pnpm-lock.yaml workspace members from the root, it doesn't need one entry per package.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Dev-only tooling churns constantly and isn't runtime attack surface (see SECURITY.md's
+      # "informational, not blocking" pnpm audit step in ci.yml) — batched separately so it doesn't drown
+      # out the runtime-dependency updates that actually matter for patch SLAs.
+      dev-dependencies:
+        dependency-type: "development"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/services/api"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "terraform"
+    directory: "/infrastructure/terraform"
+    schedule:
+      interval: "weekly"

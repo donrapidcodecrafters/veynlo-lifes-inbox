@@ -2,7 +2,11 @@ name: veynlo
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    # PostgreSQL 17 to match the production target (blueprint §37: "Use PostgreSQL 17 locally... compatible
+    # with Aurora PostgreSQL"; Aurora PostgreSQL 17.7 LTS per §3/§38). pgvector/pgvector:pg17 publishes both
+    # linux/amd64 and linux/arm64 manifests (verified via `docker manifest inspect`), so this pulls natively
+    # on Apple Silicon too — unlike clamav below, no `platform:` override is needed.
+    image: pgvector/pgvector:pg17
     container_name: veynlo-postgres
     restart: unless-stopped
     environment:
@@ -61,3 +65,30 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+
+  clamav:
+    # Real malware scanning for document uploads (documents.service.ts) — clamd's INSTREAM protocol,
+    # spoken directly over TCP (no client library) since it's a small, well-documented wire format and
+    # this is exactly the kind of security-relevant path worth fully controlling rather than trusting an
+    # unaudited npm wrapper for. Optional in dev: CLAMD_HOST unset means uploads still work, just unscanned
+    # — matches the "not configured = graceful degradation" pattern used for every other optional external
+    # dependency in this app (connectors, RevenueCat).
+    image: clamav/clamav:stable
+    # The official image only publishes linux/amd64 — force it explicitly so this still runs (emulated,
+    # e.g. via Rosetta on Apple Silicon Docker Desktop) on arm64 hosts instead of failing to pull.
+    platform: linux/amd64
+    container_name: veynlo-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - ./volumes/clamav:/var/lib/clamav
+    # First boot downloads virus definitions (freshclam) before clamd starts listening — can take a few
+    # minutes; the healthcheck (and this app's own scanner) both treat "not ready yet" as a clear,
+    # retryable state rather than a crash.
+    healthcheck:
+      test: ["CMD-SHELL", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s

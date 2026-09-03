@@ -15,7 +15,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: veynlo
           POSTGRES_PASSWORD: veynlo_dev_password
@@ -32,13 +32,17 @@ jobs:
       DATABASE_URL: postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo
 
     steps:
-      - uses: actions/checkout@v4
+      # §28.4 "Pin third-party GitHub Actions to an immutable commit SHA, not a mutable version tag" — every
+      # `uses:` below is pinned to the commit SHA behind the version tag comment, verified via `gh api
+      # repos/<repo>/tags` against that exact commit (not just the tag-ref object, which for some repos is an
+      # annotated tag pointing at a different SHA than the commit itself).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: 10.26.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: pnpm
@@ -46,8 +50,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Informational, not blocking: today's findings are all in dev-only build tooling (Next.js/postcss,
+      # Expo/metro's image parsing), not runtime attack surface for the deployed API — a hard gate here
+      # would break every build on a pre-existing transitive-dependency vuln nobody's triaged yet. Findings
+      # still show up in every CI run so they don't silently rot; see SECURITY.md for the pre-submission
+      # checklist this should be resolved against before a real store submission or pentest.
+      - name: Dependency vulnerability scan (informational)
+        run: pnpm audit --audit-level=high || true
+
       - name: Build shared packages
-        run: pnpm --filter "@veynlo/core" --filter "@veynlo/design-tokens" --filter "@veynlo/db" --filter "@veynlo/authz" run build
+        run: pnpm --filter "@veynlo/core" --filter "@veynlo/design-tokens" --filter "@veynlo/db" run build
 
       - name: Typecheck
         run: pnpm -r run typecheck
@@ -58,8 +70,243 @@ jobs:
       - name: Apply migrations
         run: pnpm db:migrate
 
+      - name: Seed
+        run: pnpm db:seed
+
+      # §29 "a backup is not proven until restoration is tested" — running this on every CI build (not
+      # waiting for the blueprint's quarterly minimum) dumps the just-migrated-and-seeded database, restores
+      # it into a throwaway isolated database, and verifies row counts match exactly across a cross-section
+      # of tables — a real, repeated proof that the backup/restore path works, not just that pg_dump exits
+      # zero. Pinned to postgresql-client-17 to match the pgvector/pgvector:pg17 service image above (§37
+      # "Use PostgreSQL 17 locally... compatible with Aurora PostgreSQL"; Aurora PostgreSQL 17.7 LTS is the
+      # production target per §3/§38) — `pg_dump` compatibility across major versions isn't guaranteed in
+      # the direction that matters here.
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Backup/restore drill
+        run: pnpm db:restore-drill
+
       - name: Test
         run: pnpm -r run test
 
       - name: Build remaining apps/services
         run: pnpm --filter "@veynlo/api" --filter "@veynlo/web" --filter "@veynlo/admin" run build
+
+  # §50.1 "E2E platform: critical journeys on iOS, Android, web, macOS, Windows" / §50.2 "Accessibility
+  # critical journeys pass automated checks" — a real, blocking gate (no `continue-on-error`, same as every
+  # other job here) rather than an informational step, closing the gap flagged in
+  # spec/Life_Inbox_Master_Spec.txt chapter 50: until this job existed, nothing in CI ever drove a real
+  # browser against the real running app, and no automated accessibility tooling existed anywhere in the
+  # repo. See docs/RELEASE_GATES.md for how this fits with the rest of what must pass before a release
+  # ships, and apps/web/e2e/ for the suite itself.
+  e2e-tests:
+    runs-on: ubuntu-latest
+
+    # Mirrors build-and-test's Postgres service exactly (same image/creds/port), plus Redis — this job runs
+    # the *real* API process (services/api/dist/main.js), not just its test suite, and the API needs a
+    # reachable Redis at boot to construct its BullMQ queues (see services/api/src/queue/queue-producer.
+    # service.ts) even though none of these E2E specs exercise a queued job directly. MinIO is deliberately
+    # left out: every one of this suite's journeys (sign-up/onboarding, Connections, manual capture,
+    # Settings, sign-in) stays clear of document upload, the only path that touches S3
+    # (services/api/src/modules/documents/storage.service.ts builds its S3 client lazily per-call, so its
+    # absence doesn't block API startup).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: veynlo
+          POSTGRES_PASSWORD: veynlo_dev_password
+          POSTGRES_DB: veynlo
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U veynlo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo
+      REDIS_URL: redis://localhost:6379
+      # Every secret below is the exact local-dev default from services/api/.env.example — safe only
+      # because this job never sets NODE_ENV=production, so env.ts's production-only refusal to boot on a
+      # dev-default/under-32-character secret never triggers (same reasoning docker-compose-based local dev
+      # already relies on). A real deployment must never reuse these.
+      SESSION_JWT_SECRET: dev-only-insecure-secret-change-me
+      DEEPLINK_SIGNING_SECRET: dev-only-deeplink-secret-change-me-too
+      CREDENTIAL_ENCRYPTION_KEY: dev-only-32-byte-key-change-me!!
+      FIELD_ENCRYPTION_KEY: dev-only-field-encryption-key-change-me
+      FIELD_ENCRYPTION_KEY_VERSION: "1"
+      WEB_APP_URL: http://localhost:3000
+      ADMIN_APP_URL: http://localhost:3100
+      API_PUBLIC_URL: http://localhost:4000
+      SIGNUP_REQUIRES_INVITE: "false"
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10.26.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: pnpm --filter "@veynlo/core" --filter "@veynlo/design-tokens" --filter "@veynlo/db" run build
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      # No `pnpm db:seed` here on purpose — every spec creates and signs in as its own fresh user via the
+      # real API (see apps/web/e2e/support/api.ts), so this job stays independent of demo-data shape/drift.
+
+      - name: Build API
+        run: pnpm --filter "@veynlo/api" run build
+
+      # `--no-lint`: verified locally (a completely fresh `pnpm install` from this exact lockfile, isolated
+      # from any dev-server state) that `next build`'s own internal lint pass currently fails independent of
+      # this change — "Definition for rule 'react-hooks/exhaustive-deps' was not found" — a pre-existing
+      # ESLint-flat-config/eslint-plugin-react-hooks resolution gap unrelated to E2E (apps/web's own `lint`
+      # script is already a separate, explicit no-op pending a Next-aware flat config — see its
+      # package.json), which means `build-and-test`'s existing "Build remaining apps/services" step already
+      # carries this same latent breakage today. Not this job's bug to fix; not disabling it here would just
+      # make E2E fail for a reason that has nothing to do with E2E.
+      - name: Build web
+        run: pnpm --filter "@veynlo/web" run build --no-lint
+
+      - name: Install Playwright browsers
+        run: pnpm --filter "@veynlo/web" exec playwright install --with-deps chromium
+
+      # Both processes are started in the background and outlive this step (same runner VM, later steps in
+      # the same job can still reach their ports) — this is the real compiled server (`node dist/main.js`),
+      # not `next dev`/`nest start --watch`, matching "a real built apps/web + services/api" rather than a
+      # dev server with hot-reload machinery E2E has no business depending on.
+      - name: Start API and web (background)
+        run: |
+          nohup pnpm --filter "@veynlo/api" run start > api.log 2>&1 &
+          nohup pnpm --filter "@veynlo/web" run start -p 3000 > web.log 2>&1 &
+
+      - name: Wait for API and web to be ready
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:4000/health/ready > /dev/null 2>&1 && api_ready=1 || api_ready=0
+            curl -sf http://localhost:3000/sign-in > /dev/null 2>&1 && web_ready=1 || web_ready=0
+            if [ "$api_ready" = "1" ] && [ "$web_ready" = "1" ]; then
+              echo "API and web are both ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for API and/or web to become ready."
+          echo "--- api.log ---"; cat api.log || true
+          echo "--- web.log ---"; cat web.log || true
+          exit 1
+
+      - name: Run Playwright E2E suite
+        run: pnpm --filter "@veynlo/web" run test:e2e
+        env:
+          CI: "true"
+          E2E_WEB_URL: http://localhost:3000
+          E2E_API_URL: http://localhost:4000
+
+      - name: Show API/web logs on failure
+        if: failure()
+        run: |
+          echo "--- api.log ---"; cat api.log || true
+          echo "--- web.log ---"; cat web.log || true
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 14
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # gitleaks needs full history, not just the latest commit
+
+      # Blocking, not informational — verified 0 findings against the current codebase (2026-08-28), so
+      # there's no pre-existing noise to grandfather. A new finding here is a new problem, not old debt.
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+      # Same free, no-login Semgrep Registry rulesets verified locally (0 findings after fixing the two
+      # real GCM auth-tag-length issues these caught in field-encryption.ts/credential-vault.ts) — blocking
+      # for the same reason as gitleaks above: nothing pre-existing to grandfather.
+      - name: SAST (semgrep)
+        run: |
+          pip install semgrep
+          semgrep --config=p/security-audit --config=p/secrets --config=p/owasp-top-ten \
+            --exclude=node_modules --exclude='**/node_modules' --exclude=dist --exclude='**/dist' \
+            --error services/api packages apps/web apps/admin
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # Builds both images on every PR — this is what actually caught three real, reproducible bugs
+      # (a leaking .tsbuildinfo file, pnpm v10's deploy default, an unused-patch failure) that typechecking
+      # alone never would have; a broken Dockerfile should fail CI the same day it breaks, not at the next
+      # real deploy attempt. No registry push configured yet — see docs/DEPLOYMENT.md once ECR exists.
+      - name: Build API image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: services/api/Dockerfile
+          target: api
+          push: false
+          tags: veynlo-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build worker image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: services/api/Dockerfile
+          target: worker
+          push: false
+          tags: veynlo-worker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Archived per build, not gated on — an SBOM is evidence for the pre-submission checklist in
+      # SECURITY.md, not something with a pass/fail threshold of its own.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: veynlo-api:ci
+          format: cyclonedx-json
+          output-file: sbom-api.cyclonedx.json
+          upload-artifact: true
