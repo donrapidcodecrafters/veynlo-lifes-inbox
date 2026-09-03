@@ -148,6 +148,9 @@ export class AutomationService {
     // deferred arrow function reads the real class off the module only once DI actually resolves this
     // provider (well after every module has finished its own initial `require`, so the CommonJS TDZ cycle
     // never triggers), while the `import type` above still gives this file's own type annotations real types.
+    // Deliberate lazy require: see the doc comment above for why a static import would reintroduce
+    // the CommonJS TDZ cycle.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     @Inject(forwardRef(() => (require("../connectors/calendar-write-back.service") as { CalendarWriteBackService: unknown }).CalendarWriteBackService))
     private readonly calendarWriteBack: CalendarWriteBackService,
   ) {}

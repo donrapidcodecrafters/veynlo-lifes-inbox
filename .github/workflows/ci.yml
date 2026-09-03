@@ -73,6 +73,17 @@ jobs:
       - name: Seed
         run: pnpm db:seed
 
+      # The curated reference-data seeds are separate scripts from `db:seed` (that one is per-household
+      # demo data; these are global registries) but they are NOT optional here — the API suite asserts
+      # against rows they insert. Without them identity-records.access.test.ts fails on the seeded
+      # jurisdiction-link lookup, which reads as a product bug rather than a missing setup step.
+      - name: Seed reference data
+        run: |
+          pnpm --filter @veynlo/db run seed:reference-data
+          pnpm --filter @veynlo/db run seed:identity-jurisdiction-links
+          pnpm --filter @veynlo/db run seed:merchant-cancellation-steps
+          pnpm --filter @veynlo/db run seed:model-registry
+
       # §29 "a backup is not proven until restoration is tested" — running this on every CI build (not
       # waiting for the blueprint's quarterly minimum) dumps the just-migrated-and-seeded database, restores
       # it into a throwaway isolated database, and verifies row counts match exactly across a cross-section
@@ -286,6 +297,12 @@ jobs:
           file: services/api/Dockerfile
           target: api
           push: false
+          # Without this, buildx leaves the result in its own build cache and never loads it into the
+          # local Docker image store, so the "Generate SBOM" step below cannot resolve veynlo-api:ci —
+          # syft then falls back to pulling it from Docker Hub and fails with "pull access denied ...
+          # repository does not exist". Safe here because this is a single-platform build (`load` is
+          # incompatible with multi-platform ones).
+          load: true
           tags: veynlo-api:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max

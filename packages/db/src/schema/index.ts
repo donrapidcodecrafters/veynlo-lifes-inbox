@@ -34,3 +34,4 @@ export * from "./sender-rules";
 export * from "./sharing";
 export * from "./desktop";
 export * from "./analytics";
+export * from "./object-notes";

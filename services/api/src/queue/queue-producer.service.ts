@@ -24,6 +24,7 @@ import {
   type RecallScanJobData,
   type CaregiverDayPassScanJobData,
   type LegacyReleaseInactivityScanJobData,
+  type DataIntegrityScanJobData,
 } from "./queue-names";
 
 /**
@@ -94,6 +95,9 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly legacyReleaseInactivityScanQueue = new Queue<LegacyReleaseInactivityScanJobData>(QUEUE_NAMES.legacyReleaseInactivityScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly dataIntegrityScanQueue = new Queue<DataIntegrityScanJobData>(QUEUE_NAMES.dataIntegrityScan, {
     connection: getRedisConnection(),
   });
 
@@ -355,6 +359,16 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     await this.legacyReleaseInactivityScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "legacy-release-inactivity-scan" });
   }
 
+  /**
+   * §Operations "data-integrity/orphan-check job" — finds cross-table links (attention_items/notifications/
+   * the JSONB *_entity_ids arrays) whose target row no longer exists (see DataIntegrityService.scanForOrphans).
+   * Daily, not hourly like attentionScan: this is a slow-changing signal (rows go orphaned only when
+   * something is deleted elsewhere), so there's no value polling more often, just more load.
+   */
+  async scheduleRecurringDataIntegrityScan(): Promise<void> {
+    await this.dataIntegrityScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-integrity-scan" });
+  }
+
   /** All queues by name, for read-only inspection (AdminService's queue-health endpoint) — every
    * `enqueue*`/`scheduleRecurring*` method above adds to exactly one of these, kept in the same order. */
   private get queuesByName(): Record<string, Queue> {
@@ -379,6 +393,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       [QUEUE_NAMES.recallScan]: this.recallScanQueue,
       [QUEUE_NAMES.caregiverDayPassScan]: this.caregiverDayPassScanQueue,
       [QUEUE_NAMES.legacyReleaseInactivityScan]: this.legacyReleaseInactivityScanQueue,
+      [QUEUE_NAMES.dataIntegrityScan]: this.dataIntegrityScanQueue,
     };
   }
 
@@ -428,6 +443,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       this.recallScanQueue.close(),
       this.caregiverDayPassScanQueue.close(),
       this.legacyReleaseInactivityScanQueue.close(),
+      this.dataIntegrityScanQueue.close(),
     ]);
   }
 }

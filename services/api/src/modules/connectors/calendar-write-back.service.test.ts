@@ -141,7 +141,7 @@ describe("CalendarWriteBackService — CAL-001 write-back push", () => {
 
     const second = await service.pushEvent({ eventId, ownerUserId, connectionId });
     expect(second).toEqual({ pushed: true });
-    expect(google.calls).toEqual([expect.objectContaining({ kind: "create" }), expect.objectContaining({ kind: "update", providerEventId: afterCreate?.providerEventId! })]);
+    expect(google.calls).toEqual([expect.objectContaining({ kind: "create" }), expect.objectContaining({ kind: "update", providerEventId: afterCreate!.providerEventId })]);
   });
 
   it("refuses to push to a connection that isn't a calendar provider", async () => {

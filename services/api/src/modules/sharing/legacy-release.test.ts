@@ -36,7 +36,7 @@ describe("LegacyReleaseService — §35 SHARE-006", () => {
   let db: Database;
   let legacyRelease: LegacyReleaseService;
   let ownerId: string;
-  let ownerPassword = "correct-horse-battery-staple";
+  const ownerPassword = "correct-horse-battery-staple";
   let dbAvailable = true;
 
   beforeAll(async () => {

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { generateId, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";

@@ -37,6 +37,9 @@ import { AutomationService } from "./automation.service";
     IntelligenceModule,
     NotificationsModule,
     ScheduleModule,
+    // Deliberate lazy require: a static import would reintroduce the CommonJS TDZ module cycle
+    // described in the comment above.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     forwardRef(() => (require("../connectors/connectors.module") as { ConnectorsModule: unknown }).ConnectorsModule as typeof ConnectorsModuleType),
   ],
   controllers: [AutomationController],

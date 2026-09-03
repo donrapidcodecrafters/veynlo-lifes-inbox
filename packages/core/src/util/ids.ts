@@ -114,6 +114,10 @@ export const ID_PREFIXES = {
   personRelationship: "prel",
   personNote: "pnote",
   personImportantDate: "pdate",
+  /** TIME-002 "Object history" — a free-text note attached to any purchase/bill/warranty/return case/
+   * subscription/calendar event (see packages/db/src/schema/object-notes.ts). Distinct from `personNote`,
+   * which is specific to the people domain. */
+  objectNote: "note",
   // PERS-003 "Category preferences" — see packages/db/src/schema/preferences.ts's categoryPreferences
   // doc comment.
   categoryPreference: "catpref",

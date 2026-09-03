@@ -44,6 +44,8 @@ import { WidgetsModule } from "./modules/widgets/widgets.module";
 import { IdentityRecordsModule } from "./modules/identity-records/identity-records.module";
 import { CaregiverDayPassModule } from "./modules/sharing/caregiver-day-pass.module";
 import { LegacyReleaseModule } from "./modules/sharing/legacy-release.module";
+import { DataIntegrityModule } from "./modules/data-integrity/data-integrity.module";
+import { HistoryModule } from "./modules/history/history.module";
 
 @Module({
   imports: [
@@ -91,6 +93,8 @@ import { LegacyReleaseModule } from "./modules/sharing/legacy-release.module";
     IdentityRecordsModule,
     CaregiverDayPassModule,
     LegacyReleaseModule,
+    DataIntegrityModule,
+    HistoryModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

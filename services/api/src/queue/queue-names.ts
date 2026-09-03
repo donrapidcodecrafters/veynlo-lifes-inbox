@@ -24,6 +24,7 @@ export const QUEUE_NAMES = {
   recallScan: "recall-scan",
   caregiverDayPassScan: "caregiver-day-pass-scan",
   legacyReleaseInactivityScan: "legacy-release-inactivity-scan",
+  dataIntegrityScan: "data-integrity-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -173,3 +174,7 @@ export type CaregiverDayPassScanJobData = Record<string, never>;
  * own doc comment for what a tick actually does (the earlier "still there?" warning, and the auto-initiated
  * waiting period once the full threshold is crossed). */
 export type LegacyReleaseInactivityScanJobData = Record<string, never>;
+
+/** §Operations "data-integrity/orphan-check job" — recurring tick with no payload; its processor
+ * (DataIntegrityService.scanForOrphans) finds every orphaned cross-table link itself. */
+export type DataIntegrityScanJobData = Record<string, never>;

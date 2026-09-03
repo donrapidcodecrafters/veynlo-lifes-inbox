@@ -456,6 +456,13 @@
       "when": 1788328924874,
       "tag": "0064_red_martin_li",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788458427111,
+      "tag": "0065_restore_object_notes",
+      "breakpoints": true
     }
   ]
 }

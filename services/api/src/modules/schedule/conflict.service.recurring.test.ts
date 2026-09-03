@@ -110,7 +110,7 @@ describe("ConflictService.detectOverlaps — recurring expansion", () => {
   it("does not spam a duplicate row when the same recurring-occurrence collision is re-detected", async () => {
     if (!dbAvailable) return;
     const weeklyRule: RecurrenceRule = { kind: "weekly", interval: 1, daysOfWeek: [] };
-    const recurringEvent = await insertEvent({
+    const _recurringEvent = await insertEvent({
       title: "Recurring standup",
       startInstant: "2026-10-07T09:00:00.000Z",
       endInstant: "2026-10-07T09:30:00.000Z",

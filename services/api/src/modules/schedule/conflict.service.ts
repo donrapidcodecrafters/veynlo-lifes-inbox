@@ -192,7 +192,7 @@ export class ConflictService {
    * caller (event creation, or ingestion's discovered-event path) can surface it to the user immediately —
    * spec's "detected... whenever a new/edited event is saved."
    */
-  async detectOverlaps(eventId: string, ownerUserId: string): Promise<Array<typeof schema.scheduleConflicts.$inferSelect>> {
+  async detectOverlaps(eventId: string, _ownerUserId: string): Promise<Array<typeof schema.scheduleConflicts.$inferSelect>> {
     const [event] = await this.db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId)).limit(1);
     if (!event || event.status === "canceled") return [];
     const eventOccurrences = this.occurrenceRanges(event);

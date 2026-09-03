@@ -410,6 +410,29 @@ export class DocumentsService {
    * excluded under every filter value — there's no "show deleted" view in this module (see `delete`'s own
    * doc comment on why single-document deletion has no in-app undo).
    */
+  /**
+   * TIME-002 "Object history" — every document whose `linkedEntityIds` points at `resourceId`, scoped to
+   * what this user is allowed to see. Restored alongside HistoryModule (both were lost in the 2026-09-03
+   * main force-push; see 0065_restore_object_notes.sql).
+   *
+   * Filters in JS rather than with a JSONB containment operator because `linkedEntityIds` has no GIN index
+   * — matching how `linkToEntity` already reads-modifies-writes the same column. Unlike the original, this
+   * also excludes soft-deleted rows, consistent with every other read path in this service.
+   */
+  async listLinkedTo(userId: string, resourceId: string) {
+    const ownerCondition = await this.ownerOrDelegatedHousehold(
+      userId,
+      schema.documents.ownerUserId,
+      schema.documents.householdId,
+      schema.documents.visibility,
+    );
+    const owned = await this.db
+      .select()
+      .from(schema.documents)
+      .where(and(ownerCondition, isNull(schema.documents.deletedAt)));
+    return owned.filter((d) => d.linkedEntityIds.includes(resourceId));
+  }
+
   async list(userId: string, filter: DocumentListFilter = "active") {
     const grantedIds = await this.sharing.grantedResourceIds("document", userId);
     const accessCondition =

@@ -51,6 +51,15 @@ docker run --rm --network veynlo_default --entrypoint sh minio/mc:latest -c \
 pnpm db:migrate
 pnpm db:seed
 
+# Load the curated reference data. These are deliberately separate from `db:seed` (that one is
+# per-household demo data; these are global registries), but they are NOT optional for a working
+# checkout — parts of the API read them, and the API test suite asserts against the rows they
+# insert. Skipping them fails identity-records.access.test.ts on an otherwise-correct setup.
+pnpm --filter @veynlo/db run seed:reference-data
+pnpm --filter @veynlo/db run seed:identity-jurisdiction-links
+pnpm --filter @veynlo/db run seed:merchant-cancellation-steps
+pnpm --filter @veynlo/db run seed:model-registry
+
 # Configure the API (copy and edit — every value has a safe local default
 # except secrets, which you should set explicitly even locally)
 cp services/api/.env.example services/api/.env
