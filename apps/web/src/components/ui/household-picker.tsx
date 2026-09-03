@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
-import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { swrFetcher, ApiError } from "@/lib/api-client";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 
 export interface MyHousehold {

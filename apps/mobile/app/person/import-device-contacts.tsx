@@ -12,7 +12,7 @@ import { router } from "expo-router";
 // syncDeviceCalendar already documented for expo-calendar — confirmed here by reading expo-contacts@57's
 // own source rather than assumed.
 import * as Contacts from "expo-contacts/legacy";
-import { api, ApiError } from "@/lib/api-client";
+import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -71,7 +71,6 @@ export default function ImportDeviceContactsScreen() {
       setLoadError("Couldn't check your contacts permission. Please try again.");
       setStage("explain");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

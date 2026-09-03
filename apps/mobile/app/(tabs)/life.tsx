@@ -38,7 +38,6 @@ const LIFE_TABS = [
   { value: "health", label: "Health" },
   { value: "documents", label: "Documents" },
 ] as const;
-type LifeTab = (typeof LIFE_TABS)[number]["value"];
 
 // CAL-001 "duplicate copies visually collapse while preserving original records" — a cross-source-linked
 // member's own minimal fields (see ScheduleService.upcomingEvents' lean list projection — no per-member

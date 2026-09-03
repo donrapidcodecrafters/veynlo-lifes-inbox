@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";

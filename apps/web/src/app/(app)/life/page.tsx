@@ -36,7 +36,6 @@ const LIFE_TABS = [
   { value: "health", label: "Health" },
   { value: "documents", label: "Documents" },
 ] as const;
-type LifeTab = (typeof LIFE_TABS)[number]["value"];
 
 /** TASK-003 — a short, human summary of a recurrence rule for list rows ("Repeats weekly", "Repeats every 3 days"). */
 function describeRecurrence(rule: RecurrenceRule): string {

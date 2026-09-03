@@ -49,4 +49,13 @@ export default tseslint.config(
       "react-hooks/exhaustive-deps": "warn",
     },
   },
+  /**
+   * Build/config files that are CommonJS by contract, not by choice. Metro's config and Expo's config
+   * plugins are loaded by tooling that `require()`s them before any bundler or transpiler is involved, so
+   * they cannot use ESM `import` — flagging `require()` in them is a false positive, not a finding.
+   */
+  {
+    files: ["**/metro.config.js", "**/*.config.js", "apps/mobile/plugins/**/*.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 );

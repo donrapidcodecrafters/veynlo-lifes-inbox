@@ -71,7 +71,6 @@ export default function SavedScreen() {
   useFocusEffect(
     useCallback(() => {
       load(category);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [load, category]),
   );
 

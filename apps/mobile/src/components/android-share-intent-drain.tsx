@@ -35,6 +35,7 @@ export function AndroidShareIntentDrain() {
       router.push({ pathname: "/capture", params: { subject: "Shared text", body: shareIntent.text } });
     }
     resetShareIntent();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `resetShareIntent` comes from the share-intent hook and is re-created each render; this effect must fire on a NEW share intent only, not whenever that callback identity changes.
   }, [user, hasShareIntent, shareIntent]);
 
   return null;
