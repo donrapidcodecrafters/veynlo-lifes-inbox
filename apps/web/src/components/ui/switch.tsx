@@ -41,7 +41,16 @@ export function Switch({ checked, onCheckedChange, disabled, label, description,
       >
         <span
           className={cn(
-            "absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-150",
+            // `left-0` is load-bearing, not decorative — with no explicit `left`, this absolutely
+            // positioned span's base position falls back to the browser's "auto" static-position
+            // algorithm, which real testing showed does NOT reliably resolve to 0 here: the thumb's
+            // `translate-x` (meant to move it from a 2px-inset resting position to an 18px-inset one,
+            // symmetric within the button's 40px width) instead compounded on top of an unpredictable
+            // base offset, pushing the thumb's right edge visibly outside the button — and outside
+            // whatever container the switch sits in — every time a switch was toggled on. Confirmed via
+            // getBoundingClientRect on a live checked switch: thumb.right exceeded button.right by 18px
+            // before this fix.
+            "absolute left-0 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-150",
             checked ? "translate-x-[18px]" : "translate-x-0.5",
           )}
           aria-hidden="true"

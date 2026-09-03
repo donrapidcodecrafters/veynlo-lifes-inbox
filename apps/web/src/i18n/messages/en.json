@@ -1,0 +1,109 @@
+{
+  "nav": {
+    "home": "Home",
+    "inbox": "Inbox",
+    "ask": "Ask",
+    "life": "Life",
+    "settings": "Settings"
+  },
+  "auth": {
+    "signIn": {
+      "title": "Welcome back",
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "forgotPassword": "Forgot password?",
+      "submit": "Sign in",
+      "orDivider": "or",
+      "passkey": "Sign in with a passkey",
+      "continueWithGoogle": "Continue with Google",
+      "continueWithMicrosoft": "Continue with Microsoft",
+      "continueWithApple": "Continue with Apple",
+      "noAccount": "New to Veynlo?",
+      "createAccount": "Create an account",
+      "genericError": "Something went wrong. Please try again.",
+      "passkeyError": "Couldn't sign in with a passkey. Please try again."
+    },
+    "signUp": {
+      "title": "Create your account",
+      "nameLabel": "Name",
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "passwordHint": "At least 10 characters.",
+      "inviteCodeLabel": "Invite code",
+      "inviteCodeHint": "Veynlo is in private testing — sign-up needs an invite code.",
+      "submit": "Create account",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google",
+      "continueWithMicrosoft": "Continue with Microsoft",
+      "continueWithApple": "Continue with Apple",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in",
+      "genericError": "Something went wrong. Please try again.",
+      "termsNotice": "By creating an account you agree to our <terms>Terms</terms> and <privacy>Privacy Policy</privacy>."
+    }
+  },
+  "home": {
+    "title": "Home",
+    "subtitle": "What matters right now.",
+    "needsYou": "Needs You",
+    "today": "Today",
+    "moneyAtRisk": "Money at risk & savings",
+    "review": "Review",
+    "degradedBanner": "{count, plural, one {# connection needs attention} other {# connections need attention}} — some information may be out of date.",
+    "caughtUpTitle": "You're caught up.",
+    "caughtUpDescription": "Nothing needs your attention right now. Connect another account or add something manually to find more.",
+    "connectSource": "Connect a source",
+    "degradedCaughtUpTitle": "Nothing else needs attention from the sources currently available.",
+    "degradedCaughtUpDescription": "One or more connections are unhealthy, so this may not be the full picture. Reconnect them above to see everything.",
+    "markHandled": "Mark handled",
+    "dismiss": "Dismiss",
+    "whyAmISeeingThis": "Why am I seeing this?",
+    "hideWhy": "Hide why",
+    "looksRight": "Looks right",
+    "getDisputeGuidance": "Get dispute guidance",
+    "hideDisputeGuidance": "Hide dispute guidance"
+  },
+  "settings": {
+    "title": "Settings",
+    "sections": {
+      "appearance": "Appearance",
+      "billing": "Billing",
+      "notifications": "Notifications",
+      "yourData": "Your data",
+      "dangerZone": "Danger zone"
+    },
+    "privacy": { "title": "Privacy", "description": "What Veynlo can see, AI processing, and your data controls — all in one place.", "open": "Open" },
+    "security": { "title": "Security", "description": "See everywhere you're signed in, and sign out of a device you don't recognize.", "open": "Open" },
+    "household": { "title": "Household", "description": "Invite the people you live with, add dependents, and manage caregiver access.", "open": "Open" },
+    "personalization": { "title": "Personalization", "description": "Home layout, what Veynlo pays attention to, your preferred name, and how Ask responds.", "open": "Open" },
+    "billing": { "title": "Plan & billing", "description": "Manage your subscription and see what's included.", "manage": "Manage" },
+    "signOut": "Sign out",
+    "deleteAccount": {
+      "title": "Delete account",
+      "description": "Schedules your account and everything in it for permanent deletion in 14 days. You can sign back in and cancel any time before then — after that, it can't be undone.",
+      "cta": "Delete account",
+      "confirmNotice": "You'll be signed out immediately. Sign back in within 14 days to cancel — after that, deletion runs and can't be undone.",
+      "confirmPasswordLabel": "Confirm your password",
+      "submit": "Schedule my account for deletion",
+      "cancel": "Cancel",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "subtitle": "Newly discovered information to review.",
+    "filterNew": "new",
+    "filterAll": "all",
+    "addManually": "Add manually",
+    "cancel": "Cancel",
+    "quickFilterAll": "All",
+    "quickFilterAutoFiled": "Auto-filed",
+    "quickFilterLowConfidence": "Low confidence",
+    "allCategories": "All categories",
+    "filterByCategory": "Filter by category",
+    "caughtUpTitle": "You're caught up.",
+    "caughtUpDescription": "New receipts, bills, appointments, and other discoveries will show up here for a quick review before they're filed.",
+    "noMatchTitle": "No items match these filters.",
+    "noMatchDescription": "Try a different category or clear the quick filters above."
+  }
+}

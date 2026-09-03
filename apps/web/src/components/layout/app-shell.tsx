@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { useTranslations } from "next-intl";
 import { NAV_ITEMS } from "./nav-items";
 import { NavIcon } from "./nav-icon";
 import { cn } from "@/lib/cn";
@@ -15,6 +16,7 @@ import { useSession } from "@/hooks/use-session";
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user } = useSession();
+  const t = useTranslations("nav");
 
   return (
     <div className="min-h-dvh bg-canvas md:flex">
@@ -33,9 +35,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[0.9375rem] font-medium transition-colors",
                   active ? "bg-brand-subtle text-brand-subtle-text" : "text-secondary hover:bg-subtle",
                 )}
+                aria-current={active ? "page" : undefined}
               >
                 <NavIcon icon={item.icon} className="size-5 shrink-0" />
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             );
           })}
@@ -72,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-current={active ? "page" : undefined}
             >
               <NavIcon icon={item.icon} className="size-6" />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}

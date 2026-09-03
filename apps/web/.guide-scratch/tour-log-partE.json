@@ -1,0 +1,37 @@
+[
+  {
+    "label": "places-list-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nSaved places\n\nHome, work, family, or anywhere you want an arrival/departure reminder. Arrival/departure reminders only fire from the mobile app, which is where location permission is granted — this page manages the same data.\n\n+ Add a place\n\nHome\n\n1600 Amphitheatre Pkwy, Mountain View, CA 94043\n\nHas coordinates",
+    "ts": "2026-09-02T12:12:12.865Z"
+  },
+  {
+    "label": "place-detail-initial-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nHome\n\n1600 Amphitheatre Pkwy, Mountain View, CA 94043\n\nHas coordinatesRemove this place\nAdd a reminder zone\nRadius (meters)\nArriving\nLeaving\nBoth\nCreate reminder zone",
+    "ts": "2026-09-02T12:12:14.586Z"
+  },
+  {
+    "label": "place-detail-after-geofence-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nHome\n\n1600 Amphitheatre Pkwy, Mountain View, CA 94043\n\nHas coordinatesRemove this place\nAdd a reminder zone\nRadius (meters)\nArriving\nLeaving\nBoth\nCreate reminder zone\n150m — Arriving\n\nActive\n\nRemind me to…\nAdd\nDelete this reminder zone",
+    "ts": "2026-09-02T12:12:15.394Z"
+  },
+  {
+    "label": "place-detail-after-rule-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nHome\n\n1600 Amphitheatre Pkwy, Mountain View, CA 94043\n\nHas coordinatesRemove this place\nAdd a reminder zone\nRadius (meters)\nArriving\nLeaving\nBoth\nCreate reminder zone\n150m — Arriving\n\nActive\n\nGrab the reusable bags\nRemove\nRemind me to…\nAdd\nDelete this reminder zone",
+    "ts": "2026-09-02T12:12:16.177Z"
+  },
+  {
+    "label": "place-detail-after-toggle-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nHome\n\n1600 Amphitheatre Pkwy, Mountain View, CA 94043\n\nHas coordinatesRemove this place\nAdd a reminder zone\nRadius (meters)\nArriving\nLeaving\nBoth\nCreate reminder zone\n150m — Arriving\n\nTurned off\n\nGrab the reusable bags\nRemove\nRemind me to…\nAdd\nDelete this reminder zone",
+    "ts": "2026-09-02T12:12:16.835Z"
+  },
+  {
+    "label": "place-detail-after-rule-removed-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nSaved places\n\nHome, work, family, or anywhere you want an arrival/departure reminder. Arrival/departure reminders only fire from the mobile app, which is where location permission is granted — this page manages the same data.\n\n+ Add a place\nNo saved places yet\n\nAdd a home, family member's address, or store to set up an arrival reminder.",
+    "ts": "2026-09-02T12:12:17.479Z"
+  },
+  {
+    "label": "places-list-final-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nSaved places\n\nHome, work, family, or anywhere you want an arrival/departure reminder. Arrival/departure reminders only fire from the mobile app, which is where location permission is granted — this page manages the same data.\n\n+ Add a place\n\nWork\n\n1 Infinite Loop, Cupertino, CA 95014\n\nNo coordinates",
+    "ts": "2026-09-02T12:12:19.124Z"
+  }
+]

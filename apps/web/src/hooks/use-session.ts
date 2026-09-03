@@ -12,6 +12,9 @@ export interface SessionUser {
   currency: string;
   status: string;
   themePreference: "system" | "light" | "dark";
+  aiProcessingEnabled: boolean;
+  // PRIV-002 grace period — non-null while `status === "deletion_pending"`, null otherwise.
+  scheduledDeletionAt: string | null;
 }
 
 export function useSession() {

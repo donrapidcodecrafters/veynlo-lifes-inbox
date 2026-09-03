@@ -1,0 +1,67 @@
+[
+  {
+    "label": "trip-detail-text-cancelled",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\n← Trips\nTrip to Lisbon\nLisbon\nupcoming\nNov 10, 2026 – Nov 17, 2026\nPacking list →\nShare\n\nA reservation on this trip has changed\n\nReview the affected segment below and contact the provider directly if you need to rebook — Veynlo doesn't book travel on your behalf.\n\nSegments\n\nFlight — TAP Air Portugal\n\nJFK -> LIS\n\nSchedule changed\n\nNov 10, 2026 – Nov 11, 2026\n\nConfirmation: ABC123\n\nLast confirmed: Sep 2, 2026\n\nOpen confirmation\nAdd calendar\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\nCheck-in reminder\nOff\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\n\nLodging — Hotel Avenida Palace\n\nLisbon, Portugal\n\nCancelled\nCancelled\n\nNov 11, 2026 – Nov 17, 2026\n\nConfirmation: HTL-99881\n\nOpen confirmation\nAdd calendar\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\nCheck-in reminder\nOff\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\nCredits & vouchers\n\nTAP Air Portugal — $150.00\n\nExpires Nov 10, 2027\n\nUsed",
+    "ts": "2026-09-02T12:09:24.068Z"
+  },
+  {
+    "label": "trip-share-panel-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\n← Trips\nTrip to Lisbon\nLisbon\nupcoming\nNov 10, 2026 – Nov 17, 2026\nPacking list →\nShare\n\nA reservation on this trip has changed\n\nReview the affected segment below and contact the provider directly if you need to rebook — Veynlo doesn't book travel on your behalf.\n\nSegments\n\nFlight — TAP Air Portugal\n\nJFK -> LIS\n\nSchedule changed\n\nNov 10, 2026 – Nov 11, 2026\n\nConfirmation: ABC123\n\nLast confirmed: Sep 2, 2026\n\nOpen confirmation\nAdd calendar\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\nCheck-in reminder\nOff\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\n\nLodging — Hotel Avenida Palace\n\nLisbon, Portugal\n\nCancelled\nCancelled\n\nNov 11, 2026 – Nov 17, 2026\n\nConfirmation: HTL-99881\n\nOpen confirmation\nAdd calendar\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\nCheck-in reminder\nOff\nAt the time of the event\n15 minutes before\n30 minutes before\n1 hour before\n2 hours before\n1 day before\n2 days before\n3 days before\nCredits & vouchers\n\nTAP Air Portugal — $150.00\n\nExpires Nov 10, 2027\n\nUsed\n\nSee exactly what a recipient would get before you share.\n\nPreview what they'll see\n\nShare with someone's Veynlo account\n\nThey'll get can view access to this trip until you remove them below.\n\nCan view\nCan edit\nCan manage\nUntil revoked\n7 days\n30 days\n90 days\nShare\n\nPublic link\n\nAnyone with the link can view this trip without a Veynlo account — treat it like handing over a copy. Highly sensitive items can't use a public link.\n\nCreate link",
+    "ts": "2026-09-02T12:09:24.599Z"
+  },
+  {
+    "label": "saved-empty-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nSaved\n\nSave any link, product, place, recipe, or note — without deciding right away where it belongs. Private to you unless you share it.\n\nSave a link\nOr paste/type a note\nSave\nAll categories\nProduct\nPlace\nRecipe\nArticle\nMovie/Show\nGift idea\nEvent\nTrip idea\nHow-to\nReference\nDocument\nGeneric\nNothing saved yet\n\nSave a link, a note, or anything else you want to find again later.",
+    "ts": "2026-09-02T12:09:25.706Z"
+  },
+  {
+    "label": "saved-just-saved-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\nSaved\n\nSave any link, product, place, recipe, or note — without deciding right away where it belongs. Private to you unless you share it.\n\nSave a link\nOr paste/type a note\n\nSaved — it'll be categorized automatically in a moment.\n\nSave\nAll categories\nProduct\nPlace\nRecipe\nArticle\nMovie/Show\nGift idea\nEvent\nTrip idea\nHow-to\nReference\nDocument\nGeneric\n\nhttps://example.com/lisbon-restaurant-guide\n\nUncategorized",
+    "ts": "2026-09-02T12:09:26.480Z"
+  },
+  {
+    "label": "memory-detail-url",
+    "extra": "http://localhost:3000/saved/svm_31182846e80f177796da3904a847fb16",
+    "ts": "2026-09-02T12:09:28.616Z"
+  },
+  {
+    "label": "memory-detail-text",
+    "extra": "Veynlo\nHome\nInbox\nAsk\nLife\nSettings\n\nGuide Tester\n\nwebguide-travel-1788350764429@example.com\n\n← Saved\nhttps://example.com/lisbon-restaurant-guide\nPin\nArchive\nShare\nDelete\n\nCategory\n\nproduct\nplace\nrecipe\narticle\nmovie show\ngift idea\nevent\ntrip idea\nhow to\nreference\ndocument\ngeneric\n\nSource\n\nhttps://example.com/lisbon-restaurant-guide\n\nNotes\n\nEdit\n\nNo notes yet.\n\nRating\n\n★\n★\n★\n★\n★\n\nTags\n\nAdd\n\nHighlights\n\nNo highlights saved yet.\n\nAdd\n\nSaved text\n\nRestaurant recommendations for our Lisbon trip - ask for a table by the window at Belcanto.\n\nResurfacing\n\nNever resurface this automatically\nMark as not useful\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nDate\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:28.692Z"
+  },
+  {
+    "label": "rules-after-date-rule",
+    "extra": "Resurfacing\n\nNever resurface this automatically\nMark as not useful\nReminds me on Sep 30, 2026\nRemove\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nDate\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:29.500Z"
+  },
+  {
+    "label": "rules-after-birthday-rule",
+    "extra": "Resurfacing\n\nNever resurface this automatically\nMark as not useful\nReminds me on Sep 30, 2026\nRemove\nReminds me 14 days before Mia Rivera's birthday\nRemove\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nPerson\nChoose…\nMia Rivera\nDays before\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:30.285Z"
+  },
+  {
+    "label": "rules-after-triplocation-rule",
+    "extra": "Resurfacing\n\nNever resurface this automatically\nMark as not useful\nReminds me on Sep 30, 2026\nRemove\nReminds me 14 days before Mia Rivera's birthday\nRemove\nReminds me when I plan a trip to Lisbon\nRemove\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nLisbon\nDestination\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:31.076Z"
+  },
+  {
+    "label": "rules-after-proximity-rule",
+    "extra": "Resurfacing\n\nNever resurface this automatically\nMark as not useful\nReminds me on Sep 30, 2026\nRemove\nReminds me 14 days before Mia Rivera's birthday\nRemove\nReminds me when I plan a trip to Lisbon\nRemove\nReminds me when I'm near Home\nRemove\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nSaved place\nChoose…\nHome\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:31.836Z"
+  },
+  {
+    "label": "rules-all-four-after-reload",
+    "extra": "Resurfacing\n\nNever resurface this automatically\nMark as not useful\nReminds me on Sep 30, 2026\nRemove\nReminds me 14 days before Mia Rivera's birthday\nRemove\nReminds me when I plan a trip to Lisbon\nRemove\nReminds me when I'm near Home\nRemove\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nDate\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:32.447Z"
+  },
+  {
+    "label": "remove-buttons-count",
+    "extra": 4,
+    "ts": "2026-09-02T12:09:32.449Z"
+  },
+  {
+    "label": "rules-after-delete",
+    "extra": "Resurfacing\n\nNever resurface this automatically\nMark as not useful\nReminds me 14 days before Mia Rivera's birthday\nRemove\nReminds me when I plan a trip to Lisbon\nRemove\nReminds me when I'm near Home\nRemove\n\nAdd a reminder\n\nOn a date\nBefore a person's birthday\nWhen I plan a matching trip\nWhen I'm near a saved place\nDate\nAdd reminder\n\nArchive automatically after…\n\nIn 7 days\nIn 30 days\nIn 90 days\nOr a specific date\nSet",
+    "ts": "2026-09-02T12:09:33.126Z"
+  }
+]

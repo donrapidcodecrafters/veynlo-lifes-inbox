@@ -1,15 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api-client";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FetchError } from "@/components/ui/fetch-error";
 
 interface TimelineItem {
   id: string;
-  kind: "calendar_event" | "purchase" | "bill" | "document" | "return_case";
+  kind:
+    | "calendar_event"
+    | "purchase"
+    | "bill"
+    | "document"
+    | "return_case"
+    | "warranty"
+    | "school_event"
+    | "trip_segment"
+    | "pet_vaccination"
+    | "pet_refill_reminder"
+    | "health_appointment"
+    | "health_refill_reminder";
   title: string;
   occurredAt: string;
   resourceType: string;
@@ -27,6 +41,13 @@ const KIND_LABEL: Record<TimelineItem["kind"], string> = {
   bill: "Bill",
   document: "Document",
   return_case: "Return",
+  warranty: "Warranty",
+  school_event: "School",
+  trip_segment: "Trip",
+  pet_vaccination: "Pet",
+  pet_refill_reminder: "Pet",
+  health_appointment: "Health",
+  health_refill_reminder: "Health",
 };
 
 const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | "neutral" | "critical"> = {
@@ -35,6 +56,32 @@ const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | 
   bill: "warning",
   document: "neutral",
   return_case: "critical",
+  warranty: "neutral",
+  school_event: "info",
+  trip_segment: "info",
+  pet_vaccination: "neutral",
+  pet_refill_reminder: "warning",
+  health_appointment: "info",
+  health_refill_reminder: "warning",
+};
+
+// school_event/health_appointment go to /life (no per-item detail page exists yet, same reasoning as
+// `document` below) — trip_segment/pet_* use `resourceId`, which the service deliberately points at the
+// parent trip/pet id (not the row's own id) so these link somewhere real: `/trips/:id` and `/life/pets/:id`
+// both exist even though `/trip-segments/:id` and per-vaccination pages don't.
+const KIND_HREF: Record<TimelineItem["kind"], (resourceId: string) => string> = {
+  calendar_event: (id) => `/life/events/${id}`,
+  purchase: (id) => `/life/purchases/${id}`,
+  bill: (id) => `/life/bills/${id}`,
+  return_case: (id) => `/life/returns/${id}`,
+  warranty: (id) => `/life/warranties/${id}`,
+  document: () => `/documents`, // no per-document detail page exists yet — the list is the closest real destination
+  school_event: () => `/life`,
+  trip_segment: (tripId) => `/trips/${tripId}`,
+  pet_vaccination: (petId) => `/life/pets/${petId}`,
+  pet_refill_reminder: (petId) => `/life/pets/${petId}`,
+  health_appointment: () => `/life`,
+  health_refill_reminder: () => `/life`,
 };
 
 function groupByDay(items: TimelineItem[]): Array<[string, TimelineItem[]]> {
@@ -58,16 +105,29 @@ export default function TimelinePage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Distinct from a genuinely empty timeline (EmptyState below) — a transient 500/network error
+  // previously rendered as the exact same "Nothing here yet" empty state, with no way to tell "you have
+  // no data" from "the request failed" and no retry affordance.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api
+  const load = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
+    return api
       .get<TimelineResponse>("/v1/timeline")
       .then((res) => {
         setItems(res.items);
         setCursor(res.nextCursor);
       })
+      .catch((err) => {
+        setLoadError(err instanceof ApiError ? err.message : "Please check your connection and try again.");
+      })
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function loadMore() {
     if (!cursor) return;
@@ -96,7 +156,11 @@ export default function TimelinePage() {
         </div>
       )}
 
-      {!isLoading && items.length === 0 && (
+      {!isLoading && loadError && items.length === 0 && (
+        <FetchError what="your timeline" message={loadError} onRetry={load} />
+      )}
+
+      {!isLoading && !loadError && items.length === 0 && (
         <EmptyState
           title="Nothing here yet"
           description="As Veynlo learns about your purchases, bills, appointments, and documents, they'll show up here in order."
@@ -110,17 +174,25 @@ export default function TimelinePage() {
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-tertiary">{day}</h2>
               <div className="space-y-2">
                 {dayItems.map((item) => (
-                  <Card key={`${item.kind}-${item.id}`}>
-                    <CardBody className="flex items-center justify-between gap-3 py-3">
-                      <div className="flex items-center gap-3">
-                        <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
-                        <p className="text-sm font-medium text-primary">{item.title}</p>
-                      </div>
-                      <p className="text-xs text-tertiary">
-                        {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                      </p>
-                    </CardBody>
-                  </Card>
+                  <Link key={`${item.kind}-${item.id}`} href={KIND_HREF[item.kind](item.resourceId)}>
+                    <Card className="transition-colors hover:bg-subtle">
+                      <CardBody className="flex items-center justify-between gap-3 py-3">
+                        {/* Found live: a document with a long, space-less filename (a real upload, not
+                            contrived — long filenames from phones/scanners are common) rendered as one
+                            unbroken line with no `min-w-0` on this flex item to let it shrink, pushing the
+                            row, the card, and the whole page hundreds of pixels past the viewport's right
+                            edge instead of truncating. `min-w-0` lets the flex item shrink below its
+                            content's natural width so `truncate` on the title itself can actually clip it. */}
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
+                          <p className="truncate text-sm font-medium text-primary" title={item.title}>{item.title}</p>
+                        </div>
+                        <p className="shrink-0 text-xs text-tertiary">
+                          {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                        </p>
+                      </CardBody>
+                    </Card>
+                  </Link>
                 ))}
               </div>
             </div>

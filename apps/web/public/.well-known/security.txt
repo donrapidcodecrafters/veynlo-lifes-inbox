@@ -1,0 +1,10 @@
+# §28.21 "Publish a vulnerability disclosure policy and /.well-known/security.txt with a monitored
+# security contact before public launch." RFC 9116 format. This is a pre-launch draft using the only
+# contact this repo actually has (no dedicated security@veynlo.com alias or public vulnerability-
+# disclosure policy page exists yet, since there's no production domain — see docs/DECISIONS.md) — replace
+# Contact and Canonical with real values, and Policy with a real published disclosure policy URL, before
+# this app is in front of real users. Expires is deliberately short (90 days out from when this was
+# written) so a stale, forgotten security.txt doesn't quietly outlive its own accuracy.
+Contact: mailto:don@rapidcodecrafters.com
+Expires: 2026-11-29T00:00:00.000Z
+Preferred-Languages: en
