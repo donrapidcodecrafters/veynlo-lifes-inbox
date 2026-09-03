@@ -1,6 +1,7 @@
-import { Injectable, UnauthorizedException, type CanActivate, type ExecutionContext } from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException, type CanActivate, type ExecutionContext } from "@nestjs/common";
 import { jwtVerify } from "jose";
 import { loadEnv } from "../../config/env";
+import { assertCsrfSafe } from "../../common/csrf";
 import { AdminAuthService } from "./admin-auth.service";
 
 export interface AuthenticatedAdmin {
@@ -19,17 +20,18 @@ export interface AuthenticatedAdmin {
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
-  constructor(private readonly adminAuth: AdminAuthService) {}
+  constructor(@Inject(AdminAuthService) private readonly adminAuth: AdminAuthService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token: string | undefined = request.cookies?.veynlo_admin_session;
     if (!token) throw new UnauthorizedException({ code: "ADMIN_AUTH_REQUIRED", message: "Admin sign-in required." });
+    assertCsrfSafe(request, "veynlo_admin_session");
 
     const env = loadEnv();
     let payload: { sub: string; sid: string; aud: string };
     try {
-      const verified = await jwtVerify(token, new TextEncoder().encode(env.SESSION_JWT_SECRET), { audience: "admin" });
+      const verified = await jwtVerify(token, new TextEncoder().encode(env.SESSION_JWT_SECRET), { audience: "admin", algorithms: ["HS256"] });
       payload = verified.payload as unknown as { sub: string; sid: string; aud: string };
     } catch {
       throw new UnauthorizedException({ code: "ADMIN_AUTH_REQUIRED", message: "Invalid or expired admin session." });

@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { loadEnv } from "../../config/env";
+import type { ObjectStorage } from "./object-storage.interface";
 
 /**
  * S3-compatible object storage (MinIO locally; any S3-compatible provider
@@ -11,7 +12,7 @@ import { loadEnv } from "../../config/env";
  * for private user documents").
  */
 @Injectable()
-export class StorageService {
+export class StorageService implements ObjectStorage {
   private client(): S3Client {
     const env = loadEnv();
     return new S3Client({
@@ -29,9 +30,25 @@ export class StorageService {
     );
   }
 
-  async signedGetUrl(key: string, expiresInSeconds = 300): Promise<string> {
+  async getObject(key: string): Promise<Buffer> {
     const env = loadEnv();
-    const command = new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key });
+    const response = await this.client().send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    const chunks: Buffer[] = [];
+    // AWS SDK v3's Body is a Node Readable in this runtime (not a browser ReadableStream/Blob) — the SDK
+    // types it as a union across environments, but this app only ever runs under Node.
+    for await (const chunk of response.Body as AsyncIterable<Buffer>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  async signedGetUrl(key: string, expiresInSeconds = 300, downloadFilename?: string): Promise<string> {
+    const env = loadEnv();
+    const command = new GetObjectCommand({
+      Bucket: env.S3_BUCKET,
+      Key: key,
+      ...(downloadFilename ? { ResponseContentDisposition: `attachment; filename="${downloadFilename.replace(/"/g, "")}"` } : {}),
+    });
     return getSignedUrl(this.client(), command, { expiresIn: expiresInSeconds });
   }
 

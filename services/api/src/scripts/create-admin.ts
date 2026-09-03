@@ -5,6 +5,7 @@
  *
  * Usage: pnpm --filter @veynlo/api run create-admin -- --email you@veynlo.app --name "Your Name" --role superadmin
  */
+import "../config/load-env-file"; // must be the first import — see its own doc comment for why
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
 import { generateId } from "@veynlo/core";
@@ -24,7 +25,8 @@ function parseArgs(): { email: string; name: string; role: "support" | "superadm
     process.exit(1);
   }
   const role = get("--role") === "superadmin" ? "superadmin" : "support";
-  return { email, name: get("--name") ?? email.split("@")[0] ?? "Admin", role };
+  const normalizedEmail = email.trim().toLowerCase();
+  return { email: normalizedEmail, name: get("--name") ?? normalizedEmail.split("@")[0] ?? "Admin", role };
 }
 
 async function main() {

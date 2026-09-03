@@ -10,6 +10,10 @@ export interface GraphMessage {
   bodyPreview?: string | null;
   body?: { contentType?: "text" | "html" | null; content?: string | null } | null;
   internetMessageHeaders?: Array<{ name?: string | null; value?: string | null }> | null;
+  // MAIL-004 "Attachment intelligence" — unlike Gmail's payload.parts, a Graph message resource never
+  // inlines its attachments; `hasAttachments` is just the cheap flag telling OutlookAdapter whether the
+  // separate `/messages/{id}/attachments` call (which does return the actual bytes) is worth making at all.
+  hasAttachments?: boolean | null;
 }
 
 export function parseOutlookMessage(message: GraphMessage): ParsedEmail {

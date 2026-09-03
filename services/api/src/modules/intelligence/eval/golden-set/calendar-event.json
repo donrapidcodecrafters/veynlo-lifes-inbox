@@ -1,0 +1,72 @@
+[
+  {
+    "id": "calendar_001_timed_appointment",
+    "subject": "Appointment confirmed: Bright Smiles Dental",
+    "body": "Bright Smiles Dental Group\n\nYour appointment is confirmed:\n\nDate: Tuesday, April 14, 2026\nTime: 2:30 PM (Central Time)\nLocation: 900 Maple Ave, Suite 200, Springdale\n\nPlease arrive 10 minutes early to complete paperwork.",
+    "expected": {
+      "title": "Dentist appointment",
+      "startDate": { "iso_date": "2026-04-14", "approximate_text": null },
+      "startTime": "14:30",
+      "timezone": "America/Chicago",
+      "location": "900 Maple Ave, Suite 200, Springdale",
+      "isAllDay": false
+    }
+  },
+  {
+    "id": "calendar_002_all_day_reservation",
+    "subject": "Your reservation at The Hollow Pines Cabin",
+    "body": "The Hollow Pines Cabin — Booking Confirmed\n\nCheck-in: May 20, 2026\nCheck-out: May 23, 2026\n\nAddress: 12 Pinehollow Trail, Millbrook\n\nWe look forward to hosting you!",
+    "expected": {
+      "title": "The Hollow Pines Cabin reservation",
+      "startDate": { "iso_date": "2026-05-20", "approximate_text": null },
+      "location": "12 Pinehollow Trail, Millbrook",
+      "isAllDay": true
+    }
+  },
+  {
+    "id": "calendar_003_no_specific_time",
+    "subject": "Save the date — Aunt Rosa's retirement party",
+    "body": "You're invited!\n\nJoin us to celebrate Aunt Rosa's retirement.\n\nDate: Saturday, June 6, 2026\nWhere: Lakeside Community Hall, 4 Shoreline Dr.\n\nExact time TBD — a follow-up invite with the schedule will come later. Please save the date for now!",
+    "expected": {
+      "title": "Aunt Rosa's retirement party",
+      "startDate": { "iso_date": "2026-06-06", "approximate_text": null },
+      "startTime": null,
+      "location": "Lakeside Community Hall, 4 Shoreline Dr.",
+      "isAllDay": true
+    }
+  },
+  {
+    "id": "calendar_004_flight_milestone",
+    "subject": "Check-in now open — Flight AV2201",
+    "body": "Avion Airlines — Online Check-In\n\nFlight AV2201\nDeparture: July 9, 2026 at 6:45 AM (Eastern Time)\nFrom: JFK Terminal 4\n\nCheck in now to select your seat.",
+    "expected": {
+      "title": "Flight AV2201",
+      "startDate": { "iso_date": "2026-07-09", "approximate_text": null },
+      "startTime": "06:45",
+      "timezone": "America/New_York",
+      "location": "JFK Terminal 4",
+      "isAllDay": false
+    }
+  },
+  {
+    "id": "calendar_005_approximate_date",
+    "subject": "Re: catching up",
+    "body": "Hey — still on for getting together sometime early next month at the usual coffee place? Nothing locked in yet, just checking if that timeframe still works for you before I book anything.",
+    "expected": {
+      "startDate": { "iso_date": null, "approximate_text": "early next month" }
+    }
+  },
+  {
+    "id": "calendar_006_evening_event_with_timezone",
+    "subject": "Your tickets: Riverside Jazz Night",
+    "body": "Riverside Jazz Night — E-Ticket Confirmation\n\nEvent date: August 22, 2026\nDoors open: 7:00 PM (Pacific Time)\nVenue: The Blue Note Room, 300 Harbor St, Seaview\n\nBring this email or your printed ticket for entry.",
+    "expected": {
+      "title": "Riverside Jazz Night",
+      "startDate": { "iso_date": "2026-08-22", "approximate_text": null },
+      "startTime": "19:00",
+      "timezone": "America/Los_Angeles",
+      "location": "The Blue Note Room, 300 Harbor St, Seaview",
+      "isAllDay": false
+    }
+  }
+]

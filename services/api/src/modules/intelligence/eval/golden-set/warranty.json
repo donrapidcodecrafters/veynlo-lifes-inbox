@@ -1,0 +1,65 @@
+[
+  {
+    "id": "warranty_001_registration_confirmed_with_length",
+    "subject": "Warranty registration confirmed — Arclight Blender Pro",
+    "body": "Arclight Home Appliances\n\nThank you for registering your product!\n\nProduct: Arclight Blender Pro 900\nWarranty: 2 years from date of purchase\nRegistration confirmed on: March 10, 2026\nYour warranty expires: March 10, 2028\n\nKeep this email for your records.",
+    "expected": {
+      "productLabel": "Arclight Blender Pro 900",
+      "warrantyLengthMonths": 24,
+      "warrantyExpirationDate": { "iso_date": "2028-03-10", "approximate_text": null },
+      "registrationConfirmed": true
+    }
+  },
+  {
+    "id": "warranty_002_extended_warranty_purchase",
+    "subject": "Your extended warranty is active — TitanTech 65\" TV",
+    "body": "SecureCare Protection Plans\n\nYour extended warranty purchase is confirmed.\n\nCovered product: TitanTech 65\" 4K TV\nCoverage length: 3 years\nCoverage begins: April 1, 2026\nCoverage ends: April 1, 2029\n\nThis extends beyond the manufacturer's original 1-year warranty.",
+    "expected": {
+      "productLabel": "TitanTech 65\" 4K TV",
+      "warrantyLengthMonths": 36,
+      "warrantyExpirationDate": { "iso_date": "2029-04-01", "approximate_text": null }
+    }
+  },
+  {
+    "id": "warranty_003_no_registration_only_reminder",
+    "subject": "Don't forget to register your Everstrong Cookware Set",
+    "body": "Everstrong Cookware\n\nWe noticed you haven't registered your recent purchase yet.\n\nProduct: Everstrong 10-Piece Cookware Set\nStandard warranty: 5 years from purchase (registration not required to activate, but recommended for faster claims)\n\nRegister now to make future claims easier.",
+    "expected": {
+      "productLabel": "Everstrong 10-Piece Cookware Set",
+      "warrantyLengthMonths": 60,
+      "registrationConfirmed": null
+    }
+  },
+  {
+    "id": "warranty_004_appliance_no_explicit_length",
+    "subject": "Your Meridian Dishwasher purchase — warranty info",
+    "body": "Meridian Appliances\n\nThank you for your purchase of a Meridian QuietWash Dishwasher.\n\nYour product is covered under our manufacturer's warranty. Full terms are available at meridianappliances.example/warranty. No specific expiration date was included in this notice — refer to your product manual for full details.",
+    "expected": {
+      "productLabel": "Meridian QuietWash Dishwasher",
+      "warrantyLengthMonths": null,
+      "warrantyExpirationDate": null
+    }
+  },
+  {
+    "id": "warranty_005_electronics_one_year",
+    "subject": "AudioNova Headphones — Warranty Confirmation",
+    "body": "AudioNova\n\nYour AudioNova Wireless Headphones (Model AN-220) purchase includes a 1-year limited warranty.\n\nPurchase date: May 22, 2026\nWarranty expires: May 22, 2027\n\nNo product registration is required — your receipt serves as proof of purchase for warranty claims.",
+    "expected": {
+      "productLabel": "AudioNova Wireless Headphones (Model AN-220)",
+      "warrantyLengthMonths": 12,
+      "warrantyExpirationDate": { "iso_date": "2027-05-22", "approximate_text": null },
+      "registrationConfirmed": null
+    }
+  },
+  {
+    "id": "warranty_006_registration_declined_unclear",
+    "subject": "Complete your Solstice Grill warranty registration",
+    "body": "Solstice Outdoor Living\n\nWe see you started registering your Solstice 4-Burner Gas Grill but didn't finish.\n\nStandard warranty: 3 years on the burners, from date of purchase (June 6, 2026), expiring June 6, 2029.\n\nComplete your registration at solsticegrills.example/register to unlock extended customer support.",
+    "expected": {
+      "productLabel": "Solstice 4-Burner Gas Grill",
+      "warrantyLengthMonths": 36,
+      "warrantyExpirationDate": { "iso_date": "2029-06-06", "approximate_text": null },
+      "registrationConfirmed": false
+    }
+  }
+]

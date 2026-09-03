@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import type { UpdateNotificationPreferencesDto } from "./dto";
 
 @Injectable()
 export class NotificationsService {
@@ -28,23 +29,17 @@ export class NotificationsService {
         intensity: "balanced",
         quietHoursStart: null,
         quietHoursEnd: null,
+        criticalOverridesQuietHours: true,
         categoryOverrides: {},
         dailyBriefEnabled: true,
         weeklyBriefEnabled: true,
+        sensitivePreviewsEnabled: true,
+        monthlySpendCapMinorUnits: null,
       }
     );
   }
 
-  async updatePreferences(
-    userId: string,
-    patch: Partial<{
-      intensity: string;
-      quietHoursStart: string | null;
-      quietHoursEnd: string | null;
-      dailyBriefEnabled: boolean;
-      weeklyBriefEnabled: boolean;
-    }>,
-  ) {
+  async updatePreferences(userId: string, patch: UpdateNotificationPreferencesDto) {
     const existing = await this.getPreferences(userId);
     const merged = { ...existing, ...patch, userId };
     await this.db

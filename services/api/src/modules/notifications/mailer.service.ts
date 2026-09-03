@@ -1,6 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import nodemailer, { type Transporter } from "nodemailer";
 import { loadEnv } from "../../config/env";
+import { maskEmail } from "../../common/safe-error-log";
+import type { EmailProvider } from "./notification-provider.interface";
 
 /**
  * Real SMTP delivery — in local dev this targets the Mailhog container
@@ -9,7 +11,7 @@ import { loadEnv } from "../../config/env";
  * SMTP_HOST/PORT/USER/PASSWORD at a real provider for staging/production.
  */
 @Injectable()
-export class MailerService {
+export class MailerService implements EmailProvider {
   private readonly logger = new Logger(MailerService.name);
   private transporter: Transporter | null = null;
 
@@ -37,7 +39,11 @@ export class MailerService {
         html: params.html,
       });
     } catch (err) {
-      this.logger.error(`Failed to send email to ${params.to}: ${String(err)}`);
+      // §28 "No raw user emails ... in normal application logs" — every caller already has its own
+      // durable/loggable identifier (userId, notificationId, membershipId) for its own log line; this
+      // shared low-level sender doesn't, so it masks the address down to first-char+domain (enough to spot
+      // a systemic delivery problem for one domain/provider without publishing the full address).
+      this.logger.error(`Failed to send email to ${maskEmail(params.to)}: ${String(err)}`);
       throw err; // let BullMQ's retry/backoff handle transient SMTP failures
     }
   }

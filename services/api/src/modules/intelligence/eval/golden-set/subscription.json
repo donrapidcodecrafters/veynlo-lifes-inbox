@@ -1,0 +1,84 @@
+[
+  {
+    "id": "subscription_001_monthly_renewal",
+    "subject": "Your StreamVerse subscription has renewed",
+    "body": "StreamVerse\n\nYour monthly subscription has renewed.\n\nPlan: StreamVerse Standard\nAmount charged: $15.99\nNext billing date: April 18, 2026\n\nThanks for being a subscriber! Manage or cancel your plan anytime at streamverse.example/account/cancel.",
+    "expected": {
+      "serviceLabel": "StreamVerse Standard",
+      "merchantName": "StreamVerse",
+      "cadence": "monthly",
+      "amountMinorUnits": 1599,
+      "currency": "USD",
+      "nextBillingDate": { "iso_date": "2026-04-18", "approximate_text": null },
+      "isTrial": false,
+      "cancellationInstructionsUrl": "streamverse.example/account/cancel"
+    }
+  },
+  {
+    "id": "subscription_002_free_trial_started",
+    "subject": "Welcome to your PixelForge Pro free trial",
+    "body": "PixelForge Pro\n\nYour 14-day free trial has started today, May 1, 2026.\n\nYour trial ends on May 15, 2026. After that, you'll be automatically charged $24.00/month unless you cancel before the trial ends.\n\nManage your subscription anytime in account settings.",
+    "expected": {
+      "serviceLabel": "PixelForge Pro",
+      "amountMinorUnits": 2400,
+      "currency": "USD",
+      "cadence": "monthly",
+      "isTrial": true,
+      "trialEndsDate": { "iso_date": "2026-05-15", "approximate_text": null }
+    }
+  },
+  {
+    "id": "subscription_003_annual_plan",
+    "subject": "Payment received — WordCraft Premium",
+    "body": "WordCraft Premium\n\nThank you for your annual subscription payment.\n\nAmount: $89.00\nBilling cycle: Annual\nYour next renewal: June 3, 2027\n\nYou can review your invoice in your WordCraft account.",
+    "expected": {
+      "serviceLabel": "WordCraft Premium",
+      "cadence": "annual",
+      "amountMinorUnits": 8900,
+      "currency": "USD",
+      "nextBillingDate": { "iso_date": "2027-06-03", "approximate_text": null },
+      "isTrial": false
+    }
+  },
+  {
+    "id": "subscription_004_price_increase_notice",
+    "subject": "An update about your MelodyBox subscription",
+    "body": "MelodyBox\n\nStarting with your next billing cycle on July 1, 2026, your MelodyBox Family plan price will change from $16.99/month to $18.99/month.\n\nNo action is needed if you'd like to keep your subscription. To cancel, visit melodybox.example/settings/cancel before your renewal date.",
+    "expected": {
+      "serviceLabel": "MelodyBox Family",
+      "merchantName": "MelodyBox",
+      "cadence": "monthly",
+      "amountMinorUnits": 1899,
+      "currency": "USD",
+      "nextBillingDate": { "iso_date": "2026-07-01", "approximate_text": null },
+      "isTrial": false,
+      "cancellationInstructionsUrl": "melodybox.example/settings/cancel"
+    }
+  },
+  {
+    "id": "subscription_005_quarterly_box",
+    "subject": "Your GourmetCrate box is on its way!",
+    "body": "GourmetCrate\n\nYour quarterly GourmetCrate subscription box has shipped for this cycle.\n\nAmount charged: $64.50\nNext charge: October 5, 2026 (quarterly billing)\n\nQuestions about your subscription? Visit your account page.",
+    "expected": {
+      "serviceLabel": "GourmetCrate",
+      "cadence": "quarterly",
+      "amountMinorUnits": 6450,
+      "currency": "USD",
+      "nextBillingDate": { "iso_date": "2026-10-05", "approximate_text": null },
+      "isTrial": false
+    }
+  },
+  {
+    "id": "subscription_006_trial_ending_soon",
+    "subject": "Your FitTrack Plus trial ends tomorrow",
+    "body": "FitTrack Plus\n\nJust a reminder — your free trial ends tomorrow, August 9, 2026. If you'd like to continue, you'll be charged $9.99/month starting August 9, 2026. No action is needed to continue; cancel anytime before then to avoid charges.",
+    "expected": {
+      "serviceLabel": "FitTrack Plus",
+      "amountMinorUnits": 999,
+      "currency": "USD",
+      "cadence": "monthly",
+      "isTrial": true,
+      "trialEndsDate": { "iso_date": "2026-08-09", "approximate_text": null }
+    }
+  }
+]

@@ -1,5 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { google } from "googleapis";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { google, type gmail_v1 } from "googleapis";
 import { eq } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -8,10 +8,20 @@ import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
-import { QueueProducerService } from "../../queue/queue-producer.service";
+import { EntitlementsService } from "../entitlements/entitlements.service";
+import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
 import { ConnectorNotConfiguredError } from "./connector-errors";
+import type { OAuthConnectorAdapter } from "./connector.interface";
+import { extractGmailAttachmentMeta, type EmailAttachmentInput } from "../ingestion/gmail-message-parser";
+import { completeBackfillRun, failBackfillRun, findOrCreateBackfillRun, recordBackfillPageProgress } from "./sync-run.util";
 
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
+
+// MAIL-004 "Attachment intelligence" — bounds how much an initial/incremental sync will fetch per
+// attachment before handing it to DocumentsService.upload, which has its own, slightly larger 25MB cap
+// (documents.service.ts's MAX_UPLOAD_BYTES) — checked here first purely to avoid pulling a huge base64
+// blob across the Gmail API at all for something that would just be rejected on upload anyway.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 /**
  * Direct-API connector for Gmail (§12.1, feasibility class A). Every method
@@ -22,12 +32,15 @@ const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
  * pretending to work.
  */
 @Injectable()
-export class GmailAdapter {
+export class GmailAdapter implements OAuthConnectorAdapter {
+  private readonly logger = new Logger(GmailAdapter.name);
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
-    private readonly vault: CredentialVault,
-    private readonly ingestion: IngestionService,
-    private readonly queue: QueueProducerService,
+    @Inject(CredentialVault) private readonly vault: CredentialVault,
+    @Inject(IngestionService) private readonly ingestion: IngestionService,
+    @Inject(QUEUE_PRODUCER) private readonly queue: QueueProducer,
+    @Inject(EntitlementsService) private readonly entitlements: EntitlementsService,
   ) {}
 
   private oauthClient(redirectUri: string) {
@@ -57,6 +70,11 @@ export class GmailAdapter {
     redirectUri: string;
     ownerUserId: string;
     householdId: string | null;
+    // ONB-002 — the historical-depth choice made on the onboarding (or Connections page) UI before this
+    // OAuth round trip started, carried through the signed `state` param (see connectors.controller.ts's
+    // signConnectState). Omitted entirely outside onboarding, in which case this behaves exactly as
+    // before: the plan's full allowance.
+    requestedHistoryDepthDays?: number;
   }): Promise<{ connectionId: string }> {
     if (!this.isConfigured()) {
       throw new ConnectorNotConfiguredError("gmail");
@@ -65,6 +83,7 @@ export class GmailAdapter {
     const { tokens } = await client.getToken(params.code);
 
     const connectionId = generateId("connection");
+    const historyDepthDays = await this.entitlements.resolveHistoricalBackfillDays(params.ownerUserId, params.requestedHistoryDepthDays);
     await this.db.insert(schema.connections).values({
       id: connectionId,
       ownerUserId: params.ownerUserId,
@@ -74,7 +93,7 @@ export class GmailAdapter {
       scopes: GMAIL_SCOPES,
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
       health: "initializing",
-      historyDepthDays: 90,
+      historyDepthDays,
     });
     const credentialRef = await this.vault.store(
       connectionId,
@@ -104,28 +123,48 @@ export class GmailAdapter {
     const afterDate = new Date(Date.now() - (connection.historyDepthDays ?? 90) * 86_400_000);
     const query = `after:${Math.floor(afterDate.getTime() / 1000)}`;
 
-    let itemCount = 0;
-    let pageToken: string | undefined;
-    do {
-      const list = await gmail.users.messages.list({ userId: "me", q: query, pageToken, maxResults: 50 });
-      for (const message of list.data.messages ?? []) {
-        if (!message.id) continue;
-        const full = await gmail.users.messages.get({ userId: "me", id: message.id, format: "full" });
-        await this.ingestion.ingestGmailMessage({
-          ownerUserId: connection.ownerUserId,
-          householdId: connection.householdId,
-          connectionId,
-          message: full.data,
-        });
-        itemCount += 1;
-      }
-      pageToken = list.data.nextPageToken ?? undefined;
-    } while (pageToken);
+    // §42.5 "chunked, resumable... user-visible progress" — resumes a prior interrupted attempt (a BullMQ
+    // retry after a crash/process restart mid-backfill) from its last completed page's checkpoint instead
+    // of restarting from page 1. See sync-run.util.ts's own doc comment for the full rationale.
+    const run = await findOrCreateBackfillRun(this.db, connectionId);
+    let itemCount = run.itemsProcessed;
+    let pageToken: string | undefined = run.checkpoint;
+
+    try {
+      do {
+        const list = await gmail.users.messages.list({ userId: "me", q: query, pageToken, maxResults: 50 });
+        for (const message of list.data.messages ?? []) {
+          if (!message.id) continue;
+          const full = await gmail.users.messages.get({ userId: "me", id: message.id, format: "full" });
+          await this.ingestion.ingestGmailMessage({
+            ownerUserId: connection.ownerUserId,
+            householdId: connection.householdId,
+            connectionId,
+            message: full.data,
+            attachments: await this.fetchAttachments(gmail, message.id, full.data),
+            // §47.4 — this whole method is the historical-backfill sync (queued as `kind: "initial"` from
+            // handleCallback above); incrementalSync below never sets this.
+            isBackfill: true,
+          });
+          itemCount += 1;
+        }
+        pageToken = list.data.nextPageToken ?? undefined;
+
+        // Persisted after EVERY page, not just at the end — the actual fix for §42.5's resumability
+        // requirement (previously this only ever ran once, after the `do...while` loop finished entirely).
+        await recordBackfillPageProgress(this.db, run, connectionId, itemCount, pageToken);
+        run.pagesCompleted += 1;
+      } while (pageToken);
+    } catch (err) {
+      await failBackfillRun(this.db, run.id, err);
+      throw err;
+    }
 
     // Gmail's history.list API (used by incrementalSync below) needs a starting point — the mailbox's
     // historyId as of right after this backfill, so nothing since is missed and nothing before is redone.
     const profile = await gmail.users.getProfile({ userId: "me" });
 
+    await completeBackfillRun(this.db, run.id);
     await this.db
       .update(schema.connections)
       .set({
@@ -187,6 +226,7 @@ export class GmailAdapter {
               householdId: connection.householdId,
               connectionId,
               message: full.data,
+              attachments: await this.fetchAttachments(gmail, messageId, full.data),
             });
             itemCount += 1;
           }
@@ -216,6 +256,38 @@ export class GmailAdapter {
       .where(eq(schema.connections.id, connectionId));
 
     return { itemCount };
+  }
+
+  /**
+   * MAIL-004 "Attachment intelligence" — "Attachments inherit message provenance and are scanned before
+   * OCR/extraction." Gmail's "full" format message already carries attachment METADATA (filename/mimeType/
+   * a handle) inline, but the actual bytes need one `messages.attachments.get` call per part — done here,
+   * right after the message itself is fetched, so both adapters (this one and OutlookAdapter) hand
+   * IngestionService the same pre-fetched-bytes shape regardless of how differently each provider's API
+   * exposes attachments. Best-effort per attachment: one broken/oversized attachment never fails the whole
+   * message's ingestion — see the per-attachment try/catch below and IngestionService.processEmailAttachments'
+   * own identical stance for the malware-scan/OCR/upload side of this same pipeline.
+   */
+  private async fetchAttachments(
+    gmail: ReturnType<typeof google.gmail>,
+    messageId: string,
+    message: gmail_v1.Schema$Message,
+  ): Promise<EmailAttachmentInput[]> {
+    const meta = extractGmailAttachmentMeta(message);
+    const attachments: EmailAttachmentInput[] = [];
+    for (const part of meta) {
+      if (part.sizeEstimate > MAX_ATTACHMENT_BYTES) continue;
+      try {
+        const att = await gmail.users.messages.attachments.get({ userId: "me", messageId, id: part.attachmentId });
+        if (!att.data.data) continue;
+        const buffer = Buffer.from(att.data.data, "base64url");
+        if (buffer.length > MAX_ATTACHMENT_BYTES) continue;
+        attachments.push({ filename: part.filename, mimeType: part.mimeType, buffer });
+      } catch (err) {
+        this.logger.warn(`Failed to fetch Gmail attachment ${part.attachmentId} on message ${messageId}: ${String(err)}`);
+      }
+    }
+    return attachments;
   }
 }
 

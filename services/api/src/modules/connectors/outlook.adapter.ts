@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -7,15 +7,36 @@ import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured } from "../../config/env";
 import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
+import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { GraphMessage } from "../ingestion/outlook-message-parser";
-import { QueueProducerService } from "../../queue/queue-producer.service";
+import type { EmailAttachmentInput } from "../ingestion/gmail-message-parser";
+import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
 import { ConnectorNotConfiguredError } from "./connector-errors";
+import type { OAuthConnectorAdapter } from "./connector.interface";
+import { oauthTokenRequestError } from "./connection-health.util";
+import { completeBackfillRun, failBackfillRun, findOrCreateBackfillRun, recordBackfillPageProgress } from "./sync-run.util";
 
 const AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const OUTLOOK_SCOPES = ["offline_access", "Mail.Read"];
-const MESSAGE_SELECT = "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,internetMessageHeaders";
+const MESSAGE_SELECT = "id,subject,from,toRecipients,receivedDateTime,bodyPreview,body,internetMessageHeaders,hasAttachments";
+// Same reasoning/value as GmailAdapter's identical constant — see that file's own doc comment.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** The subset of a Microsoft Graph `fileAttachment` resource this adapter reads — Graph's
+ * `/messages/{id}/attachments` list response inlines `contentBytes` (base64) directly for file attachments,
+ * unlike Gmail, which needs a second per-part API call (see GmailAdapter.fetchAttachments). A
+ * `#microsoft.graph.itemAttachment` (a forwarded Outlook item, not a file) has no `contentBytes` at all and
+ * is filtered out below. */
+interface GraphAttachment {
+  "@odata.type"?: string;
+  name?: string | null;
+  contentType?: string | null;
+  contentBytes?: string | null;
+  isInline?: boolean | null;
+  size?: number | null;
+}
 
 interface OutlookCredentials {
   access_token: string;
@@ -32,12 +53,15 @@ interface OutlookCredentials {
  * `connection.provider` without special-casing.
  */
 @Injectable()
-export class OutlookAdapter {
+export class OutlookAdapter implements OAuthConnectorAdapter {
+  private readonly logger = new Logger(OutlookAdapter.name);
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
-    private readonly vault: CredentialVault,
-    private readonly ingestion: IngestionService,
-    private readonly queue: QueueProducerService,
+    @Inject(CredentialVault) private readonly vault: CredentialVault,
+    @Inject(IngestionService) private readonly ingestion: IngestionService,
+    @Inject(QUEUE_PRODUCER) private readonly queue: QueueProducer,
+    @Inject(EntitlementsService) private readonly entitlements: EntitlementsService,
   ) {}
 
   isConfigured(): boolean {
@@ -62,12 +86,16 @@ export class OutlookAdapter {
     redirectUri: string;
     ownerUserId: string;
     householdId: string | null;
+    // ONB-002 — see GmailAdapter.handleCallback's identical parameter for why this travels through the
+    // signed OAuth `state` rather than being read directly off the callback's own query string.
+    requestedHistoryDepthDays?: number;
   }): Promise<{ connectionId: string }> {
     if (!this.isConfigured()) throw new ConnectorNotConfiguredError("outlook");
 
     const tokens = await this.exchangeCode(params.code, params.redirectUri);
 
     const connectionId = generateId("connection");
+    const historyDepthDays = await this.entitlements.resolveHistoricalBackfillDays(params.ownerUserId, params.requestedHistoryDepthDays);
     await this.db.insert(schema.connections).values({
       id: connectionId,
       ownerUserId: params.ownerUserId,
@@ -77,7 +105,7 @@ export class OutlookAdapter {
       scopes: OUTLOOK_SCOPES,
       enabledCategories: ["purchases", "deliveries", "bills", "subscriptions", "appointments", "documents"],
       health: "initializing",
-      historyDepthDays: 90,
+      historyDepthDays,
     });
     const credentialRef = await this.vault.store(
       connectionId,
@@ -99,27 +127,46 @@ export class OutlookAdapter {
 
     const afterDate = new Date(Date.now() - (connection.historyDepthDays ?? 90) * 86_400_000);
     const filter = `receivedDateTime ge ${afterDate.toISOString()}`;
-    let url = `${GRAPH_BASE}/me/messages?$select=${MESSAGE_SELECT}&$filter=${encodeURIComponent(filter)}&$top=50&$orderby=receivedDateTime desc`;
 
-    let itemCount = 0;
-    do {
-      const page = await this.graphGet<{ value: GraphMessage[]; "@odata.nextLink"?: string }>(connection, url);
-      for (const message of page.value) {
-        await this.ingestion.ingestOutlookMessage({
-          ownerUserId: connection.ownerUserId,
-          householdId: connection.householdId,
-          connectionId,
-          message,
-        });
-        itemCount += 1;
-      }
-      url = page["@odata.nextLink"] ?? "";
-    } while (url);
+    // §42.5 "chunked, resumable... user-visible progress" — see GmailAdapter.initialSync's identical
+    // wiring / sync-run.util.ts's own doc comment for the full rationale. `run.checkpoint` (a full
+    // `@odata.nextLink` URL) resumes a prior interrupted attempt from exactly where it left off instead of
+    // restarting the whole date-filtered backfill from page 1.
+    const run = await findOrCreateBackfillRun(this.db, connectionId);
+    let url = run.checkpoint ?? `${GRAPH_BASE}/me/messages?$select=${MESSAGE_SELECT}&$filter=${encodeURIComponent(filter)}&$top=50&$orderby=receivedDateTime desc`;
+    let itemCount = run.itemsProcessed;
+
+    try {
+      do {
+        const page = await this.graphGet<{ value: GraphMessage[]; "@odata.nextLink"?: string }>(connection, url);
+        for (const message of page.value) {
+          await this.ingestion.ingestOutlookMessage({
+            ownerUserId: connection.ownerUserId,
+            householdId: connection.householdId,
+            connectionId,
+            message,
+            attachments: await this.fetchAttachments(connection, message),
+            // §47.4 — this whole method is the historical-backfill sync; incrementalSync below never sets this.
+            isBackfill: true,
+          });
+          itemCount += 1;
+        }
+        url = page["@odata.nextLink"] ?? "";
+
+        // Persisted after EVERY page, not just at the end — see GmailAdapter.initialSync's identical fix.
+        await recordBackfillPageProgress(this.db, run, connectionId, itemCount, url || undefined);
+        run.pagesCompleted += 1;
+      } while (url);
+    } catch (err) {
+      await failBackfillRun(this.db, run.id, err);
+      throw err;
+    }
 
     // Microsoft Graph's delta query (used by incrementalSync below) needs its own starting deltaLink —
     // requesting one now establishes the cursor for everything that changes after this backfill.
     const deltaLink = await this.fetchInitialDeltaLink(connection);
 
+    await completeBackfillRun(this.db, run.id);
     await this.db
       .update(schema.connections)
       .set({
@@ -165,6 +212,7 @@ export class OutlookAdapter {
             householdId: connection.householdId,
             connectionId,
             message,
+            attachments: await this.fetchAttachments(connection, message),
           });
           itemCount += 1;
         }
@@ -239,7 +287,7 @@ export class OutlookAdapter {
       body,
     });
     if (!response.ok) {
-      throw new Error(`Microsoft token request failed: ${response.status} ${await response.text()}`);
+      throw oauthTokenRequestError("Microsoft", response.status, await response.text());
     }
     const json = (await response.json()) as { access_token: string; refresh_token?: string; expires_in: number };
     return {
@@ -278,5 +326,37 @@ export class OutlookAdapter {
       throw err;
     }
     return response.json() as Promise<T>;
+  }
+
+  /**
+   * MAIL-004 "Attachment intelligence" — mirrors GmailAdapter.fetchAttachments' role and contract exactly
+   * (see that method's doc comment), just against Graph's very different attachment shape: `hasAttachments`
+   * is the cheap skip-check, and `/messages/{id}/attachments` inlines base64 `contentBytes` for every
+   * `fileAttachment` directly in the list response — no second per-attachment fetch needed the way Gmail
+   * requires. Inline attachments (`isInline: true`, e.g. an image referenced by a `cid:` in the HTML body)
+   * and non-file attachments (forwarded Outlook items) are both skipped — neither is "an attachment" in the
+   * sense MAIL-004 means (an evidence-bearing PDF/image sent alongside the message).
+   */
+  private async fetchAttachments(connection: { credentialRef: string | null }, message: GraphMessage): Promise<EmailAttachmentInput[]> {
+    if (!message.hasAttachments || !message.id) return [];
+    try {
+      const response = await this.graphGet<{ value: GraphAttachment[] }>(
+        connection,
+        `${GRAPH_BASE}/me/messages/${message.id}/attachments?$select=name,contentType,contentBytes,isInline,size`,
+      );
+      const attachments: EmailAttachmentInput[] = [];
+      for (const att of response.value) {
+        if (att.isInline || !att.contentBytes) continue;
+        if (att["@odata.type"] && att["@odata.type"] !== "#microsoft.graph.fileAttachment") continue;
+        if ((att.size ?? 0) > MAX_ATTACHMENT_BYTES) continue;
+        const buffer = Buffer.from(att.contentBytes, "base64");
+        if (buffer.length > MAX_ATTACHMENT_BYTES) continue;
+        attachments.push({ filename: att.name ?? "attachment", mimeType: att.contentType ?? "application/octet-stream", buffer });
+      }
+      return attachments;
+    } catch (err) {
+      this.logger.warn(`Failed to fetch Outlook attachments for message ${message.id}: ${String(err)}`);
+      return [];
+    }
   }
 }

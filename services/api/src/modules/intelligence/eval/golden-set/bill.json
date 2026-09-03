@@ -1,0 +1,83 @@
+[
+  {
+    "id": "bill_001_utility_autopay",
+    "subject": "Your Cascade Electric bill is ready",
+    "body": "Cascade Electric Cooperative\n\nAccount: 8842-011\nBilling period: April 2026\n\nAmount due: $142.37\nDue date: May 15, 2026\n\nGood news — you're enrolled in AutoPay, so this amount will be automatically withdrawn from your account on file on the due date. No action needed.\n\nView your full bill online at cascadeelectric.example/account.",
+    "expected": {
+      "billerName": "Cascade Electric Cooperative",
+      "amountDueMinorUnits": 14237,
+      "currency": "USD",
+      "dueDate": { "iso_date": "2026-05-15", "approximate_text": null },
+      "autopayMentioned": true,
+      "accountLabel": "8842-011",
+      "equipmentReturnDeadline": null
+    }
+  },
+  {
+    "id": "bill_002_internet_no_autopay",
+    "subject": "BrightWave Internet — Statement available",
+    "body": "BrightWave Internet\nAccount #: BW-556231\n\nYour statement for the billing period ending June 1, 2026 is ready.\n\nTotal amount due: $79.99\nPayment due by: June 20, 2026\n\nYou are not currently enrolled in automatic payments. Pay online, by phone, or by mail before the due date to avoid a late fee.",
+    "expected": {
+      "billerName": "BrightWave Internet",
+      "amountDueMinorUnits": 7999,
+      "currency": "USD",
+      "dueDate": { "iso_date": "2026-06-20", "approximate_text": null },
+      "autopayMentioned": false,
+      "accountLabel": "BW-556231",
+      "equipmentReturnDeadline": null
+    }
+  },
+  {
+    "id": "bill_003_cable_equipment_return",
+    "subject": "Your final bill from Summit Cable & Home",
+    "body": "Summit Cable & Home — Final Statement\n\nAccount: SC-702214\n\nSince you cancelled service on May 1, 2026, this is your final bill.\n\nFinal amount due: $34.50\nDue date: May 25, 2026\n\nEquipment return required: Please return your cable modem and remote within 21 days of cancellation (by May 22, 2026) to the nearest Summit Cable & Home store, or a $150 unreturned-equipment fee will be charged. Bring the equipment and this statement to any retail location.",
+    "expected": {
+      "billerName": "Summit Cable & Home",
+      "amountDueMinorUnits": 3450,
+      "currency": "USD",
+      "dueDate": { "iso_date": "2026-05-25", "approximate_text": null },
+      "accountLabel": "SC-702214",
+      "equipmentReturnDeadline": { "iso_date": "2026-05-22", "approximate_text": null }
+    }
+  },
+  {
+    "id": "bill_004_water_sewer_no_equipment",
+    "subject": "City of Elmridge Utilities — bill notice",
+    "body": "City of Elmridge Water & Sewer Utility\n\nAccount: 4471-9\n\nBill amount: $58.20\nDue: 2026-07-10\n\nThis bill covers water and sewer service for your address on file. Thank you for being a City of Elmridge Utilities customer.\n\nNote: if you recently switched providers, please remember to schedule a final meter reading.",
+    "expected": {
+      "billerName": "City of Elmridge Water & Sewer Utility",
+      "amountDueMinorUnits": 5820,
+      "currency": "USD",
+      "dueDate": { "iso_date": "2026-07-10", "approximate_text": null },
+      "accountLabel": "4471-9",
+      "equipmentReturnDeadline": null,
+      "equipmentReturnInstructions": null
+    }
+  },
+  {
+    "id": "bill_005_mobile_carrier_autopay_true",
+    "subject": "Your Vantage Mobile bill for July",
+    "body": "Vantage Mobile\nAccount ending in 3390\n\nAmount due: $95.00\nDue date: July 28, 2026\n\nYour AutoPay is active — we'll charge your card on file automatically on the due date. No further action needed unless you'd like to make changes to your plan.",
+    "expected": {
+      "billerName": "Vantage Mobile",
+      "amountDueMinorUnits": 9500,
+      "currency": "USD",
+      "dueDate": { "iso_date": "2026-07-28", "approximate_text": null },
+      "autopayMentioned": true,
+      "equipmentReturnDeadline": null
+    }
+  },
+  {
+    "id": "bill_006_security_system_router_return",
+    "subject": "GuardianHome Security — Cancellation confirmation and final bill",
+    "body": "GuardianHome Security\nAccount: GH-88213\n\nYour service has been cancelled effective June 30, 2026.\n\nFinal amount due: $22.10\nDue date: July 15, 2026\n\nIMPORTANT: Your leased alarm panel and router must be returned within 14 days of cancellation (by July 14, 2026). Ship using the prepaid label at guardianhome.example/return or drop off at any GuardianHome branch. Unreturned equipment after this date will be billed at full replacement cost.",
+    "expected": {
+      "billerName": "GuardianHome Security",
+      "amountDueMinorUnits": 2210,
+      "currency": "USD",
+      "dueDate": { "iso_date": "2026-07-15", "approximate_text": null },
+      "accountLabel": "GH-88213",
+      "equipmentReturnDeadline": { "iso_date": "2026-07-14", "approximate_text": null }
+    }
+  }
+]

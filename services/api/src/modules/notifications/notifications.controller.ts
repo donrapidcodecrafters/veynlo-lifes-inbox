@@ -1,13 +1,15 @@
-import { Body, Controller, Get, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Put, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { NotificationsService } from "./notifications.service";
+import { UpdateNotificationPreferencesDtoSchema, type UpdateNotificationPreferencesDto } from "./dto";
 
 @Controller("v1")
 @UseGuards(AuthGuard)
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(@Inject(NotificationsService) private readonly notifications: NotificationsService) {}
 
   @Get("notifications")
   list(@CurrentUser() user: AuthenticatedUser) {
@@ -20,7 +22,8 @@ export class NotificationsController {
   }
 
   @Put("notification-preferences")
-  updatePreferences(@CurrentUser() user: AuthenticatedUser, @Body() patch: Record<string, unknown>) {
+  @UsePipes(new ZodValidationPipe(UpdateNotificationPreferencesDtoSchema))
+  updatePreferences(@CurrentUser() user: AuthenticatedUser, @Body() patch: UpdateNotificationPreferencesDto) {
     return this.notifications.updatePreferences(user.userId, patch);
   }
 }
