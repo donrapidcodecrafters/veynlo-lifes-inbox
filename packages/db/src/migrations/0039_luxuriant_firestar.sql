@@ -1,0 +1,1 @@
+ALTER TABLE "notification_preferences" ADD COLUMN "critical_overrides_quiet_hours" boolean DEFAULT true NOT NULL;

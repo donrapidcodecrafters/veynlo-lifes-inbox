@@ -1,0 +1,1 @@
+ALTER TABLE "notification_preferences" ADD COLUMN "sensitive_previews_enabled" boolean DEFAULT true NOT NULL;

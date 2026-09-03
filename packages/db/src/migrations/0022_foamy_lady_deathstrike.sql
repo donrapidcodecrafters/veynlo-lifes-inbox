@@ -1,0 +1,1 @@
+ALTER TABLE "notification_preferences" ADD COLUMN "monthly_spend_cap_minor_units" integer;

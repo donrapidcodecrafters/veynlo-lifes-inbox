@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TemporalValueSchema } from "../util/time";
+import { RecurrenceRuleSchema } from "../util/recurrence";
 import { ProvenanceSchema } from "./provenance";
 import { VisibilitySchema } from "../permissions/sensitivity";
 
@@ -25,7 +26,9 @@ export const CalendarEventSchema = z.object({
   location: z.string().nullable(),
   source: CalendarEventSourceSchema,
   providerEventId: z.string().nullable(),
-  recurrenceRule: z.string().nullable(), // RRULE string, or a Veynlo extended-recurrence descriptor
+  // TASK-003 — was a free-text RRULE-ish string nobody ever wrote or read; now a real structured rule
+  // (packages/core/src/util/recurrence.ts) that ScheduleService actually expands.
+  recurrenceRule: RecurrenceRuleSchema.nullable(),
   status: z.enum(["confirmed", "tentative", "canceled"]).default("confirmed"),
   visibility: VisibilitySchema,
   relatedEntityIds: z.array(z.string()).default([]),
@@ -47,7 +50,7 @@ export const TaskSchema = z.object({
   dueCondition: TemporalValueSchema.nullable(),
   consequence: z.string().nullable(), // plain-language "why this matters"
   priority: z.enum(["low", "medium", "high"]).default("medium"),
-  recurrenceRule: z.string().nullable(),
+  recurrenceRule: RecurrenceRuleSchema.nullable(),
   state: TaskStateSchema,
   snoozedUntil: z.string().datetime().nullable(),
   relatedEntityIds: z.array(z.string()).default([]),

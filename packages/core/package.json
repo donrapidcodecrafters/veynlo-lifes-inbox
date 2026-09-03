@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./dist/util/token": {
+      "types": "./dist/util/token.d.ts",
+      "default": "./dist/util/token.js"
     }
   },
   "scripts": {
@@ -22,6 +26,6 @@
   },
   "devDependencies": {
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.6"
   }
 }

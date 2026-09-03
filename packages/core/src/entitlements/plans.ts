@@ -18,6 +18,7 @@ export const CapabilityKeySchema = z.enum([
   "purchases_returns_tracking",
   "subscriptions_bills_tracking",
   "financial_aggregator_connections_max",
+  "cloud_storage_connections_max",
   "home_vehicle_profiles",
   "family_school_sharing",
   "automation_rules_max",
@@ -25,6 +26,31 @@ export const CapabilityKeySchema = z.enum([
   "data_export",
   "desktop_power_tools",
   "household_members_max",
+  // Chapter 27 "Health Logistics (Non-Diagnostic)" — HLTH-001..005 are all spec'd "Entitlement: Plus/Family",
+  // same tier as bills/documents tracking. Only enforced at the AI-extraction gate in
+  // IngestionService.classifyAndExtract (mirroring purchases_returns_tracking/subscriptions_bills_tracking
+  // exactly), not on manual creation — same posture home_vehicle_profiles already has (listed here but not
+  // actually enforced on AssetsService's manual-create path either; see EntitlementsService's own doc
+  // comment on which capabilities have real enforcement today).
+  "health_logistics",
+  // §26 "Travel & Reservations" (TRIP-001..009) — spec'd "Entitlement: Plus; premium live travel services
+  // possible." Same enforcement posture as health_logistics/family_school_sharing: gated once at the
+  // AI-extraction entry point (IngestionService.classifyAndExtract), not on manual trip creation (a user
+  // can always hand-seed a trip — see TripsService.createManualTrip — same as home_vehicle_profiles's own
+  // "listed but not enforced on the manual-create path" posture).
+  "travel_planning",
+  // Chapter 28 "Pets" (PET-001..005) — spec'd "Entitlement: Family" for every PET-* item, same tier and
+  // enforcement posture as family_school_sharing (gated once at the AI-extraction entry point in
+  // IngestionService.classifyAndExtract, not on manual pet creation — a user can always hand-add a pet via
+  // PetsService.create, same "listed but not enforced on the manual-create path" posture as
+  // home_vehicle_profiles).
+  "pet_tracking",
+  // "Identity & Legal Continuity" (ID-001..005: passport, driver's license/state ID, vehicle registration,
+  // professional/recreational licenses, property/government obligations) — spec'd "Entitlement: Plus+" for
+  // every ID-* item. Same enforcement posture as home_vehicle_profiles/health_logistics: listed here for
+  // future gating, not currently enforced on IdentityRecordsService's manual-create path (a user can always
+  // hand-add a record, same "listed but not enforced on the manual-create path" posture those two share).
+  "identity_records",
 ]);
 export type CapabilityKey = z.infer<typeof CapabilityKeySchema>;
 
@@ -34,12 +60,18 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
   free: {
     email_connections_max: 1,
     calendar_connections_max: 1,
-    historical_backfill_days: 30,
+    // ONB-002 "Historical depth control" spec's own named Free-tier ceiling is "Forward only, 30 days, or
+    // 90 days" (deeper options — 6 months/1 year/"build my history" — require Plus+). Previously 30, which
+    // would have silently clamped a Free user's onboarding "90 days" choice down to 30 the moment they
+    // picked it — this raises the actual enforced cap to match the option this tier is meant to offer,
+    // rather than leaving the UI able to offer a choice the backend would quietly downgrade.
+    historical_backfill_days: 90,
     ask_queries_per_day: 10,
     document_storage_mb: 250,
     purchases_returns_tracking: false,
     subscriptions_bills_tracking: false,
     financial_aggregator_connections_max: 0,
+    cloud_storage_connections_max: 1,
     home_vehicle_profiles: false,
     family_school_sharing: false,
     automation_rules_max: 0,
@@ -47,6 +79,10 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     data_export: true,
     desktop_power_tools: false,
     household_members_max: 1,
+    health_logistics: false,
+    travel_planning: false,
+    pet_tracking: false,
+    identity_records: false,
   },
   plus: {
     email_connections_max: 5,
@@ -57,6 +93,7 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     purchases_returns_tracking: true,
     subscriptions_bills_tracking: true,
     financial_aggregator_connections_max: 5,
+    cloud_storage_connections_max: 5,
     home_vehicle_profiles: true,
     family_school_sharing: false,
     automation_rules_max: 20,
@@ -64,6 +101,10 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     data_export: true,
     desktop_power_tools: true,
     household_members_max: 1,
+    health_logistics: true,
+    travel_planning: true,
+    pet_tracking: false,
+    identity_records: true,
   },
   family: {
     email_connections_max: 10,
@@ -74,6 +115,7 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     purchases_returns_tracking: true,
     subscriptions_bills_tracking: true,
     financial_aggregator_connections_max: 10,
+    cloud_storage_connections_max: 10,
     home_vehicle_profiles: true,
     family_school_sharing: true,
     automation_rules_max: 50,
@@ -81,6 +123,10 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     data_export: true,
     desktop_power_tools: true,
     household_members_max: 6,
+    health_logistics: true,
+    travel_planning: true,
+    pet_tracking: true,
+    identity_records: true,
   },
   pro_agent: {
     email_connections_max: null,
@@ -91,6 +137,7 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     purchases_returns_tracking: true,
     subscriptions_bills_tracking: true,
     financial_aggregator_connections_max: null,
+    cloud_storage_connections_max: null,
     home_vehicle_profiles: true,
     family_school_sharing: true,
     automation_rules_max: null,
@@ -98,6 +145,10 @@ export const PLAN_CATALOG: Record<PlanKey, Record<CapabilityKey, CapabilityValue
     data_export: true,
     desktop_power_tools: true,
     household_members_max: 10,
+    health_logistics: true,
+    travel_planning: true,
+    pet_tracking: true,
+    identity_records: true,
   },
 };
 

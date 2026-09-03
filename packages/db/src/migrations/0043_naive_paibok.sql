@@ -1,0 +1,1 @@
+ALTER TABLE "trip_segments" ADD COLUMN "check_in_reminder_minutes_before" integer;

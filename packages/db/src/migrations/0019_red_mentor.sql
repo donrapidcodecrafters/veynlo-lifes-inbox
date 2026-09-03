@@ -1,0 +1,1 @@
+ALTER TABLE "documents" ADD COLUMN "is_emergency_binder_item" boolean DEFAULT false NOT NULL;

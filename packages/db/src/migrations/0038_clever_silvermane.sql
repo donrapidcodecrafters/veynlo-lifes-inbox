@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "automation_runs_idempotency_idx" ON "automation_runs" USING btree ("idempotency_key");

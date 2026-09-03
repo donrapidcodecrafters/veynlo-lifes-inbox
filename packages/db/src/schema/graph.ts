@@ -1,8 +1,9 @@
-import { pgTable, text, timestamp, real, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, real, integer, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./identity";
 import { households } from "./household";
 import { connections } from "./connectors";
 import { sensitivityTierEnum, visibilityEnum, confidenceBandEnum, verificationStateEnum } from "./common";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 export const sourceEvents = pgTable(
   "source_events",
@@ -14,14 +15,38 @@ export const sourceEvents = pgTable(
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     connectionId: text("connection_id").references(() => connections.id, { onDelete: "set null" }),
     kind: text("kind").notNull(),
-    providerItemId: text("provider_item_id"),
-    contentHash: text("content_hash").notNull(),
+    providerItemId: encryptedText("provider_item_id"),
+    contentHash: text("content_hash").notNull(), // a hash, not content, and dedup logic doesn't compare it directly
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
-    rawContentRef: text("raw_content_ref"),
+    rawContentRef: encryptedText("raw_content_ref"),
+    // Deliberately NOT full body text — the spec's "evidence view" ("why am I seeing this?") only needs
+    // enough to recognize the source, not a durable copy of the whole message, which would meaningfully
+    // grow this table's privacy/retention surface for no proportionate benefit. Populated at ingest time
+    // from ParsedEmail (services/api/src/modules/ingestion/gmail-message-parser.ts) — previously parsed
+    // into memory and then discarded once classification finished, so no evidence was ever retrievable
+    // after the fact.
+    subjectLine: encryptedText("subject_line"),
+    snippet: encryptedText("snippet"),
+    fromAddress: encryptedText("from_address"),
+    // §52.1 "voice note" transcription — the local Whisper transcript of a voice_note's audio (see
+    // IngestionService.processVoiceTranscription). Unlike `snippet` (a short, non-authoritative recognition
+    // aid), this is the full transcribed text actually fed into `classifyAndExtract` — kept as its own
+    // column rather than overloading `snippet` so a transcript longer than `snippet`'s ~200-char convention
+    // is never silently truncated, and so "not yet transcribed" (null) stays distinguishable from "a real,
+    // if short, transcript." Only ever populated for `kind: "voice_note"` source events.
+    transcript: encryptedText("transcript"),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     processingState: text("processing_state").notNull().default("queued"),
     idempotencyKey: text("idempotency_key").notNull(),
+    // MAIL-005 "Sender/template parsers" — "Versioned parser registry identifies sender/domain/template."
+    // Until now `matchKnownSender`'s deterministic domain-match result (services/api/src/modules/
+    // intelligence/deterministic-prefilter.ts) had no version tracked anywhere, so a future change to that
+    // hardcoded-domain matching logic could never be distinguished, after the fact, from an AI-classified
+    // event or an older version of the same deterministic logic. Set only when `matchKnownSender` actually
+    // matched (see IngestionService.classifyAndExtract) — an AI-classified or sender-rule-forced event
+    // leaves this null, since neither of those go through matchKnownSender's field extraction at all.
+    parserVersion: integer("parser_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -36,8 +61,8 @@ export const evidenceRefs = pgTable("evidence_refs", {
   sourceEventId: text("source_event_id")
     .notNull()
     .references(() => sourceEvents.id, { onDelete: "cascade" }),
-  locator: text("locator").notNull(),
-  excerpt: text("excerpt"),
+  locator: text("locator").notNull(), // a pointer/citation into the source, not quoted content itself
+  excerpt: encryptedText("excerpt"),
   capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -50,10 +75,10 @@ export const canonicalEntities = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
-    displayLabel: text("display_label").notNull(),
+    displayLabel: encryptedText("display_label").notNull(),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
     visibility: visibilityEnum("visibility").notNull().default("private"),
-    aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+    aliases: encryptedJsonb<string[]>("aliases", []).notNull().default([]),
     lifecycleState: text("lifecycle_state").notNull(),
     mergedIntoEntityId: text("merged_into_entity_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -76,7 +101,9 @@ export const entityMergeLineage = pgTable("entity_merge_lineage", {
   reason: text("reason").notNull(),
   algorithmVersion: text("algorithm_version").notNull(),
   confidenceScore: real("confidence_score").notNull(),
-  actorUserId: text("actor_user_id").references(() => users.id),
+  // The lineage record itself is kept (it's an audit trail, not this user's private data) even after
+  // the actor deletes their account — only the identifying link is cleared.
+  actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
   mergedAt: timestamp("merged_at", { withTimezone: true }).notNull().defaultNow(),
   unmergedAt: timestamp("unmerged_at", { withTimezone: true }),
 });
@@ -111,8 +138,8 @@ export const facts = pgTable(
     subjectEntityId: text("subject_entity_id")
       .notNull()
       .references(() => canonicalEntities.id, { onDelete: "cascade" }),
-    predicate: text("predicate").notNull(),
-    valueJson: jsonb("value_json").notNull(),
+    predicate: text("predicate").notNull(), // categorical/structural — part of the lookup index below
+    valueJson: encryptedJsonb<unknown>("value_json", null).notNull(),
     unit: text("unit"),
     extractionMethod: text("extraction_method").notNull(),
     extractorVersion: text("extractor_version").notNull(),

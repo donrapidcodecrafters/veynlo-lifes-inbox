@@ -1,0 +1,1 @@
+ALTER TABLE "purchase_lines" ADD COLUMN "resale_status" text DEFAULT 'not_listed' NOT NULL;

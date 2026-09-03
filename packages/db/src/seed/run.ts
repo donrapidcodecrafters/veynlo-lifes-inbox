@@ -127,6 +127,55 @@ async function main() {
   ];
   await db.insert(schema.merchants).values(merchants).onConflictDoNothing();
 
+  // --- Source events -----------------------------------------------------
+  // Backing rows for the sourceEventId FKs purchases/inbox items below point at — without these, the
+  // "evidence" view (GET /v1/purchases/:id etc.) has nothing to join to and silently returns null, even
+  // though the join code itself is correct. Content is deliberately generic demo text, not a real email.
+  await db
+    .insert(schema.sourceEvents)
+    .values([
+      {
+        id: "src_demo_laptop_receipt",
+        ownerUserId: userId,
+        householdId,
+        kind: "email",
+        contentHash: "demo-laptop-receipt",
+        occurredAt: daysFromNow(-9),
+        subjectLine: "Your Best Buy order has shipped",
+        snippet: 'Your MacBook Air 15" M3 order #BB-88213-4471 is on its way.',
+        fromAddress: "orders@bestbuy.com",
+        processingState: "filed",
+        idempotencyKey: "demo-laptop-receipt",
+      },
+      {
+        id: "src_demo_vacuum_receipt",
+        ownerUserId: userId,
+        householdId,
+        kind: "email",
+        contentHash: "demo-vacuum-receipt",
+        occurredAt: daysFromNow(-3),
+        subjectLine: "Your Amazon.com order has shipped",
+        snippet: "Your Dyson V15 Detect Cordless Vacuum order #112-4498231-8827412 is on its way.",
+        fromAddress: "shipment-tracking@amazon.com",
+        processingState: "filed",
+        idempotencyKey: "demo-vacuum-receipt",
+      },
+      {
+        id: "src_demo_flight",
+        ownerUserId: userId,
+        householdId,
+        kind: "email",
+        contentHash: "demo-flight",
+        occurredAt: daysFromNow(-2),
+        subjectLine: "Your United Airlines flight confirmation",
+        snippet: "Confirmation for your flight to Denver, Oct 14-18.",
+        fromAddress: "confirmation@united.com",
+        processingState: "filed",
+        idempotencyKey: "demo-flight",
+      },
+    ])
+    .onConflictDoNothing();
+
   // --- Purchases + line items + returns + shipments -------------------------
   const laptopPurchaseId = "pur_demo_laptop";
   await db
@@ -219,12 +268,33 @@ async function main() {
     .insert(schema.shipments)
     .values({
       id: "shp_demo_vacuum",
+      ownerUserId: userId,
       purchaseId: vacuumPurchaseId,
       carrier: "UPS",
       trackingNumber: "1Z999AA10123456784",
       status: "out_for_delivery",
       estimatedDelivery: { precision: "date", instantUtc: null, date: iso(daysFromNow(1)).slice(0, 10), timezone: null, sourceText: null },
       isGiftPrivate: false,
+    })
+    .onConflictDoNothing();
+
+  // Same reasoning as ret_demo_laptop below: gives Life → Warranties a real evidence-linked row instead of
+  // only an unpromoted inbox item pointing nowhere (found live — see inb_demo_warranty's linkedResourceType
+  // just below, which used to be left unset entirely).
+  const vacuumWarrantyId = "war_demo_vacuum";
+  await db
+    .insert(schema.warranties)
+    .values({
+      id: vacuumWarrantyId,
+      ownerUserId: userId,
+      householdId,
+      purchaseLineId: "purl_demo_vacuum",
+      productLabel: "Dyson V15 Detect Cordless Vacuum",
+      warrantyLengthMonths: 24,
+      expirationDate: { precision: "date", instantUtc: null, date: iso(daysFromNow(-3 + 730)).slice(0, 10), timezone: null, sourceText: null },
+      expirationDateSort: daysFromNow(-3 + 730),
+      confidenceBand: "high",
+      registrationConfirmed: true,
     })
     .onConflictDoNothing();
 
@@ -342,6 +412,8 @@ async function main() {
         householdId,
         category: "warranty",
         summary: "Dyson V15 warranty registration found — 2-year coverage through 2027-08-23",
+        linkedResourceType: "warranty",
+        linkedResourceId: vacuumWarrantyId,
         sourceEventId: "src_demo_vacuum_receipt",
         suggestedActions: ["confirm", "file"],
         reviewState: "new",
@@ -377,8 +449,14 @@ async function main() {
         moneyAtStakeMinorUnits: 129900,
         moneyAtStakeCurrency: "USD",
         confidenceBand: "verified",
-        linkedResourceType: "purchase",
-        linkedResourceId: laptopPurchaseId,
+        // Must match AttentionService.scanAndFileDeadlines' own convention for a return-window item
+        // exactly (linkedResourceType "return_case" + the return case's own id, not the purchase's) —
+        // that's the dedup key `fileIfNew` checks before inserting. This row previously pointed at
+        // {type: "purchase", id: laptopPurchaseId} instead, so the real recurring scan job never
+        // recognized this as already-filed and created a genuine duplicate attention item for the same
+        // return every time it ran.
+        linkedResourceType: "return_case",
+        linkedResourceId: "ret_demo_laptop",
         primaryActions: ["start_return", "keep_item"],
       },
       {
@@ -393,6 +471,10 @@ async function main() {
         moneyAtStakeMinorUnits: 18420,
         moneyAtStakeCurrency: "USD",
         confidenceBand: "verified",
+        // Same fix as att_demo_return above — this row had no linkedResourceType/linkedResourceId at all,
+        // so the scanner could never recognize it as already-filed either.
+        linkedResourceType: "bill",
+        linkedResourceId: "bil_demo_electric",
         primaryActions: ["mark_paid", "open_biller"],
       },
       {
@@ -408,6 +490,57 @@ async function main() {
         confidenceBand: "verified",
         primaryActions: ["review", "cancel_assist"],
       },
+    ])
+    .onConflictDoNothing();
+
+  // Phase 2 §52.2 "automation/rule center" — without this, a fresh seed had zero example of the new
+  // feature to look at. `sub_demo_netflix` (seeded above with state "price_changed") is a real,
+  // already-matching trigger event for this rule, so the run below reads as genuinely earned rather than
+  // fabricated: this is exactly what a real price-change email would have produced.
+  const demoRuleId = "rule_demo_price_alert";
+  await db
+    .insert(schema.automationRules)
+    .values({
+      id: demoRuleId,
+      ownerUserId: userId,
+      householdId,
+      name: "Notify me whenever a subscription price changes",
+      naturalLanguageSource: "Notify me whenever a subscription price changes",
+      triggerDescriptor: JSON.stringify({ kind: "new_subscription", merchantContains: null, minAmountMinorUnits: null, maxAmountMinorUnits: null }),
+      actionDescriptor: JSON.stringify({ kind: "notify", message: "A subscription price just changed.", taskTitle: null, eventTitle: null, daysFromNow: null }),
+      riskTier: "L0",
+      approvalMode: "confirm_each_time",
+      enabled: true,
+    })
+    .onConflictDoNothing();
+  await db
+    .insert(schema.automationRuns)
+    .values({
+      id: "run_demo_price_alert",
+      ruleId: demoRuleId,
+      triggerEvidenceId: "sub_demo_netflix",
+      state: "approval_required",
+      idempotencyKey: `${demoRuleId}:subscription:sub_demo_netflix`,
+      commandsJson: { kind: "notify", message: "A subscription price just changed.", taskTitle: null, eventTitle: null, daysFromNow: null },
+    })
+    .onConflictDoNothing();
+
+  // §AI-002 "Confidence and risk policy" — `risk_policies` existed with zero rows and zero readers; every
+  // extractor used one global {reviewThreshold: 0.55, highThreshold: 0.85} pair regardless of stakes. These
+  // are the first real, deliberately conservative policy rows: money-moving domains (a bill amount, a
+  // purchase total, a recurring subscription charge) require a HIGHER bar of model confidence before a fact
+  // is trusted as "high"/auto-acceptable, matching the spec's own "domain + field + action impact" framing.
+  // "shipment" is the deliberate low-stakes contrast — a wrong tracking number costs nothing but a refresh,
+  // so it's allowed to reach "high" at a lower confidence than the global default. Every other domain has no
+  // row here and keeps using the exact same global default as before (see RiskPolicyService's own doc
+  // comment for the fallback order) — this is additive, not a behavior change for anything not listed below.
+  await db
+    .insert(schema.riskPolicies)
+    .values([
+      { id: "rpol_demo_receipt", domain: "receipt", field: "*", reviewThreshold: 0.65, autoAcceptThreshold: 0.92, policyVersion: "v1" },
+      { id: "rpol_demo_bill", domain: "bill", field: "*", reviewThreshold: 0.7, autoAcceptThreshold: 0.93, policyVersion: "v1" },
+      { id: "rpol_demo_subscription", domain: "subscription", field: "*", reviewThreshold: 0.65, autoAcceptThreshold: 0.9, policyVersion: "v1" },
+      { id: "rpol_demo_shipment", domain: "shipment", field: "*", reviewThreshold: 0.45, autoAcceptThreshold: 0.75, policyVersion: "v1" },
     ])
     .onConflictDoNothing();
 

@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "last_active_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+ALTER TABLE "legacy_release_configs" ADD COLUMN "inactivity_warning_sent_at" timestamp with time zone;

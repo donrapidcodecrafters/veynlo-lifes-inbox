@@ -15,6 +15,14 @@ export const DocumentTypeSchema = z.enum([
   "membership_document",
   "statement",
   "invitation",
+  // HLTH-002 "insurance card/document vault" — a dedicated categorization for health-sensitive documents
+  // (insurance cards, explanation-of-benefits statements) so they can be filtered/found as their own
+  // category and, in DocumentsService.upload, default to the "highly_sensitive" tier rather than the
+  // ordinary "sensitive" default every other document type gets. Deliberately reuses the existing
+  // documents vault (sensitivity/visibility/step-up machinery) rather than a parallel health-document
+  // system — see services/api/src/modules/health-logistics's own module doc comment.
+  "insurance_card",
+  "eob",
   "other",
 ]);
 export type DocumentType = z.infer<typeof DocumentTypeSchema>;

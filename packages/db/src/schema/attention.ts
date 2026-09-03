@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, integer, boolean, jsonb, index } from "drizzl
 import type { TemporalValue } from "@veynlo/core";
 import { users } from "./identity";
 import { households } from "./household";
+import { encryptedText, encryptedJsonb } from "./encrypted-type";
 
 export const inboxItems = pgTable(
   "inbox_items",
@@ -12,11 +13,11 @@ export const inboxItems = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     category: text("category").notNull(),
-    summary: text("summary").notNull(),
+    summary: encryptedText("summary").notNull(),
     linkedResourceType: text("linked_resource_type"),
     linkedResourceId: text("linked_resource_id"),
     sourceEventId: text("source_event_id").notNull(),
-    suggestedActions: jsonb("suggested_actions").$type<string[]>().notNull().default([]),
+    suggestedActions: encryptedJsonb<string[]>("suggested_actions", []).notNull().default([]),
     autoFiled: boolean("auto_filed").notNull().default(false),
     reviewState: text("review_state").notNull().default("new"),
     snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
@@ -36,7 +37,7 @@ export const attentionItems = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id").references(() => households.id, { onDelete: "set null" }),
     reasonCode: text("reason_code").notNull(),
-    reasonText: text("reason_text").notNull(),
+    reasonText: encryptedText("reason_text").notNull(),
     urgency: text("urgency").notNull(),
     dueAt: jsonb("due_at").$type<TemporalValue>(),
     dueAtSort: timestamp("due_at_sort", { withTimezone: true }),
@@ -47,7 +48,7 @@ export const attentionItems = pgTable(
     linkedResourceId: text("linked_resource_id"),
     primaryActions: jsonb("primary_actions").$type<string[]>().notNull().default([]),
     resolved: boolean("resolved").notNull().default(false),
-    dismissedReason: text("dismissed_reason"),
+    dismissedReason: encryptedText("dismissed_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -64,8 +65,8 @@ export const notifications = pgTable(
     dedupeKey: text("dedupe_key").notNull(),
     priority: text("priority").notNull(),
     channel: text("channel").notNull(),
-    title: text("title").notNull(),
-    body: text("body").notNull(),
+    title: encryptedText("title").notNull(),
+    body: encryptedText("body").notNull(),
     linkedAttentionItemId: text("linked_attention_item_id"),
     state: text("state").notNull().default("queued"),
     suppressionReason: text("suppression_reason"),
@@ -87,4 +88,29 @@ export const notificationPreferences = pgTable("notification_preferences", {
   categoryOverrides: jsonb("category_overrides").$type<Record<string, string>>().notNull().default({}),
   dailyBriefEnabled: boolean("daily_brief_enabled").notNull().default(true),
   weeklyBriefEnabled: boolean("weekly_brief_enabled").notNull().default(true),
+  // §NOT-002 "Respect user quiet hours ... critical override only when user opted in and event qualifies"
+  // — found live via a fresh audit: NotificationDeliveryService.deliver already bypassed quiet hours for
+  // ANY "critical"-priority notification unconditionally, with no preference anywhere a user could opt out
+  // of that override, contradicting the spec's explicit "only when user opted in" condition. Defaults true
+  // (preserves the existing always-override behavior for every current user — same "don't silently change
+  // behavior for existing users" reasoning as sensitivePreviewsEnabled just above) but now exists as a
+  // real, user-controllable preference NotificationDeliveryService actually checks, rather than a rule
+  // hardcoded with no off switch.
+  criticalOverridesQuietHours: boolean("critical_overrides_quiet_hours").notNull().default(true),
+  // §23 "Do not send private financial/document detail in email or lock-screen push unless the user
+  // explicitly permits that preview level." Defaults true (preserves existing behavior — every brief/
+  // discovery notification already includes real detail, and this isn't a live security bug today since
+  // nothing currently sends via the "push" channel — see notification-dispatch.service.ts's doc comment)
+  // rather than defaulting false, which would be a silent behavior change for every existing user. The
+  // point is that the choice now exists and is enforced, not which way it defaults.
+  sensitivePreviewsEnabled: boolean("sensitive_previews_enabled").notNull().default(true),
+  // Phase 2 §52.2 "safe-spend awareness" (spec screen "065. Safe-spend settings" — the spec names the
+  // screen but never describes its behavior beyond that). Null means no cap set: CommerceService's
+  // monthly-spend summary is purely informational until a user opts into a threshold worth flagging.
+  monthlySpendCapMinorUnits: integer("monthly_spend_cap_minor_units"),
+  // AUTO-010 "Account and household settings can pause all external actions immediately" — non-null
+  // means paused. Checked by AutomationService.evaluateEvent before any rule can even match, so a paused
+  // account creates zero new runs (existing pending runs are untouched — pausing stops new automation,
+  // it isn't a bulk-cancel of what's already queued for approval).
+  automationsPausedAt: timestamp("automations_paused_at", { withTimezone: true }),
 });

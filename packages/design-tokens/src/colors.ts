@@ -34,7 +34,11 @@ export const neutral = {
   200: "#dcdee6",
   300: "#c2c5d1",
   400: "#9a9dad",
-  500: "#75788a",
+  // #75788a (used only as light-mode textTertiary below) measured 4.11-4.36:1 against white/near-white
+  // surfaces at real body/caption text sizes — under WCAG AA's 4.5:1 minimum (axe-core caught this on
+  // the web app's /sign-up; this is a separate hand-maintained token source from tokens.css, which got
+  // the identical fix). Darkened just enough to clear 4.5:1 with margin (~5.6:1).
+  500: "#64667a",
   600: "#585b6d",
   700: "#404253",
   750: "#3a3c4d",
@@ -50,7 +54,9 @@ export const semantic = {
     50: "#fef2f2",
     100: "#fde3e3",
     300: "#f5a3a3",
-    500: "#d64545",
+    // #d64545 (with white button text) measured 4.37:1 — just under WCAG AA's 4.5:1 minimum. Darkened
+    // to clear 4.5:1 with margin (~4.9:1); matches the identical fix in tokens.css.
+    500: "#cc3c3c",
     600: "#b83636",
     700: "#8f2929",
   },
@@ -158,7 +164,9 @@ export const darkSemanticColors = {
   brandSubtleBg: "rgba(91, 99, 227, 0.16)",
   brandSubtleText: brand[300],
 
-  critical: "#e9807f",
+  // #e9807f (with white button text) measured ~2.67:1 — badly fails WCAG AA's 4.5:1, worse than the
+  // light-mode equivalent. Darkened to clear 4.5:1 with margin (~5.3:1); matches tokens.css's fix.
+  critical: "#b84443",
   criticalSubtleBg: "rgba(214, 69, 69, 0.16)",
   criticalSubtleText: "#f4b3b2",
   warning: "#e8b463",

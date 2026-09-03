@@ -1,0 +1,2 @@
+ALTER TABLE "financial_transactions" ADD COLUMN "matched_return_case_id" text;--> statement-breakpoint
+ALTER TABLE "financial_transactions" ADD CONSTRAINT "financial_transactions_matched_return_case_id_return_cases_id_fk" FOREIGN KEY ("matched_return_case_id") REFERENCES "public"."return_cases"("id") ON DELETE set null ON UPDATE no action;

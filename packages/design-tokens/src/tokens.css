@@ -32,7 +32,12 @@
 
   --text-primary: #17181f;
   --text-secondary: #585b6d;
-  --text-tertiary: #75788a;
+  /* #75788a measured 4.11-4.36:1 against --bg-canvas/--bg-surface at real body/caption sizes used
+     throughout the app — under WCAG AA's 4.5:1 minimum for normal text (axe-core caught this on
+     /sign-up). Darkened just enough to clear 4.5:1 with margin (~5.6:1) while staying visually the
+     lightest/most muted of the three text tiers, above --text-disabled (which is exempt from contrast
+     requirements as inactive UI content). Dark-mode's --text-tertiary (#9a9dad, ~7.1:1) already passes.*/
+  --text-tertiary: #64667a;
   --text-disabled: #9a9dad;
   --text-inverse: #ffffff;
   --text-on-brand: #ffffff;
@@ -43,7 +48,10 @@
   --brand-subtle-bg: var(--color-brand-50);
   --brand-subtle-text: var(--color-brand-700);
 
-  --semantic-critical: #d64545;
+  /* #d64545 measured 4.37:1 with white button text — just under WCAG AA's 4.5:1 (axe-core caught this
+     on the Settings page's "Delete account" button, which uses Button's `critical` variant: `bg-critical
+     text-white`). Darkened to clear 4.5:1 with margin (~4.9:1). */
+  --semantic-critical: #cc3c3c;
   --semantic-critical-subtle-bg: #fef2f2;
   --semantic-critical-subtle-text: #8f2929;
   --semantic-warning: #c98a1f;
@@ -130,7 +138,10 @@
     --brand-subtle-bg: rgba(91, 99, 227, 0.16);
     --brand-subtle-text: var(--color-brand-300);
 
-    --semantic-critical: #e9807f;
+    /* #e9807f (white button text on this bg) measured ~2.67:1 — badly fails WCAG AA's 4.5:1, worse
+     than the light-mode equivalent, just never caught since the E2E a11y suite only runs in light
+     mode. Darkened to clear 4.5:1 with margin (~5.3:1) while staying visually a clear dark-mode red. */
+  --semantic-critical: #b84443;
     --semantic-critical-subtle-bg: rgba(214, 69, 69, 0.16);
     --semantic-critical-subtle-text: #f4b3b2;
     --semantic-warning: #e8b463;
@@ -174,7 +185,10 @@
   --brand-subtle-bg: rgba(91, 99, 227, 0.16);
   --brand-subtle-text: var(--color-brand-300);
 
-  --semantic-critical: #e9807f;
+  /* #e9807f (white button text on this bg) measured ~2.67:1 — badly fails WCAG AA's 4.5:1, worse
+     than the light-mode equivalent, just never caught since the E2E a11y suite only runs in light
+     mode. Darkened to clear 4.5:1 with margin (~5.3:1) while staying visually a clear dark-mode red. */
+  --semantic-critical: #b84443;
   --semantic-critical-subtle-bg: rgba(214, 69, 69, 0.16);
   --semantic-critical-subtle-text: #f4b3b2;
   --semantic-warning: #e8b463;

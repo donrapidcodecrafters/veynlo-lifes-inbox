@@ -1,0 +1,1 @@
+ALTER TABLE "notification_preferences" ADD COLUMN "automations_paused_at" timestamp with time zone;
