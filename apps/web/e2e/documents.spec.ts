@@ -21,7 +21,11 @@ test.describe("Documents — archive/unarchive tab revalidation", () => {
     await expect(page).toHaveURL(/\/home$/);
 
     await page.goto("/documents");
-    await expect(page.getByRole("heading", { name: "Documents" })).toBeVisible();
+    // `exact: true` matters here: Playwright's `name` option is a substring match by default, so plain
+    // "Documents" also matches the empty state's own <h3>"No documents yet"</h3> — two elements, and
+    // strict mode fails. It only bites for a user with zero documents, which is exactly the fresh user
+    // every CI run creates, so this failed in CI while passing against a populated local database.
+    await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible();
 
     const fileName = `unarchive-regression-${Date.now()}.txt`;
     await page.locator('input[type="file"]').setInputFiles({
