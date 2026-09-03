@@ -24,12 +24,13 @@
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
   },
   "devDependencies": {
+    "@types/node": "^22.10.5",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.4.2",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2",
-    "prettier": "^3.4.2",
-    "eslint": "^9.17.0",
-    "typescript-eslint": "^8.68.0",
-    "@types/node": "^22.10.5"
+    "typescript-eslint": "^8.68.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

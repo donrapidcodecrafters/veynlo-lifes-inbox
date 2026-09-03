@@ -98,9 +98,17 @@ jobs:
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
+          # GitHub's runner image ships an older postgresql-client already, and its `pg_dump` wins on
+          # PATH even after 17 is installed — which fails the drill with "aborting because of server
+          # version mismatch" against the pg17 service container. restore-drill.ts invokes bare
+          # `pg_dump`/`pg_restore`/`createdb`, so putting 17's bin directory first is what actually
+          # decides which binary runs.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Backup/restore drill
-        run: pnpm db:restore-drill
+        run: |
+          pg_dump --version   # proves 17.x is the one on PATH before the drill depends on it
+          pnpm db:restore-drill
 
       - name: Test
         run: pnpm -r run test
@@ -262,12 +270,17 @@ jobs:
         with:
           fetch-depth: 0 # gitleaks needs full history, not just the latest commit
 
-      # Blocking, not informational — verified 0 findings against the current codebase (2026-08-28), so
-      # there's no pre-existing noise to grandfather. A new finding here is a new problem, not old debt.
+      # Blocking, not informational. Pre-existing findings are not grandfathered silently — each one is
+      # allowlisted by fingerprint in `.gitleaksignore` with a written justification, so a NEW finding is
+      # still a new problem.
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          # Required since gitleaks-action v2.3.x for `pull_request` events — without it the action exits
+          # with "GITHUB_TOKEN is now required to scan pull requests" before scanning anything, so the job
+          # fails for a config reason rather than a real finding. Only the automatic per-run token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Same free, no-login Semgrep Registry rulesets verified locally (0 findings after fixing the two
       # real GCM auth-tag-length issues these caught in field-encryption.ts/credential-vault.ts) — blocking
