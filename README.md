@@ -29,13 +29,23 @@ Prerequisites: Node 20+, pnpm 10+, Docker.
 ```bash
 pnpm install
 
+# Build the shared workspace packages (@veynlo/core, @veynlo/db, ...) before anything else —
+# every app/service resolves them via their package.json "main"/"exports", which point at
+# ./dist, and that doesn't exist until this runs. Skipping this makes typecheck fail with
+# TS2307 "Cannot find module '@veynlo/core'" and vitest fail with "Failed to resolve entry
+# for package @veynlo/core" — platform-independent, hits a fresh clone on any OS identically.
+pnpm --filter "./packages/*" run build
+
 # Start local infra (Postgres+pgvector, Redis, MinIO, Mailhog — Mailhog catches all
 # outbound email in dev at http://localhost:8025, no real SMTP provider needed)
 cd infrastructure/docker && docker compose up -d && cd ../..
 
-# Create the MinIO bucket the API expects (first time only)
-docker run --rm --network host --entrypoint sh minio/mc:latest -c \
-  "mc alias set local http://localhost:9000 veynlo veynlo_dev_password && mc mb -p local/veynlo-documents"
+# Create the MinIO bucket the API expects (first time only). Uses the compose network + the
+# "minio" service's own DNS name rather than --network host — host networking doesn't behave
+# the same on Windows/macOS Docker Desktop as it does on Linux, so this form is the one that
+# actually works identically on all three.
+docker run --rm --network veynlo_default --entrypoint sh minio/mc:latest -c \
+  "mc alias set local http://minio:9000 veynlo veynlo_dev_password && mc mb -p local/veynlo-documents"
 
 # Apply migrations and load realistic demo data
 pnpm db:migrate

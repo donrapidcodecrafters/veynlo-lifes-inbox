@@ -58,13 +58,25 @@ ceiling entirely for everything except iOS.
    git clone <your remote URL for this repo> veynlo-src
    cd veynlo-src
    pnpm install
+
+   # Build the shared workspace packages before touching typecheck/tests/dev — every app/
+   # service resolves @veynlo/core, @veynlo/db, etc. via their package.json "main"/"exports",
+   # which point at ./dist, and that doesn't exist until this runs. Skipping this fails
+   # typecheck with TS2307 "Cannot find module '@veynlo/core'" and vitest with "Failed to
+   # resolve entry for package @veynlo/core" — platform-independent, same failure on Windows,
+   # macOS, or Linux.
+   pnpm --filter "./packages/*" run build
    ```
 
 3. **Bring up local infra**:
    ```bash
    cd infrastructure/docker && docker compose up -d && cd ../..
-   docker run --rm --network host --entrypoint sh minio/mc:latest -c \
-     "mc alias set local http://localhost:9000 veynlo veynlo_dev_password && mc mb -p local/veynlo-documents"
+
+   # Uses the compose network + the "minio" service's own DNS name rather than --network
+   # host — host networking doesn't behave the same on Windows/macOS Docker Desktop as it
+   # does on Linux, so this form is the one that actually works identically on all three.
+   docker run --rm --network veynlo_default --entrypoint sh minio/mc:latest -c \
+     "mc alias set local http://minio:9000 veynlo veynlo_dev_password && mc mb -p local/veynlo-documents"
    pnpm db:migrate
    pnpm db:seed
    ```
