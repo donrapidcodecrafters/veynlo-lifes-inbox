@@ -10,7 +10,7 @@
 # this Dockerfile is architecture-agnostic (no arch-specific base image pins), so
 # `docker buildx build --platform linux/arm64,linux/amd64` produces both from CI.
 
-FROM node:20-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 # glibc (not Alpine/musl) — argon2's prebuilt native binary targets glibc, and
 # building it from source under musl needs a C++ toolchain this image doesn't carry.
 RUN corepack enable && corepack prepare pnpm@10.26.2 --activate
@@ -63,7 +63,7 @@ RUN printf 'packages:\n  - apps/*\n  - services/*\n  - packages/*\n' > pnpm-work
 # that setting applies to the whole pnpm workspace, including apps/mobile's native
 # build — not worth the risk to a working mobile toolchain to quiet one log line here.
 
-FROM node:20-bookworm-slim AS runtime-base
+FROM node:26-bookworm-slim AS runtime-base
 RUN groupadd --system --gid 1001 veynlo && useradd --system --uid 1001 --gid veynlo veynlo
 WORKDIR /app
 COPY --from=build /deploy/api .
