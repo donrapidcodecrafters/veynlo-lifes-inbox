@@ -59,6 +59,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      // TEMPORARY, __DEV__-only QA hook — not shipped in any real build. Lets a live iOS Simulator QA
+      // pass seed a real, API-issued session without going through the sign-in form: `cliclick`-driven
+      // taps can't reliably focus a React Native TextInput (confirmed live — types into nothing, or
+      // trips the perf-monitor overlay instead), and `xcrun simctl openurl`'s cross-app "Open in
+      // veynlo?" confirmation resists synthetic clicks entirely (same root cause as the Share
+      // Extension's already-documented unautomatable tap-through). Reads a real token/refreshToken pair
+      // (obtained by calling the real API directly) from a JSON file dropped into this app's own
+      // Documents directory, stores it through the exact same tokenStore the real OAuth callback uses,
+      // then deletes the file so it only ever fires once. Remove before shipping any release build.
+      if (__DEV__) {
+        try {
+          const FileSystem = await import("expo-file-system/legacy");
+          const seedPath = `${FileSystem.documentDirectory}qa-session-seed.json`;
+          const info = await FileSystem.getInfoAsync(seedPath);
+          if (info.exists) {
+            const raw = await FileSystem.readAsStringAsync(seedPath);
+            const { token, refreshToken } = JSON.parse(raw) as { token: string; refreshToken: string };
+            await tokenStore.set(token);
+            await tokenStore.setRefreshToken(refreshToken);
+            await FileSystem.deleteAsync(seedPath, { idempotent: true });
+          }
+        } catch {
+          // Not present / not parseable — fall through to the normal boot path exactly as if this
+          // block didn't exist.
+        }
+      }
       // Always attempt a refresh on launch, even with no locally-stored bearer token — the web-preview
       // flow (Platform.OS === "web") authenticates via the httpOnly cookie instead, which this process
       // has no visibility into until the request comes back. Worst case with neither: a 401, correctly

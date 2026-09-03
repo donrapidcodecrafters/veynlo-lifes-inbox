@@ -14,6 +14,25 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
   const projectId = Constants.expoConfig?.extra?.eas?.projectId;
   if (!projectId) return null;
 
+  // TEMPORARY, __DEV__-only QA accommodation — not shipped in any real build. The permission *prompt*
+  // itself is a native system alert, and (confirmed live, same root cause as the Share Extension's
+  // already-documented unautomatable tap-through) it does not respond to any synthetic click this QA
+  // pass could produce — no `xcrun simctl privacy` service covers notifications either (tried; Apple
+  // doesn't expose one, unlike camera/calendar/contacts/location, which are TCC-backed and do). Left
+  // unanswered, the prompt blocks the entire app on every launch. Skipping the *request* call here (never
+  // faking a "granted" result) means push registration honestly reports "not available" for this pass —
+  // called out explicitly in the QA report — while unblocking every other screen. Remove before shipping
+  // any release build.
+  if (__DEV__) {
+    try {
+      const FileSystem = await import("expo-file-system/legacy");
+      const marker = `${FileSystem.documentDirectory}qa-automation-mode`;
+      if ((await FileSystem.getInfoAsync(marker)).exists) return null;
+    } catch {
+      // Marker not present / not readable — fall through to the real permission flow below.
+    }
+  }
+
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
   if (existingStatus !== "granted") {
