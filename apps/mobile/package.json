@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no-op (ESLint flat config pending)'",
-    "test": "node --test src/lib/offline-mutation-queue.test.ts",
+    "test": "tsx --test src/lib/offline-mutation-queue.test.ts",
     "build": "echo 'no-op — native builds go through EAS Build, not turbo (see docs/ROADMAP.md)'",
     "clean": "rm -rf .expo dist"
   },
@@ -54,6 +54,7 @@
   "devDependencies": {
     "@expo/config-plugins": "^57.0.9",
     "@types/react": "~19.2.2",
+    "tsx": "^4.23.12",
     "typescript": "~6.0.3"
   }
 }
