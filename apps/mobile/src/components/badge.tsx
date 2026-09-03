@@ -30,7 +30,11 @@ export function Badge({ tone = "neutral", children }: { tone?: Tone; children: s
         alignSelf: "flex-start",
       }}
     >
-      <Text style={{ fontSize: 12, fontWeight: "600", color: textByTone[tone] }}>{children}</Text>
+      {/* Fixed-height pill — cap Dynamic Type growth so the badge doesn't overflow into a wrapping mess of
+          multi-line text inside what's meant to be a small inline tag. */}
+      <Text style={{ fontSize: 12, fontWeight: "600", color: textByTone[tone] }} maxFontSizeMultiplier={1.5}>
+        {children}
+      </Text>
     </View>
   );
 }

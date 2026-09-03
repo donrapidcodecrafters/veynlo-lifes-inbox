@@ -1,4 +1,4 @@
-import { lightSemanticColors, darkSemanticColors, brand, semantic, space, radius } from "@veynlo/design-tokens";
+import { lightSemanticColors, darkSemanticColors, semantic, space, radius } from "@veynlo/design-tokens";
 
 /**
  * The same token source the web app themes off of (`@veynlo/design-tokens`),
@@ -36,5 +36,3 @@ export function resolveTheme(mode: "light" | "dark"): AppTheme {
     radius,
   };
 }
-
-export const brandColor = brand[500];

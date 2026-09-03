@@ -2,6 +2,12 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // Lets `tsc` resolve Metro's platform-specific file convention (plaid-link.native.ts /
+    // plaid-link.web.ts, see apps/mobile/src/lib/plaid-link.web.ts's doc comment for why that split
+    // exists) — `tsc` only runs one pass, not a per-platform build, so this deterministically picks the
+    // `.native` variant everywhere such a pair exists; that's fine as long as both variants export the
+    // same shape, which is the whole point of the split.
+    "moduleSuffixes": [".native", ""],
     "paths": {
       "@/*": [
         "./src/*"

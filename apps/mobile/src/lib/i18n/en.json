@@ -1,0 +1,81 @@
+{
+  "nav": {
+    "home": "Home",
+    "inbox": "Inbox",
+    "ask": "Ask",
+    "life": "Life",
+    "settings": "Settings"
+  },
+  "auth": {
+    "signIn": {
+      "tagline": "Your life, remembered.",
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "forgotPassword": "Forgot password?",
+      "submit": "Sign in",
+      "passkey": "Sign in with a passkey",
+      "noAccount": "New to Veynlo?",
+      "createAccount": "Create an account",
+      "genericError": "Something went wrong.",
+      "passkeyError": "Something went wrong."
+    },
+    "signUp": {
+      "title": "Create your account",
+      "nameLabel": "Name",
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "inviteCodeLabel": "Invite code",
+      "submit": "Create account",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in",
+      "genericError": "Something went wrong."
+    }
+  },
+  "home": {
+    "title": "Home",
+    "subtitle": "What matters right now.",
+    "today": "Today",
+    "moneyAtRisk": "Money at risk & savings",
+    "review": "Review",
+    "degradedBanner_one": "{{count}} connection needs attention — some information may be out of date.",
+    "degradedBanner_other": "{{count}} connections need attention — some information may be out of date.",
+    "caughtUpTitle": "You're caught up.",
+    "caughtUpDescription": "Nothing needs your attention right now. Connect an account or add something to find more.",
+    "degradedCaughtUpTitle": "Nothing else needs attention from the sources currently available.",
+    "degradedCaughtUpDescription": "One or more connections are unhealthy, so this may not be the full picture. Reconnect them above to see everything.",
+    "markHandled": "Mark handled",
+    "dismiss": "Dismiss",
+    "whyAmISeeingThis": "Why am I seeing this?",
+    "hideWhy": "Hide why",
+    "looksRight": "Looks right",
+    "getDisputeGuidance": "Get dispute guidance",
+    "hideDisputeGuidance": "Hide dispute guidance"
+  },
+  "settings": {
+    "title": "Settings",
+    "sections": {
+      "appearance": "Appearance",
+      "notifications": "Notifications",
+      "dangerZone": "Danger zone"
+    },
+    "signOut": "Sign out",
+    "deleteAccount": {
+      "title": "Delete account",
+      "description": "Schedules your account and everything in it for permanent deletion in 14 days. You can sign back in and cancel any time before then — after that, it can't be undone.",
+      "cta": "Delete account",
+      "confirmNotice": "You'll be signed out immediately. Sign back in within 14 days to cancel — after that, deletion runs and can't be undone.",
+      "confirmPasswordLabel": "Confirm your password",
+      "submit": "Schedule deletion",
+      "cancel": "Cancel",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "subtitle": "Newly discovered information to review.",
+    "addManually": "Add manually",
+    "cancel": "Cancel",
+    "caughtUpTitle": "You're caught up.",
+    "caughtUpDescription": "New receipts, bills, appointments, and other discoveries will show up here for a quick review."
+  }
+}

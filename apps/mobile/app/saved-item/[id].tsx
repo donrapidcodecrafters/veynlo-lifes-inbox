@@ -119,6 +119,12 @@ export default function SavedItemDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  // Inline confirm state, not RN's Alert.alert — matches this app's established destructive-confirm
+  // convention (see list/[id].tsx's own doc comment on `confirmingDeleteList` for why: react-native-web's
+  // Alert.alert is a permanent no-op, confirmed live). Mirrors person/[id].tsx's identical
+  // `confirmingDelete`/`deleting` pair for its own "Remove person" action.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -305,12 +311,14 @@ export default function SavedItemDetailScreen() {
   }
 
   async function deleteMemory() {
+    setDeleting(true);
     setActionError(null);
     try {
       await api.delete(`/v1/memories/${id}`);
       router.replace("/saved");
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Couldn't delete this item.");
+      setDeleting(false);
     }
   }
 
@@ -652,10 +660,30 @@ export default function SavedItemDetailScreen() {
         <Button variant="secondary" onPress={() => update({ archived: !memory.archivedAt })}>
           {memory.archivedAt ? "Unarchive" : "Archive"}
         </Button>
-        <Button variant="critical" onPress={deleteMemory}>
-          Delete
-        </Button>
+        {!confirmingDelete && (
+          <Button variant="critical" onPress={() => setConfirmingDelete(true)}>
+            Delete
+          </Button>
+        )}
       </View>
+
+      {confirmingDelete && (
+        <View style={{ backgroundColor: theme.colors.criticalSubtleBg, borderRadius: theme.radius.md, padding: 12, gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.criticalSubtleText }}>This removes this saved item and its notes, tags, and reminders. It can&apos;t be undone.</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Button variant="critical" onPress={deleteMemory} loading={deleting}>
+                Confirm delete
+              </Button>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button variant="secondary" onPress={() => setConfirmingDelete(false)}>
+                Cancel
+              </Button>
+            </View>
+          </View>
+        </View>
+      )}
     </Screen>
   );
 }
