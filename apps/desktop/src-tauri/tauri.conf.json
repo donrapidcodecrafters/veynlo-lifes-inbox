@@ -8,19 +8,10 @@
     "devUrl": "http://localhost:3000"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Veynlo",
-        "url": "http://localhost:3000",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 960,
-        "minHeight": 600
-      }
-    ],
+    "windows": [],
+    "withGlobalTauri": true,
     "security": {
-      "csp": null
+      "csp": "default-src 'self' http://localhost:3000 https://app.veynlo.com https://api.veynlo.com https://auth.veynlo.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
@@ -32,6 +23,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      { "ext": ["pdf"], "name": "PDF Document", "mimeType": "application/pdf", "description": "Send to Life Inbox" },
+      { "ext": ["png"], "name": "PNG Image", "mimeType": "image/png", "description": "Send to Life Inbox" },
+      { "ext": ["jpg", "jpeg"], "name": "JPEG Image", "mimeType": "image/jpeg", "description": "Send to Life Inbox" },
+      { "ext": ["heic"], "name": "HEIC Image", "mimeType": "image/heic", "description": "Send to Life Inbox" }
     ]
   }
 }

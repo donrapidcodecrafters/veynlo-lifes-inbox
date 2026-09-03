@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { api, ApiError, swrFetcher } from "@/lib/api-client";
+import { api, ApiError, apiErrorMessage, swrFetcher } from "@/lib/api-client";
 
 interface Merchant {
   id: string;
@@ -24,20 +24,33 @@ interface MergeLineageEntry {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-border-subtle bg-surface p-5">
+    <section className="overflow-x-auto rounded-xl border border-border-subtle bg-surface p-5">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-tertiary">{title}</h2>
       {children}
     </section>
   );
 }
 
+/** Mirrors dashboard/page.tsx's identically-named local component — this app has no shared UI kit, so
+ * each page that needs the "third branch" (distinct from loading/empty) keeps its own tiny copy. */
+function SectionFetchError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <p className="flex items-center gap-3 rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+      Couldn&apos;t load this section.
+      <button onClick={onRetry} className="font-medium underline underline-offset-2">
+        Retry
+      </button>
+    </p>
+  );
+}
+
 export default function MerchantsPage() {
-  const { data: merchants, mutate: mutateMerchants } = useSWR<Merchant[]>("/v1/admin/merchants", swrFetcher);
-  const { data: duplicateGroups, mutate: mutateDuplicates } = useSWR<Merchant[][]>(
+  const { data: merchants, error: merchantsError, mutate: mutateMerchants } = useSWR<Merchant[]>("/v1/admin/merchants", swrFetcher);
+  const { data: duplicateGroups, error: duplicatesError, mutate: mutateDuplicates } = useSWR<Merchant[][]>(
     "/v1/admin/merchants/duplicate-candidates",
     swrFetcher,
   );
-  const { data: lineage, mutate: mutateLineage } = useSWR<MergeLineageEntry[]>("/v1/admin/merchants/merge-lineage", swrFetcher);
+  const { data: lineage, error: lineageError, mutate: mutateLineage } = useSWR<MergeLineageEntry[]>("/v1/admin/merchants/merge-lineage", swrFetcher);
 
   const [survivingId, setSurvivingId] = useState("");
   const [mergedId, setMergedId] = useState("");
@@ -51,7 +64,17 @@ export default function MerchantsPage() {
     await Promise.all([mutateMerchants(), mutateDuplicates(), mutateLineage()]);
   }
 
+  // Bug fix: found live — every one-click "Merge into ..." button and the manual-merge form both fired
+  // immediately with zero confirmation, silently repointing every purchase from the merged-away merchant
+  // onto the survivor. Unlike revoking an admin or an invite (see the sibling admins/invites pages, now
+  // both fixed the same way), a merge does have a same-page Undo afterward — but the admin doesn't know
+  // that when they click, and a stray click still bulk-mutates real purchase data with no chance to back
+  // out first. Confirming here (once, so both the quick-merge buttons and the manual-ID form get it)
+  // matches the same guard every other destructive action across the web+admin apps now has.
   async function runMerge(survivingMerchantId: string, mergedMerchantId: string) {
+    const survivorLabel = merchantName(survivingMerchantId);
+    const mergedLabel = merchantName(mergedMerchantId);
+    if (!window.confirm(`Merge "${mergedLabel}" into "${survivorLabel}"? Every purchase currently attributed to "${mergedLabel}" will be repointed to "${survivorLabel}". This can be undone from Merge history afterward.`)) return;
     setMergeError(null);
     setMergeStatus(null);
     setBusy(true);
@@ -65,7 +88,7 @@ export default function MerchantsPage() {
       setMergedId("");
       await refreshAll();
     } catch (err) {
-      setMergeError(err instanceof ApiError ? err.message : "Merge failed.");
+      setMergeError(apiErrorMessage(err, "Merge failed."));
     } finally {
       setBusy(false);
     }
@@ -80,7 +103,7 @@ export default function MerchantsPage() {
       setMergeStatus(`Undone. ${result.restoredPurchaseCount} purchase(s) restored.`);
       await refreshAll();
     } catch (err) {
-      setMergeError(err instanceof ApiError ? err.message : "Undo failed.");
+      setMergeError(apiErrorMessage(err, "Undo failed."));
     } finally {
       setBusy(false);
     }
@@ -92,7 +115,8 @@ export default function MerchantsPage() {
         <p className="mb-4 text-sm text-tertiary">
           Grouped by a normalized name — a starting point to review, not an automatic merge.
         </p>
-        {!duplicateGroups && <p className="text-sm text-tertiary">Loading…</p>}
+        {!duplicateGroups && duplicatesError && <SectionFetchError onRetry={() => mutateDuplicates()} />}
+        {!duplicateGroups && !duplicatesError && <p className="text-sm text-tertiary">Loading…</p>}
         {duplicateGroups && duplicateGroups.length === 0 && (
           <p className="text-sm text-tertiary">No likely duplicates found.</p>
         )}
@@ -155,7 +179,8 @@ export default function MerchantsPage() {
       </Section>
 
       <Section title="All merchants">
-        {!merchants && <p className="text-sm text-tertiary">Loading…</p>}
+        {!merchants && merchantsError && <SectionFetchError onRetry={() => mutateMerchants()} />}
+        {!merchants && !merchantsError && <p className="text-sm text-tertiary">Loading…</p>}
         {merchants && (
           <table className="w-full text-left text-sm">
             <thead>
@@ -179,7 +204,8 @@ export default function MerchantsPage() {
       </Section>
 
       <Section title="Merge history">
-        {!lineage && <p className="text-sm text-tertiary">Loading…</p>}
+        {!lineage && lineageError && <SectionFetchError onRetry={() => mutateLineage()} />}
+        {!lineage && !lineageError && <p className="text-sm text-tertiary">Loading…</p>}
         {lineage && lineage.length === 0 && <p className="text-sm text-tertiary">No merges yet.</p>}
         {lineage && lineage.length > 0 && (
           <table className="w-full text-left text-sm">

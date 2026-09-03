@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Veynlo quick capture</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 13px;
+        background: light-dark(#ffffff, #1c1c1e);
+        color: light-dark(#111111, #f2f2f2);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+      }
+      .tabs button {
+        flex: 1;
+        padding: 6px 8px;
+        border: 1px solid light-dark(#d0d0d5, #48484a);
+        background: light-dark(#f2f2f5, #2c2c2e);
+        color: inherit;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .tabs button[aria-pressed="true"] {
+        background: light-dark(#2563eb, #3b82f6);
+        color: #ffffff;
+        border-color: transparent;
+      }
+      textarea,
+      input[type="url"] {
+        width: 100%;
+        border: 1px solid light-dark(#d0d0d5, #48484a);
+        border-radius: 6px;
+        padding: 8px;
+        font: inherit;
+        background: light-dark(#ffffff, #1c1c1e);
+        color: inherit;
+        resize: none;
+      }
+      textarea {
+        flex: 1;
+        min-height: 90px;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      button.primary {
+        padding: 6px 14px;
+        border: none;
+        border-radius: 6px;
+        background: light-dark(#2563eb, #3b82f6);
+        color: #ffffff;
+        cursor: pointer;
+        font: inherit;
+      }
+      button.primary:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      button.secondary {
+        padding: 6px 14px;
+        border: 1px solid light-dark(#d0d0d5, #48484a);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      .status {
+        min-height: 16px;
+        font-size: 12px;
+      }
+      .status.error {
+        color: #dc2626;
+      }
+      .status.success {
+        color: #16a34a;
+      }
+      .hint {
+        font-size: 11px;
+        color: light-dark(#6b7280, #9ca3af);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tabs">
+      <button id="tab-text" type="button" aria-pressed="true">Text / note</button>
+      <button id="tab-url" type="button" aria-pressed="false">Link</button>
+    </div>
+
+    <textarea id="text-input" placeholder="Paste or type anything to capture into your Life Inbox&#10;(first line becomes the subject)" autofocus></textarea>
+    <input id="url-input" type="url" placeholder="https://…" style="display: none" />
+
+    <p class="hint" id="hint">Posts to the same "Add manually" capture endpoint the web app uses.</p>
+    <p class="status" id="status"></p>
+
+    <div class="actions">
+      <button class="secondary" id="cancel-btn" type="button">Cancel (Esc)</button>
+      <button class="primary" id="submit-btn" type="button">Capture</button>
+    </div>
+
+    <!-- An external file, not an inline <script> — see capture.js's own doc comment for why (CSP). -->
+    <script src="capture.js"></script>
+  </body>
+</html>

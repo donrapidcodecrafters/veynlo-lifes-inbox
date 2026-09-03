@@ -1,41 +1,63 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api-client";
+import { useTranslations } from "next-intl";
+import { api, apiErrorMessage } from "@/lib/api-client";
+import { useAdminSession } from "@/hooks/use-admin-session";
 
 export default function AdminSignInPage() {
   const router = useRouter();
+  const t = useTranslations("signIn");
+  const { isAuthenticated, isLoading: isSessionLoading, refresh } = useAdminSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Mirrors the root page's own redirect: an already-signed-in admin who lands here (bookmark, back
+  // button, typed URL) should bounce straight to the dashboard instead of being shown the form again.
+  useEffect(() => {
+    if (!isSessionLoading && isAuthenticated) router.replace("/dashboard");
+  }, [isAuthenticated, isSessionLoading, router]);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!email.trim() || !password) {
+      setError(t("missingFields"));
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       await api.post("/v1/admin/auth/sign-in", { email, password });
+      // This page's own useAdminSession() call above already populated the shared SWR cache for
+      // /v1/admin/me with an unauthenticated result before sign-in. Without forcing a revalidation here,
+      // the dashboard layout's useAdminSession() call would read that stale cached (signed-out) result
+      // inside SWR's dedupingInterval window and immediately bounce back to /sign-in — same reason
+      // dashboard/layout.tsx's own signOut() calls refresh() before navigating away.
+      await refresh();
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong.");
+      setError(apiErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }
 
+  if (isSessionLoading || isAuthenticated) return null;
+
   return (
     <div className="flex min-h-dvh items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-[380px] rounded-xl border border-border-subtle bg-surface p-6 shadow-sm">
         <div className="mb-6">
-          <p className="text-lg font-semibold text-primary">Veynlo Admin</p>
-          <p className="mt-1 text-sm text-tertiary">Internal support console — audited access only.</p>
+          <p className="text-lg font-semibold text-primary">{t("title")}</p>
+          <p className="mt-1 text-sm text-tertiary">{t("subtitle")}</p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
           <div>
             <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-secondary">
-              Email
+              {t("emailLabel")}
             </label>
             <input
               id="email"
@@ -49,7 +71,7 @@ export default function AdminSignInPage() {
           </div>
           <div>
             <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-secondary">
-              Password
+              {t("passwordLabel")}
             </label>
             <input
               id="password"
@@ -71,12 +93,13 @@ export default function AdminSignInPage() {
             disabled={loading}
             className="h-10 w-full rounded-lg bg-brand text-[0.9375rem] font-medium text-on-brand hover:bg-brand-hover disabled:opacity-50"
           >
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? t("submitting") : t("submit")}
           </button>
         </form>
         <p className="mt-4 text-xs text-tertiary">
-          No account? Operator accounts are provisioned by an existing superadmin via the{" "}
-          <code className="rounded bg-subtle px-1 py-0.5">create-admin</code> script.
+          {t.rich("noAccountNotice", {
+            code: (chunks) => <code className="rounded bg-subtle px-1 py-0.5">{chunks}</code>,
+          })}
         </p>
       </div>
     </div>

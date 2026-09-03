@@ -4,8 +4,10 @@
   <body>
     <p>
       This file is a required placeholder for Tauri's bundler. The desktop
-      app's window loads the real Veynlo web app (see tauri.conf.json's
-      app.windows[0].url) instead of this file.
+      app's window loads the real Veynlo web app instead of this file — see
+      src-tauri/src/lib.rs, which builds the window's URL at runtime
+      (localhost:3000 for `tauri dev`, the deployed web app URL for a real
+      release build).
     </p>
   </body>
 </html>

@@ -12,6 +12,25 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# "tray-icon" enables tauri::tray::TrayIconBuilder / tauri::menu — the native macOS menu-bar/Windows
+# system-tray icon (DSK-002 "menu-bar/tray... opens tiny capture window").
+tauri = { version = "2", features = ["tray-icon"] }
+# DSK-002 "hotkey capture" — global (OS-wide, works even when Veynlo isn't focused) keyboard shortcut
+# registration. Its own permission model is empty-by-default (see its permissions/default.toml) since
+# we only ever call it from Rust (app.global_shortcut()...), never expose it to the webview via invoke(),
+# so no capabilities/*.json grant is needed for it.
+tauri-plugin-global-shortcut = "2"
+# DSK-006 "native notifications mirror policy engine" — app.notification().builder()...show() is a pure
+# Rust-side API (see NotificationExt), never invoked from the webview, so likewise needs no capability grant.
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Used for the quick-capture window's POST to the existing ingestion API and for uploading a
+# dropped/file-associated document — a plain HTTP client, not a browser fetch(), so it is never subject
+# to the API's CORS allowlist (services/api/src/main.ts's app.enableCors only governs browser requests).
+# The session cookie is forwarded explicitly (see lib.rs's session_cookie_header) rather than relying on
+# an in-process cookie jar, since this is a one-shot client per call, not a persistent session.
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+# Only `time` is needed directly (tokio::time::sleep for the notification-poll loop) — everything else
+# (spawn, the runtime itself) is already driven by tauri::async_runtime, which is tokio under the hood.
+tokio = { version = "1", features = ["time"] }

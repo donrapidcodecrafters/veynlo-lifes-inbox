@@ -59,6 +59,34 @@
   --shadow-lg: var(--shadow-token-lg);
 }
 
+/*
+ * Tailwind v4's `@theme inline` maps `--color-{name}` to a `{utility}-{name}` class (e.g. `--color-brand`
+ * -> `.bg-brand`/`.text-brand`). Tokens named `--color-text-*` collide with the `text-*` utility's own
+ * prefix and never generate a real `.text-primary`/`.text-secondary`/etc. class (confirmed empty in the
+ * compiled output) — `text-primary` looked fine only by coincidence, since it matches the `body` color
+ * below; `text-secondary`/`text-tertiary`/`text-disabled`/`text-inverse`/`text-on-brand` were silently
+ * inheriting the wrong color everywhere they were used. Defined explicitly here so they work regardless
+ * of Tailwind's generation, rather than renaming the token (which every consumer already relies on).
+ */
+.text-primary {
+  color: var(--text-primary);
+}
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+.text-disabled {
+  color: var(--text-disabled);
+}
+.text-inverse {
+  color: var(--text-inverse);
+}
+.text-on-brand {
+  color: var(--text-on-brand);
+}
+
 html,
 body {
   padding: 0;
