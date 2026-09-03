@@ -21,9 +21,18 @@ android/build/
 android/.gradle/
 *.pem
 *.key
+*.p8
 .expo/
 apps/mobile/.expo/
 infrastructure/docker/volumes/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/schemas/
 !apps/desktop/dist/
+/backups/
+*.dump
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/blob-report/
+# Throwaway scripts/session dumps (cookies, auth state) from ad hoc QA passes — never real app code, and a
+# session-state JSON here can carry a live cookie/token, so this must never be committed.
+.guide-scratch/
