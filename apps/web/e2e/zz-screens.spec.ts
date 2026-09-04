@@ -29,11 +29,16 @@ const ROUTES = [
   "/settings/sharing/caregiver-passes", "/settings/sharing/legacy-release",
 ];
 
+// Every viewport is captured in BOTH themes. The first version covered tablet and mobile in light only,
+// which is exactly the substitution the audit rules forbid: a layout verified in one theme routinely
+// breaks in the other, and "it's shared code so dark must be fine" is not evidence.
 const VARIANTS = [
   { dir: "web-desktop-light", width: 1280, height: 900, scheme: "light" as const },
   { dir: "web-desktop-dark", width: 1280, height: 900, scheme: "dark" as const },
-  { dir: "web-tablet-768", width: 768, height: 1024, scheme: "light" as const },
-  { dir: "web-mobile-390", width: 390, height: 844, scheme: "light" as const },
+  { dir: "web-tablet-768-light", width: 768, height: 1024, scheme: "light" as const },
+  { dir: "web-tablet-768-dark", width: 768, height: 1024, scheme: "dark" as const },
+  { dir: "web-mobile-390-light", width: 390, height: 844, scheme: "light" as const },
+  { dir: "web-mobile-390-dark", width: 390, height: 844, scheme: "dark" as const },
 ];
 
 const slug = (route: string) => (route === "/" ? "root" : route.replace(/^\//, "").replace(/\//g, "_"));

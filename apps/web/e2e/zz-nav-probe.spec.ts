@@ -17,7 +17,7 @@ test("enumerate navs at 390px", async ({ page }) => {
   await page.waitForURL((u) => !u.pathname.startsWith("/sign-in"), { timeout: 30_000 });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/lists");
+  await page.goto("/timeline");
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(1000);
 

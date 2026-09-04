@@ -18,6 +18,7 @@ interface TimelineItem {
     | "purchase"
     | "bill"
     | "document"
+    | "task"
     | "return_case"
     | "warranty"
     | "school_event"
@@ -43,6 +44,11 @@ const KIND_ROUTE: Record<TimelineItem["kind"], (resourceId: string) => string> =
   return_case: (id) => `/return-case/${id}`,
   warranty: (id) => `/warranty/${id}`,
   document: () => `/documents`, // no per-document detail screen exists yet — the list is the closest real destination
+  // Tasks surface on /life; there is no per-task detail screen. This kind was MISSING from all three maps
+  // on BOTH platforms while the API has always been able to return it, so `KIND_ROUTE[item.kind]` was
+  // undefined and calling it threw during render, taking the whole screen down. Any account with even one
+  // task hit it — it stayed hidden only because the demo seed created no tasks.
+  task: () => `/life`,
   school_event: () => `/life`,
   trip_segment: (tripId) => `/trip/${tripId}`,
   pet_vaccination: (petId) => `/pet/${petId}`,
@@ -61,6 +67,7 @@ const KIND_LABEL: Record<TimelineItem["kind"], string> = {
   purchase: "Purchase",
   bill: "Bill",
   document: "Document",
+  task: "Task",
   return_case: "Return",
   warranty: "Warranty",
   school_event: "School",
@@ -78,6 +85,7 @@ const KIND_TONE: Record<TimelineItem["kind"], "brand" | "positive" | "warning" |
   purchase: "positive",
   bill: "warning",
   document: "neutral",
+  task: "brand",
   return_case: "critical",
   warranty: "neutral",
   school_event: "brand",
@@ -180,10 +188,10 @@ export default function TimelineScreen() {
               <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{day}</Text>
               <View style={{ gap: 8 }}>
                 {dayItems.map((item) => (
-                  <Pressable accessibilityRole="button" key={`${item.kind}-${item.id}`} onPress={() => router.push(KIND_ROUTE[item.kind](item.resourceId))}>
+                  <Pressable accessibilityRole="button" key={`${item.kind}-${item.id}`} onPress={() => router.push((KIND_ROUTE[item.kind] ?? (() => "/life"))(item.resourceId))}>
                     <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 }}>
-                        <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
+                        <Badge tone={KIND_TONE[item.kind] ?? "neutral"}>{KIND_LABEL[item.kind] ?? "Item"}</Badge>
                         <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary, flexShrink: 1 }} numberOfLines={2}>
                           {item.title}
                         </Text>
