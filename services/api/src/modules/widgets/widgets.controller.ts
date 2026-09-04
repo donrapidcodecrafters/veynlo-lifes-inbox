@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Put, Query, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Inject, Param, Put, Query, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -20,8 +20,24 @@ import { WidgetKindParamSchema, SetWidgetPreferenceDtoSchema, LogAppIntentDtoSch
 export class WidgetDeepLinkController {
   @Get("resolve")
   resolveDeepLink(@Query() query: unknown) {
-    const { token } = ResolveDeepLinkQuerySchema.parse(query);
-    const resource = verifySignedDeepLink(token);
+    // `safeParse` + an explicit BadRequestException, not `.parse()`: a bare `.parse()` throws a raw
+    // ZodError, which Nest does not map to a status, so this route answered a request with no `token` —
+    // i.e. the most obvious way anyone probes it — with a 500 instead of a 400. This is an UNAUTHENTICATED
+    // endpoint (see the class doc above), so that was reachable by anyone. Found by hitting it live during
+    // the audit, not by reading it.
+    //
+    // The shared ZodValidationPipe cannot be used here: it deliberately ignores anything whose
+    // `metadata.type` isn't "body", so it would let this query through unvalidated. The error shape below
+    // matches the one that pipe emits.
+    const parsed = ResolveDeepLinkQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Request query failed validation.",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      });
+    }
+    const resource = verifySignedDeepLink(parsed.data.token);
     if (!resource) return { valid: false as const };
     return { valid: true as const, resourceType: resource.resourceType, resourceId: resource.resourceId };
   }
@@ -49,7 +65,19 @@ export class WidgetsController {
   @Put("preferences/:widgetKind")
   @UsePipes(new ZodValidationPipe(SetWidgetPreferenceDtoSchema))
   async setPreference(@CurrentUser() user: AuthenticatedUser, @Param("widgetKind") widgetKindRaw: string, @Body() dto: SetWidgetPreferenceDto) {
-    const { widgetKind } = WidgetKindParamSchema.parse({ widgetKind: widgetKindRaw });
+    // Same reasoning as resolveDeepLink above: a bare `.parse()` throws a raw ZodError that Nest turns
+    // into a 500, so an unrecognised :widgetKind answered with a server error rather than a 400. Lower
+    // severity than the deep-link route (this one is behind AuthGuard) but the same defect, and this was
+    // the only other occurrence of the pattern in any controller.
+    const parsedKind = WidgetKindParamSchema.safeParse({ widgetKind: widgetKindRaw });
+    if (!parsedKind.success) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Unknown widget kind.",
+        fieldErrors: parsedKind.error.flatten().fieldErrors,
+      });
+    }
+    const { widgetKind } = parsedKind.data;
     await this.widgets.setPreference(user.userId, widgetKind, dto);
     return { ok: true };
   }

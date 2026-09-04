@@ -738,8 +738,11 @@ export default function ConnectionsPage() {
                       <p className="mt-1 break-all text-xs text-tertiary">Granted access: {c.scopes.join(", ")}</p>
                     )}
                   </div>
+                  {/* The button row is intentionally NOT shrink-0: these three buttons total ~390px, so
+                      pinning them to one unshrinkable row pushed "Disconnect & delete data" 15px past a
+                      390px viewport. Wrapping stacks them on narrow screens, inline on wide ones. */}
                   {confirmingDeleteId !== c.id && (
-                    <div className="flex shrink-0 gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button
                         variant="ghost"
                         size="sm"

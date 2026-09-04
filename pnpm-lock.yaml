@@ -293,6 +293,9 @@ importers:
       '@veynlo/core':
         specifier: workspace:*
         version: link:../core
+      argon2:
+        specifier: ^0.41.1
+        version: 0.41.1
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@types/pg@8.23.1)(@types/react@19.2.18)(pg@8.23.0)(react@19.2.3)
