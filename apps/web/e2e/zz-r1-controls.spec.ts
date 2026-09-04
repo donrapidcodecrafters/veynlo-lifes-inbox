@@ -27,6 +27,35 @@ const SHOT_ROOT = path.resolve(__dirname, "../../../.claude/audit-screenshots");
 const CONTROL_DIR = path.join(SHOT_ROOT, "web-controls");
 const RESULT_DIR = path.join(SHOT_ROOT, "_results");
 
+/**
+ * Restore the mutable state the sweep itself consumes, so every control is exercised from identical
+ * conditions.
+ *
+ * Without this the sweep destroys its own fixtures as it goes: clicking "Mark handled" resolves an
+ * attention item and REMOVES its card, which shifts every later control's index, so `nth(i)` silently
+ * targets the wrong element or nothing at all. That produced 49 "control no longer present after reload"
+ * results in the previous run — every one an artifact of this harness, not an app defect. Proven rather
+ * than assumed: the database showed 3 of 4 attention items flipped to resolved=true by the sweep.
+ *
+ * Deliberately scoped to the demo user and to the columns the UI actually flips. It is a reset, not a
+ * re-seed: rows are never deleted or recreated, so ids stay stable and nothing else in the audit shifts
+ * underneath it.
+ */
+const DEMO_USER_ID = "usr_demo_alex";
+const DB_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
+
+async function resetMutableState(): Promise<void> {
+  const { Pool } = require("pg") as typeof import("pg");
+  const pool = new Pool({ connectionString: DB_URL, max: 2 });
+  try {
+    await pool.query(`UPDATE attention_items SET resolved = false, dismissed_reason = NULL WHERE owner_user_id = $1`, [DEMO_USER_ID]);
+    await pool.query(`UPDATE inbox_items SET review_state = 'new', snoozed_until = NULL WHERE owner_user_id = $1`, [DEMO_USER_ID]);
+    await pool.query(`UPDATE tasks SET state = 'open', snoozed_until = NULL WHERE owner_user_id = $1 AND id LIKE 'tsk_seed_%' AND id <> 'tsk_seed_done'`, [DEMO_USER_ID]);
+  } finally {
+    await pool.end();
+  }
+}
+
 const DEMO_EMAIL = "alex@example.com";
 const DEMO_PASSWORD = "Demo-Password-1";
 
@@ -102,6 +131,11 @@ for (const route of ROUTES) {
       await page.waitForTimeout(700);
     };
 
+    // Reset before the FIRST load too, not just between controls. The initial enumeration below decides
+    // how many controls this route has, and a previous run leaves attention/inbox rows consumed — so
+    // without this the sweep enumerates a depleted screen and quietly reports a smaller denominator
+    // (/home came back with 7 controls instead of 20 for exactly this reason).
+    await resetMutableState().catch(() => {});
     await page.goto(route, { timeout: 20_000 });
     await settle();
 
@@ -133,6 +167,9 @@ for (const route of ROUTES) {
       // Re-navigate before every control so each one is exercised from the same known-good state. Without
       // this, control N is interacting with whatever mess control N-1 left behind (an open modal, a
       // filtered list), and a failure can't be attributed to the control that actually caused it.
+      // Reset BEFORE the reload, so the page renders the restored rows. Resetting after would leave the
+      // already-rendered DOM one control short and reintroduce the index drift this exists to prevent.
+      await resetMutableState().catch(() => {});
       await page.goto(route, { timeout: 20_000 }).catch(() => {});
       await settle();
 

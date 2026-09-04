@@ -372,12 +372,81 @@ export async function seedCoverage(db: Db, ctx: CoverageContext): Promise<void> 
     )
     .onConflictDoNothing();
 
+  // Deliberate near-duplicates, one per mergeable domain.
+  //
+  // The four /life/*/merge screens read a merge-candidates endpoint, and with a clean seed that endpoint
+  // returns 0 — so every merge screen rendered an empty state with zero controls and the whole merge/
+  // unmerge flow was untestable. These rows exist purely to give those screens real candidates: each is
+  // a plausible near-duplicate of an existing record, the way a second import or a slightly different
+  // spelling would actually arrive, rather than an exact copy.
+  await db
+    .insert(schema.people)
+    .values({
+      id: "per_seed_mom_dupe",
+      ownerUserId: userId,
+      householdId,
+      displayName: "Carol A. Rivera",
+      relationshipLabel: "parent",
+      isImportant: false,
+      visibility: "household",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(schema.petProfiles)
+    .values({
+      id: "pet_seed_dog_dupe",
+      ownerUserId: userId,
+      householdId,
+      label: "Biscuit ",
+      species: "dog",
+      breed: "Lab mix",
+      lifecycleStatus: "active",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(schema.propertyProfiles)
+    .values({
+      id: "prp_seed_home_dupe",
+      ownerUserId: userId,
+      householdId,
+      label: "Home ",
+      propertyType: "home",
+      // Same address as prp_seed_home. Property matching keys on the address, not the label — a differently
+      // worded address ("Elmwood Avenue" vs "Elmwood Ave") is NOT treated as a duplicate.
+      address: "1428 Elmwood Ave, Oak Park, IL 60302",
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(schema.vehicleProfiles)
+    .values({
+      id: "veh_seed_outback_dupe",
+      ownerUserId: userId,
+      householdId,
+      label: "Subaru Outback",
+      make: "Subaru",
+      model: "Outback",
+      year: 2019,
+      // Same VIN as veh_seed_outback — the VIN is the identity, and two rows sharing one is precisely
+      // what a duplicate import looks like.
+      vin: "4S4BSANC5K3300000",
+    })
+    .onConflictDoNothing();
+
   await db
     .insert(schema.aliases)
     .values([
       { id: "als_seed_jordan_email", personId: "per_seed_jordan", ownerUserId: userId, kind: "email", value: "jordan@example.com" },
       { id: "als_seed_mom_phone", personId: "per_seed_mom", ownerUserId: userId, kind: "phone", value: "+1-608-555-0142" },
       { id: "als_seed_patel_name", personId: "per_seed_patel", ownerUserId: userId, kind: "name_variant", value: "Anita Patel DDS" },
+      // Same phone number as als_seed_mom_phone above. People merge-candidate matching is precision-first:
+      // it keys on a SHARED email or phone alias and deliberately never matches on name similarity alone,
+      // so "Carol A. Rivera" vs "Carol Rivera" is correctly not a duplicate on its own. This shared phone
+      // is what actually makes the pair a candidate, and it mirrors how a real duplicate arrives — the
+      // same contact imported twice under slightly different names.
+      { id: "als_seed_mom_dupe_phone", personId: "per_seed_mom_dupe", ownerUserId: userId, kind: "phone", value: "+1-608-555-0142" },
     ])
     .onConflictDoNothing();
 
@@ -623,6 +692,30 @@ export async function seedCoverage(db: Db, ctx: CoverageContext): Promise<void> 
   await db
     .insert(schema.legacyReleaseConfigs)
     .values({ id: "lrc_seed", ownerUserId: userId, householdId, trustedContactEmail: "carol@example.com", categories: ["documents", "identity", "insurance"], waitingPeriodDays: 14, inactivityThresholdDays: 90, status: "confirmed", confirmedAt: day(-60) })
+    .onConflictDoNothing();
+
+  // Share links and grants — found missing when the Android Sharing screen rendered "Nothing shared yet"
+  // on both halves despite the rest of the seed being populated. Without these the whole sharing surface
+  // is an empty state on every platform, so none of its controls, revoke flows or access badges can be
+  // exercised. Token hashes are placeholders and are NOT redeemable: a working token would mean seeding a
+  // real credential that grants access to the household, which is not something a dev seed should mint.
+  await db
+    .insert(schema.shareLinks)
+    .values([
+      { id: "shl_seed_doc", resourceType: "document", resourceId: "doc_seed_insurance", tokenHash: "seed-not-a-valid-share-token-doc", createdByUserId: userId, expiresAt: day(14) },
+      // Already expired, so the expired/inactive presentation has a row behind it too.
+      { id: "shl_seed_list", resourceType: "list", resourceId: "lst_seed_grocery", tokenHash: "seed-not-a-valid-share-token-list", createdByUserId: userId, expiresAt: day(-3) },
+    ])
+    .onConflictDoNothing();
+
+  // Granted TO the partner, so "Shared by me" is populated for Alex and "Shared with me" for Jordan —
+  // both halves of the screen need data or only one of them is ever verifiable.
+  await db
+    .insert(schema.resourceGrants)
+    .values([
+      { id: "rgr_seed_doc", resourceType: "document", resourceId: "doc_seed_medical", granteeUserId: partnerUserId, right: "view", message: "Maya's immunization record for the school form.", grantedByUserId: userId },
+      { id: "rgr_seed_place", resourceType: "place", resourceId: "plc_seed_vet", granteeUserId: partnerUserId, right: "edit", grantedByUserId: userId },
+    ])
     .onConflictDoNothing();
 
   await db
