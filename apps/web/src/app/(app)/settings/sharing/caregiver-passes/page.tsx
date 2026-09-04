@@ -130,12 +130,23 @@ export default function CaregiverDayPassesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-secondary">What to include</label>
-                  <div className="flex flex-wrap gap-2">
+                  <label id="daypass-scopes-label" className="mb-1 block text-xs font-medium text-secondary">
+                    What to include
+                  </label>
+                  {/* Multi-select toggles, so each needs `aria-pressed`. Without it the ONLY signal that a
+                      scope was selected was the brand colour in the class list: assistive tech announced
+                      all five identically as plain buttons, leaving a screen-reader user no way to tell
+                      what a caregiver pass actually grants before creating it. Colour-only state is also
+                      explicitly disallowed by the project's accessibility rules. Verified by DOM
+                      inspection rather than assumed — aria-pressed and role were both null while the
+                      class updated correctly on click, so the control worked and only its state was
+                      unreadable. */}
+                  <div className="flex flex-wrap gap-2" role="group" aria-labelledby="daypass-scopes-label">
                     {SCOPE_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
+                        aria-pressed={scopes.includes(opt.value)}
                         onClick={() => toggleScope(opt.value)}
                         className={`rounded-full border px-3 py-1 text-xs ${
                           scopes.includes(opt.value) ? "border-brand-default bg-brand-subtle text-brand-subtle-text" : "border-border-default text-tertiary"
