@@ -594,7 +594,7 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
   );
 }
 
-function HouseholdInviteStep({ onAdvance, onSkip }: { onAdvance: () => void; onSkip: () => void }) {
+function HouseholdInviteStep({ onAdvance, onSkip: _onSkip }: { onAdvance: () => void; onSkip: () => void }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

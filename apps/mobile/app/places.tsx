@@ -136,7 +136,11 @@ export default function PlacesScreen() {
       <ScreenHeader title="Saved places" subtitle="Home, work, family, or anywhere you want a reminder for" />
 
       <Card style={{ gap: 8 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        {/* `flexWrap` matters here: the worst-case badge string is "undetermined / background undetermined",
+            which is far too wide to sit beside the label on a phone. Badge is deliberately a single-line pill
+            (see its own comment), so the row has to reflow instead — otherwise the badge is clipped off the
+            right edge of the screen, which is what happened before. */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>Location permission</Text>
           <Badge tone={permission?.foreground === "granted" ? "positive" : "neutral"}>
             {permission ? `${permission.foreground} / background ${permission.background}` : "unknown"}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { api, ApiError, apiErrorMessage, swrFetcher } from "@/lib/api-client";
+import { api, apiErrorMessage, swrFetcher } from "@/lib/api-client";
 
 interface UserLookupResult {
   id: string;

@@ -1,5 +1,17 @@
+import * as argon2 from "argon2";
+import { eq } from "drizzle-orm";
 import { createDbClient } from "../client";
 import * as schema from "../schema";
+import { seedCoverage } from "./coverage";
+
+/**
+ * Fixed, well-known local password for the demo accounts. Without a passwordHash these users existed in
+ * the database but could not sign in, which made the whole seed useless for UI testing — every screen
+ * had to be exercised as a brand-new empty account instead, where you cannot tell "this control is
+ * broken" apart from "there is simply no data here". Dev-only by construction: this script hard-codes a
+ * local dev connection string and is never pointed at a real environment.
+ */
+export const DEMO_PASSWORD = "Demo-Password-1";
 
 /**
  * Realistic local/demo seed data — one household, two adults, a handful of
@@ -544,7 +556,19 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // Both demo users get a real, usable password. Done as an explicit update AFTER the insert because the
+  // insert uses onConflictDoNothing — on a re-run against an already-seeded database that insert is a
+  // no-op, so a hash attached only to the insert would never actually land.
+  const demoPasswordHash = await argon2.hash(DEMO_PASSWORD);
+  for (const id of [userId, partnerUserId]) {
+    await db.update(schema.users).set({ passwordHash: demoPasswordHash }).where(eq(schema.users.id, id));
+  }
+
+  await seedCoverage(db, { userId, partnerUserId, householdId, now });
+
   console.log("Seed complete.");
+  console.log("  Sign in as: alex@example.com / " + DEMO_PASSWORD);
+  console.log("  Partner:    jordan@example.com / " + DEMO_PASSWORD);
   process.exit(0);
 }
 

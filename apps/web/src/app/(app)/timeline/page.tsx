@@ -16,6 +16,7 @@ interface TimelineItem {
     | "purchase"
     | "bill"
     | "document"
+    | "task"
     | "return_case"
     | "warranty"
     | "school_event"
@@ -35,11 +36,19 @@ interface TimelineResponse {
   nextCursor: string | null;
 }
 
+// These three maps are keyed by a union type, but their keys arrive from the API at runtime, so
+// TypeScript cannot actually guarantee a match. Every read below is therefore done defensively with a
+// fallback rather than indexed directly: a direct `KIND_HREF[item.kind](...)` on an unrecognised kind
+// threw "p[e.kind] is not a function" mid-render, React unmounted the whole tree including the (app)
+// layout, and the route became a bare "Application error" page with no content and — on mobile — no
+// bottom nav, stranding the user. The server introducing a new timeline kind must degrade to a plain
+// row, never break the screen.
 const KIND_LABEL: Record<TimelineItem["kind"], string> = {
   calendar_event: "Event",
   purchase: "Purchase",
   bill: "Bill",
   document: "Document",
+  task: "Task",
   return_case: "Return",
   warranty: "Warranty",
   school_event: "School",
@@ -55,6 +64,7 @@ const KIND_TONE: Record<TimelineItem["kind"], "info" | "positive" | "warning" | 
   purchase: "positive",
   bill: "warning",
   document: "neutral",
+  task: "info",
   return_case: "critical",
   warranty: "neutral",
   school_event: "info",
@@ -76,6 +86,13 @@ const KIND_HREF: Record<TimelineItem["kind"], (resourceId: string) => string> = 
   return_case: (id) => `/life/returns/${id}`,
   warranty: (id) => `/life/warranties/${id}`,
   document: () => `/documents`, // no per-document detail page exists yet — the list is the closest real destination
+  // Tasks surface on /life; there is no per-task detail route. This kind was MISSING from all three maps
+  // while the API has always been able to return it, so `KIND_HREF[item.kind]` was undefined and calling
+  // it threw "p[e.kind] is not a function" during render. React then unmounted the entire tree including
+  // the (app) layout, so the whole page became "Application error: a client-side exception has occurred"
+  // — no content and, on mobile, no bottom nav, leaving the user with no way out of the screen.
+  // Any account with even one task hit this; it only stayed hidden because the demo seed created none.
+  task: () => `/life`,
   school_event: () => `/life`,
   trip_segment: (tripId) => `/trips/${tripId}`,
   pet_vaccination: (petId) => `/life/pets/${petId}`,
@@ -174,7 +191,7 @@ export default function TimelinePage() {
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-tertiary">{day}</h2>
               <div className="space-y-2">
                 {dayItems.map((item) => (
-                  <Link key={`${item.kind}-${item.id}`} href={KIND_HREF[item.kind](item.resourceId)}>
+                  <Link key={`${item.kind}-${item.id}`} href={(KIND_HREF[item.kind] ?? (() => "/life"))(item.resourceId)}>
                     <Card className="transition-colors hover:bg-subtle">
                       <CardBody className="flex items-center justify-between gap-3 py-3">
                         {/* Found live: a document with a long, space-less filename (a real upload, not
@@ -184,7 +201,7 @@ export default function TimelinePage() {
                             edge instead of truncating. `min-w-0` lets the flex item shrink below its
                             content's natural width so `truncate` on the title itself can actually clip it. */}
                         <div className="flex min-w-0 items-center gap-3">
-                          <Badge tone={KIND_TONE[item.kind]}>{KIND_LABEL[item.kind]}</Badge>
+                          <Badge tone={KIND_TONE[item.kind] ?? "neutral"}>{KIND_LABEL[item.kind] ?? "Item"}</Badge>
                           <p className="truncate text-sm font-medium text-primary" title={item.title}>{item.title}</p>
                         </div>
                         <p className="shrink-0 text-xs text-tertiary">

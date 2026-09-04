@@ -360,7 +360,7 @@ export default function PropertyDetailScreen() {
         </View>
         {homeAssets.length === 0 && !addingAsset && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>No systems or appliances tracked yet.</Text>}
         {homeAssets.map((a) => {
-          const openAssetRecalls = a.recalls.filter((r) => r.status !== "closed_or_repaired");
+          const _openAssetRecalls = a.recalls.filter((r) => r.status !== "closed_or_repaired");
           return (
             <View key={a.id} style={{ gap: 4, paddingVertical: 6, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>

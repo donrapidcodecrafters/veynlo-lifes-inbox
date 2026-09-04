@@ -150,7 +150,6 @@ const HOME_TABS = [
   { value: "money_at_risk", label: "Money at risk & savings" },
   { value: "family_today", label: "Household — Today" },
 ] as const;
-type HomeTab = (typeof HOME_TABS)[number]["value"];
 
 export default function HomeScreen() {
   const { theme } = useAppTheme();

@@ -1,25 +1,31 @@
 import { useEffect, useState } from "react";
 import { Redirect, Tabs } from "expo-router";
-import { ActivityIndicator, Text, View, type ColorValue } from "react-native";
+import { ActivityIndicator, View, type ColorValue } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/theme-context";
 import { api } from "@/lib/api-client";
 
-function TabIcon({ label, focused, color }: { label: string; focused: boolean; color: ColorValue }) {
+function TabIcon({ name, focused, color }: { name: keyof typeof Ionicons.glyphMap; focused: boolean; color: ColorValue }) {
   return (
-    // React Navigation's bottom tab bar already gives each tab button its own accessibilityLabel/role/
-    // selected-state derived from the screen's `title` (see @react-navigation/bottom-tabs' BottomTabItem),
-    // so this emoji glyph is purely decorative chrome next to that spoken label — without hiding it,
-    // VoiceOver/TalkBack would announce the raw emoji name ("house emoji") on top of "Home, tab, 1 of 5".
-    <Text
-      style={{ fontSize: 11, fontWeight: focused ? "700" : "500", color }}
+    // A real vector glyph, not an emoji character. These were previously emoji rendered as <Text> with a
+    // `color` style — which fails twice over: emoji are color glyphs that ignore a tint (so the
+    // active/inactive tintColor above did nothing), and when the platform font can't render one the OS
+    // substitutes a placeholder box. That is exactly what happened on iOS, where all five tabs showed "?".
+    // "🗂️" was the most fragile of them, carrying a U+FE0F variation selector with inconsistent support.
+    //
+    // React Navigation's bottom tab bar already derives each button's accessibilityLabel/role/selected
+    // state from the screen's `title` (see @react-navigation/bottom-tabs' BottomTabItem), so the icon is
+    // purely decorative chrome next to that spoken label — hidden from screen readers so VoiceOver/TalkBack
+    // doesn't announce the icon on top of "Home, tab, 1 of 5".
+    <Ionicons
+      name={focused ? name : (`${name}-outline` as keyof typeof Ionicons.glyphMap)}
+      size={24}
+      color={color as string}
       importantForAccessibility="no"
       accessibilityElementsHidden
-      maxFontSizeMultiplier={1.3}
-    >
-      {label}
-    </Text>
+    />
   );
 }
 
@@ -67,23 +73,23 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: t("home"), tabBarIcon: ({ focused, color }) => <TabIcon label="🏠" focused={focused} color={color} /> }}
+        options={{ title: t("home"), tabBarIcon: ({ focused, color }) => <TabIcon name="home" focused={focused} color={color} /> }}
       />
       <Tabs.Screen
         name="inbox"
-        options={{ title: t("inbox"), tabBarIcon: ({ focused, color }) => <TabIcon label="📥" focused={focused} color={color} /> }}
+        options={{ title: t("inbox"), tabBarIcon: ({ focused, color }) => <TabIcon name="file-tray" focused={focused} color={color} /> }}
       />
       <Tabs.Screen
         name="ask"
-        options={{ title: t("ask"), tabBarIcon: ({ focused, color }) => <TabIcon label="💬" focused={focused} color={color} /> }}
+        options={{ title: t("ask"), tabBarIcon: ({ focused, color }) => <TabIcon name="chatbubble" focused={focused} color={color} /> }}
       />
       <Tabs.Screen
         name="life"
-        options={{ title: t("life"), tabBarIcon: ({ focused, color }) => <TabIcon label="🗂️" focused={focused} color={color} /> }}
+        options={{ title: t("life"), tabBarIcon: ({ focused, color }) => <TabIcon name="albums" focused={focused} color={color} /> }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ title: t("settings"), tabBarIcon: ({ focused, color }) => <TabIcon label="⚙️" focused={focused} color={color} /> }}
+        options={{ title: t("settings"), tabBarIcon: ({ focused, color }) => <TabIcon name="settings" focused={focused} color={color} /> }}
       />
     </Tabs>
   );
