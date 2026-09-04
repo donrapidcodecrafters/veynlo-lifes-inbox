@@ -21,6 +21,12 @@ const WEB_BASE_URL = process.env.E2E_WEB_URL ?? "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./e2e",
+  // The zz-* specs are audit tooling, not product tests: they drive the SEEDED demo account
+  // (alex@example.com, created by `pnpm db:seed`), write several hundred screenshots into
+  // .claude/audit-screenshots, and reset database rows directly. CI neither seeds that account nor wants
+  // that output, so they are excluded from the default suite and run explicitly on the machine doing the
+  // audit:  npx playwright test e2e/zz-<name>.spec.ts
+  testIgnore: "**/zz-*.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
