@@ -1749,7 +1749,10 @@ export default function LifePage() {
           <h1 className="text-2xl font-semibold tracking-tight text-primary">Life</h1>
           <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows you own, owe, and are due back.</p>
         </div>
-        <div className="flex gap-2">
+        {/* `flex-wrap` is load-bearing, not cosmetic: these five quick links are 402px wide laid out on one
+            line, so without it they overflow a 390px phone viewport by 28px and give the whole Life page a
+            horizontal scrollbar. Every other chip row on this page already wraps. */}
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/timeline"
             className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
