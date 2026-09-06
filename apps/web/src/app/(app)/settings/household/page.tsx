@@ -678,23 +678,41 @@ function TransferOwnershipButton({
   onTransferred: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The try/finally here had no catch, so a rejected transfer was completely silent: the spinner stopped
+   * and nothing else happened. The user could not distinguish a refused transfer from a successful one —
+   * on an action that hands over control of the household. That failure path is reachable rather than
+   * theoretical (a stale target membership, or a permissions change since the page loaded), and this is
+   * the same defect class as the preferred-name Save.
+   */
   async function onTransfer() {
     if (!membership.userId) return;
     if (!window.confirm(`Make ${membership.relationshipLabel || "this member"} the household owner? You'll become an adult member.`)) return;
     setLoading(true);
+    setError(null);
     try {
       await api.post(`/v1/households/${householdId}/transfer-ownership`, { targetUserId: membership.userId });
       onTransferred();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't transfer ownership. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <Button variant="ghost" size="sm" loading={loading} onClick={onTransfer}>
-      Make owner
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="ghost" size="sm" loading={loading} onClick={onTransfer}>
+        Make owner
+      </Button>
+      {error && (
+        <p aria-live="polite" className="text-xs text-critical">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
