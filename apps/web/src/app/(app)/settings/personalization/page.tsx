@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { CATEGORY_DOMAIN_KEYS, type CategoryDomainKey } from "@veynlo/core";
-import { swrFetcher, api } from "@/lib/api-client";
+import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { usePersonalizationPreferences } from "@/hooks/use-personalization";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ export default function PersonalizationSettingsPage() {
   const { data: personalization, mutate: mutatePersonalization } = usePersonalizationPreferences();
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
+  const [nameStatus, setNameStatus] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
 
   const moduleOrder = resolveModuleOrder(modulePrefs);
   const hiddenModules = new Set(modulePrefs?.hiddenModules ?? []);
@@ -79,13 +80,27 @@ export default function PersonalizationSettingsPage() {
     mutateCategoryPrefs();
   }
 
+  /**
+   * Confirmed live: this saved correctly (PUT -> 200) but the UI said nothing at all — no confirmation
+   * on success, and because the try/finally had no `catch`, a FAILED save was equally silent. The user
+   * pressed Save, the request 500'd, the field kept showing their text, and nothing indicated the name
+   * had not been stored. A save with no observable outcome is indistinguishable from a dead button, and
+   * a silently failed one is worse.
+   */
   async function saveName(e: FormEvent) {
     e.preventDefault();
     setSavingName(true);
+    setNameStatus(null);
     try {
       const updated = await api.put<{ preferredName: string | null }>("/v1/personalization-preferences", { preferredName: nameDraft });
       mutatePersonalization({ ...personalization, preferredName: updated.preferredName }, false);
       setNameDraft(null);
+      setNameStatus({ tone: "ok", message: "Saved." });
+    } catch (err) {
+      setNameStatus({
+        tone: "error",
+        message: err instanceof ApiError ? err.message : "Couldn't save your preferred name. Please try again.",
+      });
     } finally {
       setSavingName(false);
     }
@@ -194,6 +209,16 @@ export default function PersonalizationSettingsPage() {
               <Button type="submit" variant="secondary" loading={savingName}>
                 Save
               </Button>
+              {nameStatus && (
+                <p
+                  // aria-live so the outcome is announced, not just shown: a sighted user sees the text
+                  // appear, but without this a screen-reader user gets no signal that anything happened.
+                  aria-live="polite"
+                  className={`w-full text-xs ${nameStatus.tone === "ok" ? "text-positive-subtle-text" : "text-critical"}`}
+                >
+                  {nameStatus.message}
+                </p>
+              )}
             </form>
             <p className="text-xs text-tertiary">
               Used by Ask and notifications instead of your account name. Object nicknames (e.g. renaming &quot;2015 Honda

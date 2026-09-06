@@ -26,7 +26,9 @@ export default defineConfig({
   // .claude/audit-screenshots, and reset database rows directly. CI neither seeds that account nor wants
   // that output, so they are excluded from the default suite and run explicitly on the machine doing the
   // audit:  npx playwright test e2e/zz-<name>.spec.ts
-  testIgnore: "**/zz-*.spec.ts",
+  // Opt-in rather than a flat exclude: a flat `testIgnore` also blocked running them explicitly by
+  // filename on the audit machine, which defeats the point of keeping them. Run with AUDIT=1.
+  testIgnore: process.env.AUDIT ? [] : "**/zz-*.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
