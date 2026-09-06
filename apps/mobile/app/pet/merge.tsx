@@ -163,8 +163,8 @@ export default function MergePetsScreen() {
                   ))}
                 </View>
                 {others.map((p) => (
-                  <View key={p.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Merge &quot;{p.label}&quot; into the one you kept</Text>
+                  <View key={p.id} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <Text style={{ flexShrink: 1, fontSize: 13, color: theme.colors.textTertiary }}>Merge &quot;{p.label}&quot; into the one you kept</Text>
                     <Button variant="secondary" onPress={() => merge(survivorId, p.id)} loading={mergingId === p.id}>
                       Merge
                     </Button>
