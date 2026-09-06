@@ -536,7 +536,12 @@ export default function HomeScreen() {
           // HOME-002 "Today view" — previously the only today-window surface on this screen was the
           // household card below, invisible to any solo account (confirmed live: a fresh sign-up with no
           // household got no today view at all).
-          if (!today || (today.events.length === 0 && today.tasks.length === 0 && today.bills.length === 0 && today.deliveries.length === 0)) return null;
+          if (!today || (today.events.length === 0 && today.tasks.length === 0 && today.bills.length === 0 && today.deliveries.length === 0)) {
+            // Only show an explicit empty state when the user picked this tab directly — under "All" it
+            // would just be redundant noise alongside the "You're caught up" state above.
+            if (homeTab !== "today") return null;
+            return <EmptyState key={key} title="Nothing on today's list" description="Events, tasks, bills, and deliveries due today will show up here." />;
+          }
           return (
             <View key={key} style={{ gap: 8 }}>
               <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{t("today")}</Text>
@@ -574,7 +579,11 @@ export default function HomeScreen() {
         }
         if (key === "money_at_risk") {
           // HOME-003 "Money at risk and savings"
-          if (!hasMoneySection) return null;
+          if (!hasMoneySection) {
+            // Same "only when explicitly selected" rule as the today module above.
+            if (homeTab !== "money_at_risk") return null;
+            return <EmptyState key={key} title="Nothing at risk right now" description="Expiring returns, unredeemed credits, and savings will show up here." />;
+          }
           return (
             <View key={key} style={{ gap: 8 }}>
               <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{t("moneyAtRisk")}</Text>
