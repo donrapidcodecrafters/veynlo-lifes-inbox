@@ -58,6 +58,12 @@ export function Button({
           borderWidth: variant === "secondary" ? 1 : 0,
           borderRadius: theme.radius.md,
           height: 48,
+          // Horizontal padding is required here, not cosmetic. This style fixed the height and centred
+          // its content but never reserved any side padding, so any button that sizes to its content
+          // rendered with the label flush against both edges — seen on "Approve"/"Dismiss" in
+          // Automations, "Add manually" on Inbox, and every "Connect" row on Connections. Full-width
+          // buttons hid it, because their extra width came from the parent rather than from the button.
+          paddingHorizontal: 16,
           alignItems: "center",
           justifyContent: "center",
           flexDirection: "row",

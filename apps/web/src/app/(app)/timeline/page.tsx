@@ -202,7 +202,16 @@ export default function TimelinePage() {
                             content's natural width so `truncate` on the title itself can actually clip it. */}
                         <div className="flex min-w-0 items-center gap-3">
                           <Badge tone={KIND_TONE[item.kind] ?? "neutral"}>{KIND_LABEL[item.kind] ?? "Item"}</Badge>
-                          <p className="truncate text-sm font-medium text-primary" title={item.title}>{item.title}</p>
+                          {/* `min-w-0` is needed HERE as well as on the parent. This <p> is itself a flex
+                              item, and flex items default to min-width:auto, so it refuses to shrink below
+                              its content's natural width and `truncate` never gets to clip anything. Found
+                              at 768px with a real long document title ("Storage unit rental agreement —
+                              Unit 214, Northgate Self Storage"): the paragraph measured 435px inside a
+                              413px box and pushed the whole page 54px past the viewport. The parent's
+                              min-w-0 alone was not enough. */}
+                          <p className="min-w-0 truncate text-sm font-medium text-primary" title={item.title}>
+                            {item.title}
+                          </p>
                         </div>
                         <p className="shrink-0 text-xs text-tertiary">
                           {new Date(item.occurredAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}

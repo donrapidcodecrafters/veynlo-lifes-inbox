@@ -12,7 +12,7 @@ import { test } from "@playwright/test";
 const DEMO_EMAIL = "alex@example.com";
 const DEMO_PASSWORD = "Demo-Password-1";
 
-test("locate 390px overflow sources", async ({ page }) => {
+test("locate 768px overflow sources", async ({ page }) => {
   test.setTimeout(3 * 60 * 1000);
   await page.goto("/sign-in");
   await page.getByLabel("Email").fill(DEMO_EMAIL);
@@ -20,9 +20,9 @@ test("locate 390px overflow sources", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/sign-in"), { timeout: 30_000 });
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 768, height: 1024 });
 
-  for (const route of ["/life", "/connections"]) {
+  for (const route of ["/timeline"]) {
     await page.goto(route);
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1200);
