@@ -69,6 +69,19 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.colors.brandDefault,
         tabBarInactiveTintColor: theme.colors.textTertiary,
         tabBarStyle: { backgroundColor: theme.colors.bgSurface, borderTopColor: theme.colors.borderSubtle },
+        // NOTE — tablet navigation is a known, deliberate gap, not an oversight.
+        //
+        // Capping tabBarItemStyle.maxWidth on wide screens was tried and REVERTED: react-navigation lays
+        // the item row out from the left, so instead of a centred group the five tabs clustered into the
+        // left 57% of a 2000px bar with an 865px void on the right. Adding justifyContent:"center" to
+        // tabBarStyle does not fix it either — that styles the bar, not the inner item row (measured
+        // after a full reload, not assumed). The result looked more broken than the even spread it
+        // replaced, so it is not shipped.
+        //
+        // The genuinely correct answer on a tablet is a side rail or split view rather than a bottom bar
+        // — which is what the web app does at desktop widths. That is a navigation redesign, not a style
+        // tweak, and a half-built one would be worse than an evenly spread bottom bar, which is at least
+        // a standard Android tablet pattern.
       }}
     >
       <Tabs.Screen
