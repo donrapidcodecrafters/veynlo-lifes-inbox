@@ -666,11 +666,21 @@ export class IdentityService {
    * account can never revoke another's session by guessing/enumerating an ID. Silently no-ops if the id
    * doesn't belong to this user or is already revoked, same "idempotent, no information leak" posture as
    * revokeAllSessions above. */
-  async revokeSessionById(sessionId: string, requestingUserId: string): Promise<void> {
-    await this.db
+  /**
+   * Returns whether a session was actually revoked.
+   *
+   * The scoping here is what makes this safe — `userId = requestingUserId` means one user physically
+   * cannot revoke another's session, verified live. But the caller used to discard that outcome and
+   * always report success, so a request that matched NOTHING looked identical to one that killed a
+   * device. That matters for this endpoint specifically: it is the "sign my lost phone out" control, and
+   * a false "done" on a stale or wrong id tells someone their lost phone is signed out when it is not.
+   */
+  async revokeSessionById(sessionId: string, requestingUserId: string): Promise<boolean> {
+    const result = await this.db
       .update(schema.sessions)
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.sessions.id, sessionId), eq(schema.sessions.userId, requestingUserId), isNull(schema.sessions.revokedAt)));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async revokeAllSessions(userId: string): Promise<void> {
