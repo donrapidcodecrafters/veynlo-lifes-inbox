@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Post, Query, Req, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../../common/auth.guard";
@@ -6,6 +6,8 @@ import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { detectPlatform } from "../../common/platform";
 import { toAnalyticsPlatform } from "../analytics/analytics.service";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { AskDtoSchema, type AskDto } from "./dto";
 import { SearchService } from "./search.service";
 
 @Controller("v1")
@@ -24,7 +26,8 @@ export class SearchController {
   // even from inside a day's quota.
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("ask")
-  ask(@CurrentUser() user: AuthenticatedUser, @Body("question") question: string, @Req() req: FastifyRequest) {
-    return this.search.ask(user.userId, question, toAnalyticsPlatform(detectPlatform(req)));
+  @UsePipes(new ZodValidationPipe(AskDtoSchema))
+  ask(@CurrentUser() user: AuthenticatedUser, @Body() dto: AskDto, @Req() req: FastifyRequest) {
+    return this.search.ask(user.userId, dto.question, toAnalyticsPlatform(detectPlatform(req)));
   }
 }
