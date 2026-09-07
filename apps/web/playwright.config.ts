@@ -32,10 +32,22 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  // Local runs use the default (one worker per core); CI keeps it modest since the suite shares one API
-  // process/database with itself across specs (each spec creates its own user, but they still compete for
-  // the same Postgres connection pool and Node event loop on the API side).
-  workers: process.env.CI ? 2 : undefined,
+  // Two workers EVERYWHERE, not just in CI. The suite shares one API process and one database across
+  // specs (each spec creates its own user, but they still compete for the same Postgres connection pool
+  // and Node event loop), and — the part that actually bites — POST /v1/auth/sign-in is deliberately
+  // throttled to 10 requests per 60s per IP to stop credential guessing. Every spec signs in from
+  // 127.0.0.1, so an unbounded local worker pool fires the whole suite's sign-ins inside about two
+  // seconds and the API correctly answers 429. That presented as five unrelated product failures: five
+  // specs stranded on /sign-in, each failing its assertion that the URL ends in /home.
+  //
+  // Measured on the Windows tower: default workers -> 5 of 10 specs failed, every one of them on a 429;
+  // --workers=2 -> 10 of 10 passed. CI was always green only because two workers already spread the same
+  // sign-ins past the throttle window.
+  //
+  // Capping concurrency is the fix rather than raising the throttle: that limit is a real security
+  // control (see the @Throttle on IdentityController#signIn), this suite is not testing burst sign-in
+  // behaviour, and weakening a security boundary to make tests go green is precisely what must not happen.
+  workers: 2,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
