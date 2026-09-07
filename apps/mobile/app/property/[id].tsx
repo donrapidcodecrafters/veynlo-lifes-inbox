@@ -175,8 +175,13 @@ export default function PropertyDetailScreen() {
   // Household-assignment gap close — mirrors person/[id].tsx's identical immediate-save private/household
   // toggle. `PUT /v1/properties/{id}` is the new edit endpoint; `null` explicitly means "make private again".
   async function saveHousehold(householdId: string | null) {
-    await api.put(`/v1/properties/${id}`, { householdId });
-    load();
+    setActionError(null);
+    try {
+      await api.put(`/v1/properties/${id}`, { householdId });
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't change who this is shared with.");
+    }
   }
 
   async function addAsset() {
@@ -205,8 +210,13 @@ export default function PropertyDetailScreen() {
   }
 
   async function resolveAssetRecall(recallId: string) {
-    await api.post(`/v1/recall-matches/${recallId}/resolve`, {});
-    load();
+    setActionError(null);
+    try {
+      await api.post(`/v1/recall-matches/${recallId}/resolve`, {});
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't mark that recall resolved.");
+    }
   }
 
   async function loadAssetRuleTemplates(assetId: string) {

@@ -48,6 +48,7 @@ export default function SettingsScreen() {
   const [lockError, setLockError] = useState<string | null>(null);
   const [messageCaptureAvailable, setMessageCaptureAvailable] = useState(false);
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
+  const [prefsError, setPrefsError] = useState<string | null>(null);
 
   useEffect(() => {
     isNotificationCaptureFeatureEnabled().then(setMessageCaptureAvailable);
@@ -59,10 +60,22 @@ export default function SettingsScreen() {
 
   // Optimistic update, same pattern as web's settings page: reflect the change immediately, then
   // reconcile with whatever the server actually persisted (e.g. a validation-rejected quiet-hours string).
+  //
+  // The optimism is what makes the failure path matter. With no catch here, a failed PUT left the switch
+  // sitting in its new position with the change never saved and nothing said — the user is shown a setting
+  // they do not have. So the local state is rolled back to what was actually on screen before the tap, and
+  // the failure is stated.
   async function updatePrefs(patch: Partial<NotificationPreferences>) {
+    const previous = prefs;
+    setPrefsError(null);
     setPrefs((prev) => (prev ? { ...prev, ...patch } : prev));
-    const updated = await api.put<NotificationPreferences>("/v1/notification-preferences", patch);
-    setPrefs(updated);
+    try {
+      const updated = await api.put<NotificationPreferences>("/v1/notification-preferences", patch);
+      setPrefs(updated);
+    } catch {
+      setPrefs(previous);
+      setPrefsError("That setting didn't save. Please try again.");
+    }
   }
 
   async function onToggleLock(next: boolean) {
@@ -264,6 +277,9 @@ export default function SettingsScreen() {
       <View style={{ gap: 8 }}>
         <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{t("sections.notifications")}</Text>
         <Card style={{ gap: 16 }}>
+          {/* Every control in this card goes through updatePrefs, so one message covers all of them —
+              placed at the top of the card because a failure below the fold would not be seen. */}
+          {prefsError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{prefsError}</Text>}
           <View style={{ gap: 8 }}>
             <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.textPrimary }}>Intensity</Text>
             <View style={{ flexDirection: "row", gap: 6, padding: 6, borderRadius: theme.radius.sm, backgroundColor: theme.colors.bgSubtle }}>

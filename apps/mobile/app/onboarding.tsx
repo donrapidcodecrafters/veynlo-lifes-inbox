@@ -107,8 +107,16 @@ export default function OnboardingScreen() {
   }, [rootNavigationState?.key, params.connectionId, params.error]);
 
   async function skip() {
-    await api.post("/v1/onboarding/skip");
-    router.replace("/(tabs)");
+    setConnectError(null);
+    try {
+      await api.post("/v1/onboarding/skip");
+      router.replace("/(tabs)");
+    } catch (err) {
+      // Uncaught, this left "Skip for now" looking like a dead button — no navigation, no message — in the
+      // very first flow a new account sees. `connectError` is this screen's existing message slot and is
+      // rendered above the step, so it is visible wherever skip was pressed from.
+      setConnectError(err instanceof ApiError ? err.message : "Couldn't skip just now. Please try again.");
+    }
   }
 
   if (!loaded || !state || !state.needsOnboarding) {
@@ -468,6 +476,7 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
   const { theme } = useAppTheme();
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [continueError, setContinueError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setItems(await api.get<InboxItem[]>("/v1/inbox?reviewState=new"));
@@ -488,8 +497,13 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
   }
 
   async function continueOn() {
-    await api.post("/v1/onboarding/advance", { step: "household_invite" });
-    onAdvance();
+    setContinueError(null);
+    try {
+      await api.post("/v1/onboarding/advance", { step: "household_invite" });
+      onAdvance();
+    } catch (err) {
+      setContinueError(err instanceof ApiError ? err.message : "Couldn't continue. Please try again.");
+    }
   }
 
   const hasItems = (items?.length ?? 0) > 0;
@@ -532,6 +546,7 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
           }
         />
       )}
+      {continueError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{continueError}</Text>}
       <Button onPress={continueOn}>Continue</Button>
       <SkipLink onSkip={onSkip} />
     </Card>

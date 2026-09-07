@@ -50,6 +50,10 @@ export default function PersonalizationScreen() {
   const { data: personalization, update: updatePersonalization } = usePersonalizationPreferences();
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
+  // Every save on this screen is optimistic, so a failed request left the UI asserting a preference that
+  // was never stored, with nothing said. One message for the screen, since the writes are all the same
+  // kind of thing and a per-row message would be noise.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.get<HomeModulePreferences>("/v1/home-module-preferences").then(setModulePrefs).catch(() => {});
@@ -64,8 +68,15 @@ export default function PersonalizationScreen() {
   const hiddenModules = new Set(modulePrefs?.hiddenModules ?? []);
 
   async function saveHomeModulePreferences(nextOrder: OptionalModuleKey[], nextHidden: Set<string>) {
+    const previous = modulePrefs;
+    setSaveError(null);
     setModulePrefs({ moduleOrder: nextOrder, hiddenModules: [...nextHidden] });
-    await api.put("/v1/home-module-preferences", { moduleOrder: nextOrder, hiddenModules: [...nextHidden] });
+    try {
+      await api.put("/v1/home-module-preferences", { moduleOrder: nextOrder, hiddenModules: [...nextHidden] });
+    } catch {
+      setModulePrefs(previous);
+      setSaveError("That change didn't save. Please try again.");
+    }
   }
 
   function moveModule(key: OptionalModuleKey, direction: -1 | 1) {
@@ -85,15 +96,27 @@ export default function PersonalizationScreen() {
   }
 
   async function toggleCategory(domain: CategoryDomainKey, enabled: boolean) {
+    const previous = categoryPrefs;
+    setSaveError(null);
     setCategoryPrefs((prev) => prev?.map((c) => (c.domain === domain ? { ...c, enabled } : c)) ?? null);
-    await api.put("/v1/category-preferences", { domain, enabled });
+    try {
+      await api.put("/v1/category-preferences", { domain, enabled });
+    } catch {
+      setCategoryPrefs(previous);
+      setSaveError("That change didn't save. Please try again.");
+    }
   }
 
   async function saveName() {
     setSavingName(true);
+    setSaveError(null);
     try {
       await updatePersonalization({ preferredName: nameDraft });
       setNameDraft(null);
+    } catch {
+      // The draft is deliberately kept: clearing it would throw away what the user typed on a failure they
+      // are being asked to retry.
+      setSaveError("Your name didn't save. Please try again.");
     } finally {
       setSavingName(false);
     }
@@ -102,6 +125,11 @@ export default function PersonalizationScreen() {
   return (
     <Screen>
       <ScreenHeader title="Personalization" subtitle="Home layout, what Veynlo pays attention to, your preferred name, and how Ask responds." />
+
+      {/* Directly under the header rather than beside whichever control failed: the saves on this screen are
+          spread across four sections, and a message pinned to one of them would sit off-screen for the
+          others. */}
+      {saveError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{saveError}</Text>}
 
       {/* PERS-002 Home customization */}
       <View style={{ gap: 8 }}>

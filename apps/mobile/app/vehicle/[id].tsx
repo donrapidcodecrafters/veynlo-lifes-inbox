@@ -275,8 +275,15 @@ export default function VehicleDetailScreen() {
   // Household-assignment gap close — mirrors person/[id].tsx's identical immediate-save private/household
   // toggle. `PUT /v1/vehicles/{id}` is the new edit endpoint; `null` explicitly means "make private again".
   async function saveHousehold(householdId: string | null) {
-    await api.put(`/v1/vehicles/${id}`, { householdId });
-    load();
+    setActionError(null);
+    try {
+      await api.put(`/v1/vehicles/${id}`, { householdId });
+      load();
+    } catch (err) {
+      // Without this the failed write threw uncaught and `load()` never ran, so the row simply stayed on
+      // its old value — visually identical to a tap that was ignored.
+      setActionError(err instanceof ApiError ? err.message : "Couldn't change who this is shared with.");
+    }
   }
 
   async function checkRecalls() {

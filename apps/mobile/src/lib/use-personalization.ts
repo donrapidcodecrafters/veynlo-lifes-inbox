@@ -42,10 +42,27 @@ export function usePersonalizationPreferences() {
     reload();
   }, [reload]);
 
+  /**
+   * Optimistic, and therefore obliged to undo itself. Without the rollback a failed PUT left every screen
+   * reading these preferences showing a value that was never stored — Privacy's financial-mode switch stays
+   * on, Personalization shows the new name — and nothing in flight to eventually correct it.
+   *
+   * The error is re-thrown rather than swallowed: the rollback fixes the false state, but only the calling
+   * screen knows where to put a message the user will actually see.
+   */
   const update = useCallback(async (patch: Partial<PersonalizationPreferences>) => {
-    setData((prev) => ({ ...prev, ...patch }));
-    const updated = await api.put<PersonalizationPreferences>("/v1/personalization-preferences", patch);
-    setData(updated);
+    let previous: PersonalizationPreferences = DEFAULTS;
+    setData((prev) => {
+      previous = prev;
+      return { ...prev, ...patch };
+    });
+    try {
+      const updated = await api.put<PersonalizationPreferences>("/v1/personalization-preferences", patch);
+      setData(updated);
+    } catch (err) {
+      setData(previous);
+      throw err;
+    }
   }, []);
 
   return { data, loaded, update, reload };
