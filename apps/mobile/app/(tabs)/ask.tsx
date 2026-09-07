@@ -213,6 +213,11 @@ export default function AskScreen() {
           const active = mode === m;
           return (
             <Pressable accessibilityRole="button"
+              // Distinct from the "Ask" submit button below (same visible word, different control) — a
+              // VoiceOver user swiping through would otherwise hit two controls both announced as plain
+              // "Ask, button" back to back.
+              accessibilityLabel={m === "ask" ? "Ask mode" : "Search mode"}
+              accessibilityState={{ selected: active }}
               key={m}
               onPress={() => setMode(m)}
               style={{
