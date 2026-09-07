@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards, UsePipes } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -6,6 +6,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { HouseholdService } from "./household.service";
 import {
   AcceptDependentTransitionDtoSchema,
+  InviteTokenQuerySchema,
   AcceptInviteDtoSchema,
   CreateDependentDtoSchema,
   CreateHouseholdDtoSchema,
@@ -131,8 +132,21 @@ export class HouseholdController {
   // No guard — an invitee may not have an account/session yet. The token itself is the credential; the
   // response is intentionally minimal (household name + invited email only), not full household details.
   @Get("invite")
-  peekInvite(@Query("token") token: string) {
-    return this.households.getInviteByToken(token);
+  peekInvite(@Query() query: unknown) {
+    // safeParse + an explicit BadRequestException, not a bare .parse(): a raw ZodError is not mapped to a
+    // status by Nest, and the shared ZodValidationPipe ignores anything that isn't a body. Without this,
+    // omitting ?token= entirely — the most obvious way anyone probes an unguarded route — reached
+    // hashOpaqueToken(undefined) and answered an ANONYMOUS caller with a 500. An empty or wrong token
+    // already returned 400 correctly; only the missing-param case crashed. Error shape matches the pipe's.
+    const parsed = InviteTokenQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Request query failed validation.",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      });
+    }
+    return this.households.getInviteByToken(parsed.data.token);
   }
 
   @Post("accept-invite")
@@ -192,8 +206,21 @@ export class HouseholdController {
 
   // No guard — mirrors peekInvite: the invited dependent may not have an account/session yet.
   @Get("dependent-transition-invite")
-  peekDependentTransitionInvite(@Query("token") token: string) {
-    return this.households.getDependentTransitionInviteByToken(token);
+  peekDependentTransitionInvite(@Query() query: unknown) {
+    // safeParse + an explicit BadRequestException, not a bare .parse(): a raw ZodError is not mapped to a
+    // status by Nest, and the shared ZodValidationPipe ignores anything that isn't a body. Without this,
+    // omitting ?token= entirely — the most obvious way anyone probes an unguarded route — reached
+    // hashOpaqueToken(undefined) and answered an ANONYMOUS caller with a 500. An empty or wrong token
+    // already returned 400 correctly; only the missing-param case crashed. Error shape matches the pipe's.
+    const parsed = InviteTokenQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Request query failed validation.",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      });
+    }
+    return this.households.getDependentTransitionInviteByToken(parsed.data.token);
   }
 
   @Post("accept-dependent-transition")

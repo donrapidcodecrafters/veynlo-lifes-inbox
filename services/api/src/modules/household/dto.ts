@@ -123,3 +123,20 @@ export const GrantDelegationDtoSchema = z.object({
   expiresAt: z.string().datetime().nullable().optional(),
 });
 export type GrantDelegationDto = z.infer<typeof GrantDelegationDtoSchema>;
+
+/**
+ * Query schema for the two UNGUARDED invite-peek endpoints (`GET /v1/households/invite` and
+ * `GET /v1/households/dependent-transition-invite`).
+ *
+ * Both take their token from the query string, and the shared ZodValidationPipe deliberately ignores
+ * anything whose `metadata.type` isn't "body" — so without this the param arrived as `undefined` and
+ * `hashOpaqueToken(undefined)` threw, answering an anonymous caller with a 500. Identical to DEF-012 on
+ * `GET /v1/widgets/resolve`; found the same way, by calling every route live rather than reading them.
+ *
+ * `max(4000)` mirrors ResolveDeepLinkQuerySchema: an opaque token has a known bounded length, and an
+ * unauthenticated endpoint should not hash an unbounded string on a stranger's say-so.
+ */
+export const InviteTokenQuerySchema = z.object({
+  token: z.string().min(1).max(4000),
+});
+export type InviteTokenQuery = z.infer<typeof InviteTokenQuerySchema>;
