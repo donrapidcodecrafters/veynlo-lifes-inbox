@@ -512,3 +512,72 @@ pub fn run() {
             let _ = (app, event);
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `is_allowed_navigation` is the desktop app's §28.7 navigation boundary — the one thing standing
+    /// between the shell and loading an arbitrary page with the user's real session cookie in the jar.
+    /// It had NO tests, and `cargo test` in this crate ran zero of anything.
+    fn allowed(u: &str) -> bool {
+        is_allowed_navigation(&u.parse().expect("test URL should parse"))
+    }
+
+    #[test]
+    fn allows_exactly_the_four_hosts_it_names() {
+        assert!(allowed("http://localhost:3000/home"));
+        assert!(allowed("https://app.veynlo.com/home"));
+        assert!(allowed("https://api.veynlo.com/v1/auth/me"));
+        assert!(allowed("https://auth.veynlo.com/oauth/callback"));
+    }
+
+    #[test]
+    fn rejects_a_lookalike_subdomain() {
+        // The check is whole-host equality, not a suffix match. A suffix match would accept every one of
+        // these, and each is a host an attacker can obtain.
+        assert!(!allowed("https://evil.app.veynlo.com/"));
+        assert!(!allowed("https://app.veynlo.com.evil.test/"));
+        assert!(!allowed("https://notapp.veynlo.com/"));
+        assert!(!allowed("https://veynlo.com/"));
+    }
+
+    #[test]
+    fn rejects_schemes_that_carry_no_host() {
+        // `host_str()` is None for these, so `is_some_and` short-circuits to false. Worth pinning: a
+        // file:// or data: page loaded in the main window would run with the session cookie available.
+        assert!(!allowed("file:///C:/Windows/System32/drivers/etc/hosts"));
+        assert!(!allowed("data:text/html,<script>fetch('/v1/auth/me')</script>"));
+        assert!(!allowed("about:blank"));
+    }
+
+    #[test]
+    fn rejects_an_ordinary_external_site() {
+        assert!(!allowed("https://example.com/"));
+        assert!(!allowed("http://127.0.0.1:3000/"));
+    }
+
+    /// Every extension the drop handler accepts must map to a real MIME type — an unmapped one silently
+    /// becomes application/octet-stream, which the upload endpoint would then have to guess at.
+    #[test]
+    fn every_accepted_drop_extension_has_a_real_mime_type() {
+        for ext in ALLOWED_DROP_EXTENSIONS {
+            assert_ne!(
+                guess_mime_type(ext),
+                "application/octet-stream",
+                "accepted extension {ext} falls through to the generic type",
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_extensions_fall_back_rather_than_panicking() {
+        assert_eq!(guess_mime_type("exe"), "application/octet-stream");
+        assert_eq!(guess_mime_type(""), "application/octet-stream");
+    }
+
+    #[test]
+    fn jpg_and_jpeg_agree() {
+        assert_eq!(guess_mime_type("jpg"), guess_mime_type("jpeg"));
+    }
+}

@@ -6,6 +6,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "lint": "eslint src-tauri/capture-window --max-warnings 0",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri"
   },
   "devDependencies": {
