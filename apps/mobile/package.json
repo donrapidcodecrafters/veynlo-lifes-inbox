@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
-    "test": "tsx --test src/lib/offline-mutation-queue.test.ts",
+    "test": "tsx --test src/lib/offline-mutation-queue.test.ts src/lib/push-deep-link.test.ts",
     "build": "echo 'no-op — native builds go through EAS Build, not turbo (see docs/ROADMAP.md)'",
     "clean": "rm -rf .expo dist"
   },

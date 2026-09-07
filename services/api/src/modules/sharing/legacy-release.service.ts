@@ -330,6 +330,8 @@ export class LegacyReleaseService {
     await this.notificationDelivery.createAndEnqueue({
       ownerUserId,
       dedupeKey: `legacy-release-inactivity-warning:${configId}:${anchor}`,
+      linkedResourceType: "legacy_release_config",
+      linkedResourceId: configId,
       priority: "critical",
       channel: "email",
       title: "Still there? Your legacy release is about to start",

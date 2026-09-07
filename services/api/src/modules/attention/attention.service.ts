@@ -1322,6 +1322,10 @@ export class AttentionService {
     await this.notifications.createAndEnqueue({
       ownerUserId: item.ownerUserId,
       dedupeKey: `${item.reasonCode}:${item.linkedResourceId}`,
+      // The scanner already knows exactly what this item is about, so a tap can open it instead of
+      // dumping the user on Home. Not derivable from dedupeKey: that carries the id but never the type.
+      linkedResourceType: item.linkedResourceType,
+      linkedResourceId: item.linkedResourceId,
       priority: item.urgency,
       channel: "push",
       title: item.urgency === "critical" ? "Needs you now" : "Needs your attention",

@@ -458,6 +458,8 @@ export class AutomationService {
       await this.notifications.createAndEnqueue({
         ownerUserId: event.ownerUserId,
         dedupeKey: `automation-approval:${runId}`,
+        linkedResourceType: "automation_run",
+        linkedResourceId: runId,
         priority: "useful",
         title: `"${rule.name}" is ready to run`,
         body: "Review and approve this automation in Veynlo.",
@@ -533,6 +535,8 @@ export class AutomationService {
         await this.notifications.createAndEnqueue({
           ownerUserId,
           dedupeKey: `automation-run:${runId}`,
+          linkedResourceType: "automation_run",
+          linkedResourceId: runId,
           priority: "useful",
           title: rule.name,
           body: action.message ?? `Your automation "${rule.name}" just ran.`,

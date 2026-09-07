@@ -3872,6 +3872,8 @@ export class IngestionService {
       await this.notifications.createAndEnqueue({
         ownerUserId: params.ownerUserId,
         dedupeKey: `inbox-item:${inboxItemId}`,
+        linkedResourceType: "inbox_item",
+        linkedResourceId: inboxItemId,
         priority: "useful",
         title: "Veynlo found something new",
         body: prefs?.sensitivePreviewsEnabled === false ? "Open Veynlo to review it." : params.summary,
