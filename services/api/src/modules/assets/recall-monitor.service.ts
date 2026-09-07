@@ -9,6 +9,19 @@ import { SafeUrlFetcher } from "../ingestion/safe-url-fetcher";
 const NHTSA_TIMEOUT_BYTES = 2_000_000; // recall lists for a single make/model/year are small; generous cap against a malformed/huge response
 const CPSC_TIMEOUT_BYTES = 2_000_000;
 
+/**
+ * CPSC needs far longer than the fetcher's 10s default, which is tuned for user-submitted URLs.
+ *
+ * Measured against the live API, one manufacturer query took 15.6s (Carrier), 15.2s (LG) and 23.1s
+ * (Rheem). Under a 10s ceiling the home-appliance recall check could never complete — it was failing
+ * every time in production, not only in CI, and surfacing as a logged warning with zero matches. NHTSA
+ * responds in well under a second and deliberately keeps the tight default.
+ *
+ * This runs on a background scan rather than in a user request, so a slow call costs nothing a person is
+ * waiting on. The cap still exists to stop a hung connection holding a worker indefinitely.
+ */
+const CPSC_TIMEOUT_MS = 35_000;
+
 interface NhtsaRecallResult {
   NHTSACampaignNumber: string;
   Component: string;
@@ -137,7 +150,7 @@ export class RecallMonitorService {
   private async fetchCpscCandidates(manufacturer: string, model: string | null, assetLabel: string): Promise<RecallCandidate[]> {
     const params = new URLSearchParams({ Manufacturer: manufacturer, format: "json" });
     const url = `https://www.saferproducts.gov/RestWebServices/Recall?${params.toString()}`;
-    const { body } = await this.safeUrlFetcher.fetchTrustedBytes(url, { maxBytes: CPSC_TIMEOUT_BYTES });
+    const { body } = await this.safeUrlFetcher.fetchTrustedBytes(url, { maxBytes: CPSC_TIMEOUT_BYTES, timeoutMs: CPSC_TIMEOUT_MS });
     let parsed: CpscRecallResult[];
     try {
       parsed = JSON.parse(body) as CpscRecallResult[];
