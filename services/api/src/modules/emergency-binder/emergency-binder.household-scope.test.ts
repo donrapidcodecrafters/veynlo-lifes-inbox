@@ -38,7 +38,9 @@ describe("EmergencyBinderService — household-scoped aggregation + step-up gati
   let outsiderUserId: string;
   let householdId: string;
   let vehicleId: string;
+  let mergedVehicleId: string;
   let propertyId: string;
+  let mergedPropertyId: string;
   let documentId: string;
   const OWNER_PASSWORD = "correct horse battery staple";
   let dbAvailable = true;
@@ -80,8 +82,19 @@ describe("EmergencyBinderService — household-scoped aggregation + step-up gati
       vehicleId = generateId("vehicle");
       await db.insert(schema.vehicleProfiles).values({ id: vehicleId, ownerUserId, householdId, label: "Family minivan", make: "Honda", model: "Odyssey", year: 2021 });
 
+      // A merged-away duplicate — never hard-deleted (mergeVehicles sets mergedIntoVehicleId, not
+      // deletedAt), so it must be excluded from the binder the same way it's excluded from the ordinary
+      // vehicle list. Found live: a merged duplicate reappeared in the printable/shareable binder packet
+      // even though it had already vanished from Home & Vehicles.
+      mergedVehicleId = generateId("vehicle");
+      await db.insert(schema.vehicleProfiles).values({ id: mergedVehicleId, ownerUserId, householdId, label: "Duplicate minivan", make: "Honda", model: "Odyssey", year: 2021, mergedIntoVehicleId: vehicleId });
+
       propertyId = generateId("property");
       await db.insert(schema.propertyProfiles).values({ id: propertyId, ownerUserId, householdId, label: "Home", propertyType: "home", address: "123 Main St" });
+
+      // Same merged-away exclusion check, for properties.
+      mergedPropertyId = generateId("property");
+      await db.insert(schema.propertyProfiles).values({ id: mergedPropertyId, ownerUserId, householdId, label: "Duplicate home", propertyType: "home", address: "123 Main St", mergedIntoPropertyId: propertyId });
 
       documentId = generateId("document");
       await db.insert(schema.documents).values({
@@ -103,7 +116,9 @@ describe("EmergencyBinderService — household-scoped aggregation + step-up gati
   afterAll(async () => {
     if (dbAvailable) {
       await db.delete(schema.documents).where(eq(schema.documents.id, documentId));
+      await db.delete(schema.propertyProfiles).where(eq(schema.propertyProfiles.id, mergedPropertyId));
       await db.delete(schema.propertyProfiles).where(eq(schema.propertyProfiles.id, propertyId));
+      await db.delete(schema.vehicleProfiles).where(eq(schema.vehicleProfiles.id, mergedVehicleId));
       await db.delete(schema.vehicleProfiles).where(eq(schema.vehicleProfiles.id, vehicleId));
       await db.delete(schema.householdMemberships).where(eq(schema.householdMemberships.householdId, householdId));
       await db.delete(schema.households).where(eq(schema.households.id, householdId));
@@ -140,6 +155,14 @@ describe("EmergencyBinderService — household-scoped aggregation + step-up gati
     expect(result.vehicles.map((v) => v.id)).toContain(vehicleId);
     expect(result.properties.map((p) => p.id)).toContain(propertyId);
     expect(result.documents.map((d) => d.id)).toContain(documentId);
+  });
+
+  it("excludes a vehicle/property already merged away into another one, even though it's never hard-deleted", async () => {
+    if (!dbAvailable) return;
+    const result = await binder.getBinder(householdId, ownerUserId, OWNER_PASSWORD);
+
+    expect(result.vehicles.map((v) => v.id)).not.toContain(mergedVehicleId);
+    expect(result.properties.map((p) => p.id)).not.toContain(mergedPropertyId);
   });
 
   it("a plain active member (no delegation, not the owner) can also unlock the binder, since OAuth-only/passwordless accounts skip step-up entirely", async () => {

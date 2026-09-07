@@ -100,15 +100,20 @@ export class EmergencyBinderService {
       .from(schema.dependentProfiles)
       .where(eq(schema.dependentProfiles.householdId, householdId));
 
+    // A merged-away vehicle/property/pet (mergedIntoVehicleId/mergedIntoPropertyId/mergedIntoPetId set) is
+    // never hard-deleted — see assets.service.ts's mergeVehicles doc comment — so it must be excluded here
+    // the same way ordinary list queries already do, or a duplicate a household already merged away
+    // reappears in this printable/shareable packet. Found live: merging a duplicate vehicle left it out of
+    // the normal Home & Vehicles list but it still showed up here.
     const vehicles = await this.db
       .select({ id: schema.vehicleProfiles.id, label: schema.vehicleProfiles.label, make: schema.vehicleProfiles.make, model: schema.vehicleProfiles.model, year: schema.vehicleProfiles.year, vin: schema.vehicleProfiles.vin })
       .from(schema.vehicleProfiles)
-      .where(and(eq(schema.vehicleProfiles.householdId, householdId), isNull(schema.vehicleProfiles.deletedAt)));
+      .where(and(eq(schema.vehicleProfiles.householdId, householdId), isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId)));
 
     const properties = await this.db
       .select({ id: schema.propertyProfiles.id, label: schema.propertyProfiles.label, propertyType: schema.propertyProfiles.propertyType, address: schema.propertyProfiles.address })
       .from(schema.propertyProfiles)
-      .where(and(eq(schema.propertyProfiles.householdId, householdId), isNull(schema.propertyProfiles.deletedAt)));
+      .where(and(eq(schema.propertyProfiles.householdId, householdId), isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId)));
 
     // PET-001/PET-005 "share boarding/emergency packet" — this feature's own explicit requirement is that
     // the household-wide emergency binder already built this session is the right home for it (see this
@@ -127,7 +132,14 @@ export class EmergencyBinderService {
         insuranceProviderName: schema.petProfiles.insuranceProviderName,
       })
       .from(schema.petProfiles)
-      .where(and(eq(schema.petProfiles.householdId, householdId), isNull(schema.petProfiles.deletedAt), ne(schema.petProfiles.lifecycleStatus, "deceased")));
+      .where(
+        and(
+          eq(schema.petProfiles.householdId, householdId),
+          isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
+          ne(schema.petProfiles.lifecycleStatus, "deceased"),
+        ),
+      );
     const petIds = pets.map((p) => p.id);
     const petVaccinations =
       petIds.length > 0
