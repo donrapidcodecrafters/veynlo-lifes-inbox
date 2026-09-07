@@ -68,6 +68,28 @@ export class LocationService {
 
   // --- Places (LOC-001/LOC-005) -------------------------------------------
 
+  /**
+   * The place's display label, and nothing else — for the Sharing Hub's "Shared by me / Shared with me"
+   * list, which showed the bare word "place" where every other resource type showed its real name.
+   *
+   * Deliberately NOT a `publicShareContent`-shaped method. Adding one would have let PublicShareService's
+   * `contentFor` dispatch resolve a place, and that dispatch also backs the UNAUTHENTICATED share-link
+   * redemption path — so the obvious one-line fix would have widened what a public token can expose, to
+   * fix a label. Places are shared by direct grant only (measured: 1 grant, 0 share links), so they never
+   * need to be redeemable by token.
+   *
+   * Takes no userId for the same reason contentFor does not: the caller has already decided the requester
+   * may see this row. Returns only the label, never the address or coordinates.
+   */
+  async shareDisplayLabel(placeId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ label: schema.places.label })
+      .from(schema.places)
+      .where(and(eq(schema.places.id, placeId), isNull(schema.places.deletedAt)))
+      .limit(1);
+    return row?.label ?? null;
+  }
+
   async listPlaces(userId: string) {
     const condition = await this.ownerOrDelegatedHousehold(userId, schema.places.ownerUserId, schema.places.householdId);
     return this.db
