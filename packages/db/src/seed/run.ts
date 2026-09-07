@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { createDbClient } from "../client";
 import * as schema from "../schema";
 import { seedCoverage } from "./coverage";
+import { seedEmptyAreas } from "./empty-areas";
 
 /**
  * Fixed, well-known local password for the demo accounts. Without a passwordHash these users existed in
@@ -565,6 +566,8 @@ async function main() {
   }
 
   await seedCoverage(db, { userId, partnerUserId, householdId, now });
+  // Fills the 31 API-readable areas that were STILL empty after seedCoverage — see empty-areas.ts.
+  await seedEmptyAreas(db, { userId, partnerUserId, householdId, now });
 
   console.log("Seed complete.");
   console.log("  Sign in as: alex@example.com / " + DEMO_PASSWORD);
