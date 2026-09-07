@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, ApiError } from "./api-client";
+import { api, ApiError, configureSessionExpiredHandler } from "./api-client";
 import { tokenStore } from "./token-store";
 import { emergencyBinderCache } from "./emergency-binder-cache";
 import { tripOfflineCache } from "./trip-offline-cache";
@@ -47,6 +47,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // A 401 that survives a refresh means the session is genuinely dead — revoked from another device,
+  // force-logged-out by an admin, or expired. Clearing the token store alone left `user` populated here,
+  // and sign-in.tsx redirects a populated user straight back to the tabs, so the app bounced between the
+  // two forever and settled on a Home screen of skeletons that never resolved. Dropping the user here is
+  // what lets (tabs)/_layout's own `if (!user) return <Redirect href="/sign-in" />` actually take effect.
+  useEffect(() => {
+    configureSessionExpiredHandler(() => setUser(null));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {

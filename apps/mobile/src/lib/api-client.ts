@@ -27,6 +27,25 @@ export class ApiError extends Error {
 
 const AUTH_PATHS_WITHOUT_REFRESH = ["/v1/auth/sign-in", "/v1/auth/sign-up", "/v1/auth/refresh"];
 
+/**
+ * Called when a 401 survives a refresh attempt — i.e. the session is genuinely dead, not merely stale.
+ *
+ * Clearing the token store is not enough on its own. AuthProvider keeps `user` in React state, and
+ * app/sign-in.tsx redirects a signed-in user straight back with
+ * `if (!isLoading && user) return <Redirect href="/(tabs)" />`. So `router.replace("/sign-in")` below
+ * used to bounce immediately back to the tabs, which re-fetched, re-401d, and replaced again — leaving
+ * the user on a Home screen of skeleton placeholders that never resolve, with no error and no way out
+ * short of force-quitting the app. Reproduced on a real Android build by revoking a live session
+ * server-side and tapping a tab.
+ *
+ * Registered by auth-context.tsx at module load, the same shape as configureExecutor above — a direct
+ * import is impossible in this direction because auth-context imports this file.
+ */
+let onSessionExpired: (() => void) | null = null;
+export function configureSessionExpiredHandler(fn: () => void): void {
+  onSessionExpired = fn;
+}
+
 // Deduplicates concurrent refresh attempts — several screens can 401 around the same moment (the access
 // token just expired), and firing one `/v1/auth/refresh` per failed request would race the rotation logic
 // against itself: the second call would present a refresh token the first call already rotated away,
@@ -128,6 +147,8 @@ export async function request<T>(path: string, init?: RequestInit, isRetryAfterR
       }
       await tokenStore.clear();
       await tokenStore.clearRefreshToken();
+      // Must run BEFORE navigating: sign-in.tsx sends a still-populated `user` straight back to the tabs.
+      onSessionExpired?.();
       router.replace("/sign-in");
     }
     throw new ApiError(message, code, res.status, typeof body === "object" ? body?.fieldErrors : undefined);
