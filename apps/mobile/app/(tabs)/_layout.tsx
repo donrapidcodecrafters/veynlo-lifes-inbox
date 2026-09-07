@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { Redirect, Tabs } from "expo-router";
-import { ActivityIndicator, View, type ColorValue } from "react-native";
+import { ActivityIndicator, View, useWindowDimensions, type ColorValue } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/theme-context";
 import { api } from "@/lib/api-client";
+import { TabletSidebar } from "@/components/tablet-sidebar";
+
+/** Same 600dp boundary as screen.tsx's TABLET_MIN_WIDTH — see that file's own doc comment for why. */
+const TABLET_MIN_WIDTH = 600;
 
 function TabIcon({ name, focused, color }: { name: keyof typeof Ionicons.glyphMap; focused: boolean; color: ColorValue }) {
   return (
@@ -33,6 +37,8 @@ export default function TabsLayout() {
   const { user, isLoading } = useAuth();
   const { theme } = useAppTheme();
   const { t } = useTranslation("translation", { keyPrefix: "nav" });
+  const { width } = useWindowDimensions();
+  const isTablet = width >= TABLET_MIN_WIDTH;
   // ONB-001 "after sign-up (or on first sign-in if no onboarding has been completed)" — same resumability
   // check as apps/web's (app) layout: a brand-new account whose onboarding_state row isn't `completed` yet
   // gets bounced to /onboarding from every tab, not just right after sign-up (covers refreshing/relaunching
@@ -63,47 +69,48 @@ export default function TabsLayout() {
   if (needsOnboarding) return <Redirect href="/onboarding" />;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.colors.brandDefault,
-        tabBarInactiveTintColor: theme.colors.textTertiary,
-        tabBarStyle: { backgroundColor: theme.colors.bgSurface, borderTopColor: theme.colors.borderSubtle },
-        // NOTE — tablet navigation is a known, deliberate gap, not an oversight.
-        //
-        // Capping tabBarItemStyle.maxWidth on wide screens was tried and REVERTED: react-navigation lays
-        // the item row out from the left, so instead of a centred group the five tabs clustered into the
-        // left 57% of a 2000px bar with an 865px void on the right. Adding justifyContent:"center" to
-        // tabBarStyle does not fix it either — that styles the bar, not the inner item row (measured
-        // after a full reload, not assumed). The result looked more broken than the even spread it
-        // replaced, so it is not shipped.
-        //
-        // The genuinely correct answer on a tablet is a side rail or split view rather than a bottom bar
-        // — which is what the web app does at desktop widths. That is a navigation redesign, not a style
-        // tweak, and a half-built one would be worse than an evenly spread bottom bar, which is at least
-        // a standard Android tablet pattern.
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{ title: t("home"), tabBarIcon: ({ focused, color }) => <TabIcon name="home" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="inbox"
-        options={{ title: t("inbox"), tabBarIcon: ({ focused, color }) => <TabIcon name="file-tray" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="ask"
-        options={{ title: t("ask"), tabBarIcon: ({ focused, color }) => <TabIcon name="chatbubble" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="life"
-        options={{ title: t("life"), tabBarIcon: ({ focused, color }) => <TabIcon name="albums" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{ title: t("settings"), tabBarIcon: ({ focused, color }) => <TabIcon name="settings" focused={focused} color={color} /> }}
-      />
-    </Tabs>
+    <View style={{ flex: 1, flexDirection: isTablet ? "row" : "column" }}>
+      {isTablet && <TabletSidebar />}
+      <View style={{ flex: 1 }}>
+        <Tabs
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: theme.colors.brandDefault,
+            tabBarInactiveTintColor: theme.colors.textTertiary,
+            // On tablet the left rail above replaces this outright rather than restyling it — see
+            // tablet-sidebar.tsx's own doc comment for why an in-place restyle was a dead end (two
+            // earlier attempts reverted: capping tabBarItemStyle.maxWidth left an 865px void on the
+            // right since react-navigation lays the item row out from the left, and tabBarStyle's
+            // justifyContent doesn't reach that inner row either). `display: "none"` is the standard
+            // supported way to hide the built-in bar, not a style override of it, so this carries none
+            // of that risk.
+            tabBarStyle: isTablet
+              ? { display: "none" }
+              : { backgroundColor: theme.colors.bgSurface, borderTopColor: theme.colors.borderSubtle },
+          }}
+        >
+          <Tabs.Screen
+            name="index"
+            options={{ title: t("home"), tabBarIcon: ({ focused, color }) => <TabIcon name="home" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="inbox"
+            options={{ title: t("inbox"), tabBarIcon: ({ focused, color }) => <TabIcon name="file-tray" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="ask"
+            options={{ title: t("ask"), tabBarIcon: ({ focused, color }) => <TabIcon name="chatbubble" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="life"
+            options={{ title: t("life"), tabBarIcon: ({ focused, color }) => <TabIcon name="albums" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="settings"
+            options={{ title: t("settings"), tabBarIcon: ({ focused, color }) => <TabIcon name="settings" focused={focused} color={color} /> }}
+          />
+        </Tabs>
+      </View>
+    </View>
   );
 }
