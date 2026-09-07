@@ -20,7 +20,13 @@ test.describe("Connections", () => {
 
   test("the Connections page loads and lists available connectors", async ({ page }) => {
     await page.goto("/connections");
-    await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+    // `exact: true` because Playwright's `name` matches a case-insensitive SUBSTRING by default, so
+    // "Connections" also matched the empty-state heading "No connections yet" and failed with a strict
+    // mode violation once both were on screen together. The page is correct — an <h1> page title plus an
+    // empty-state <h3> for an account with nothing connected yet — the selector was simply ambiguous, and
+    // only passed before because the assertion happened to run before the empty state rendered. Making it
+    // exact removes the race without weakening what is asserted: the page heading must still be visible.
+    await expect(page.getByRole("heading", { name: "Connections", exact: true })).toBeVisible();
 
     const gmailCard = page.getByText("Gmail", { exact: true });
     await expect(gmailCard).toBeVisible();
