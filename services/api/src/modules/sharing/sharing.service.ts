@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -250,7 +250,10 @@ export class SharingService {
       .select({ grant: schema.resourceGrants, granteeEmail: schema.users.email })
       .from(schema.resourceGrants)
       .innerJoin(schema.users, eq(schema.users.id, schema.resourceGrants.granteeUserId))
-      .where(and(eq(schema.resourceGrants.resourceType, resourceType), eq(schema.resourceGrants.resourceId, resourceId), isNull(schema.resourceGrants.revokedAt)));
+      .where(and(eq(schema.resourceGrants.resourceType, resourceType), eq(schema.resourceGrants.resourceId, resourceId), isNull(schema.resourceGrants.revokedAt)))
+      // Same reasoning as the session list: this is a revoke-one control, and a list that reorders itself
+      // is one someone revokes the wrong row from.
+      .orderBy(desc(schema.resourceGrants.grantedAt), asc(schema.resourceGrants.id));
   }
 
   /**

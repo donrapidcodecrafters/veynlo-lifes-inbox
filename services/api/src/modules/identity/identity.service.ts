@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import * as argon2 from "argon2";
 import { SignJWT, createRemoteJWKSet, jwtVerify, importPKCS8 } from "jose";
 import { google } from "googleapis";
@@ -750,7 +750,10 @@ export class IdentityService {
       })
       .from(schema.sessions)
       .leftJoin(schema.devices, eq(schema.devices.id, schema.sessions.deviceId))
-      .where(eq(schema.sessions.userId, userId));
+      .where(eq(schema.sessions.userId, userId))
+      // Newest session first, with a stable tiebreaker: this list is how someone finds the device they mean
+      // to revoke, and a row that moves between renders is a row someone revokes by mistake.
+      .orderBy(desc(schema.sessions.createdAt), asc(schema.sessions.id));
     return rows.map((row) => ({ ...row, isCurrent: row.id === currentSessionId }));
   }
 

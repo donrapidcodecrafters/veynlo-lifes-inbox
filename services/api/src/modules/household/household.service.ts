@@ -260,7 +260,8 @@ export class HouseholdService {
         leftAt: schema.householdMemberships.leftAt,
       })
       .from(schema.householdMemberships)
-      .where(eq(schema.householdMemberships.householdId, householdId));
+      .where(eq(schema.householdMemberships.householdId, householdId))
+      .orderBy(asc(schema.householdMemberships.joinedAt), asc(schema.householdMemberships.id));
   }
 
   async invite(householdId: string, requestingUserId: string, dto: InviteMemberDto) {

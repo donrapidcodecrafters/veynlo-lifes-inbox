@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { and, eq, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -108,7 +108,11 @@ export class LegacyReleaseService {
   }
 
   async list(ownerUserId: string) {
-    return this.db.select().from(schema.legacyReleaseConfigs).where(eq(schema.legacyReleaseConfigs.ownerUserId, ownerUserId));
+    return this.db
+      .select()
+      .from(schema.legacyReleaseConfigs)
+      .where(eq(schema.legacyReleaseConfigs.ownerUserId, ownerUserId))
+      .orderBy(desc(schema.legacyReleaseConfigs.createdAt), asc(schema.legacyReleaseConfigs.id));
   }
 
   /**

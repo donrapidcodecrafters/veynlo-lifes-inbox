@@ -134,7 +134,13 @@ export class ListsService {
     }
     return rows
       .map((row) => ({ ...row, itemCounts: counts.get(row.id) ?? { total: 0, checked: 0 } }))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      // The id tiebreaker is not decoration. `Array.prototype.sort` is stable, so rows with an EQUAL key
+      // keep the order they arrived in — and they arrive in the order the database happened to return,
+      // which has no guarantee and changes after any write. Seven of the nine seeded lists share one
+      // createdAt to the microsecond, so renaming one moved it from index 4 to index 8 of the user's own
+      // list, measured through the ordinary PUT /v1/lists/:id. A unique tiebreaker is what makes the order
+      // total, and therefore stable.
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
   /**
