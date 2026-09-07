@@ -577,7 +577,7 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
-  for (const worker of [
+  const workers = [
     connectorSyncWorker,
     connectorScanWorker,
     notificationDispatchWorker,
@@ -599,7 +599,9 @@ async function bootstrap() {
     dataIntegrityScanWorker,
     memoryClassificationWorker,
     resurfacingScanWorker,
-  ]) {
+  ];
+
+  for (const worker of workers) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
   }
@@ -617,8 +619,13 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringLegacyReleaseInactivityScan();
   await queueProducer.scheduleRecurringDataIntegrityScan();
 
+  // Derived from `workers`, never retyped. This line used to be a hardcoded string listing 20 queue
+  // names while the process actually ran 21 — data-integrity-scan was added with a real worker, wired
+  // into this array and into the shutdown path, but the log was left untouched. Anyone reading the
+  // startup output to confirm what a worker process is handling would have concluded the orphan-link
+  // scan was not running. A stale operational log is worse than no log: it answers the question wrongly.
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, inbound-email-ingest, document-ocr, voice-transcription, school-source-sync, school-source-scan, recall-check, recall-scan, caregiver-day-pass-scan, legacy-release-inactivity-scan, memory-classification, resurfacing-scan",
+    `Veynlo worker process started — processing ${workers.length} queues: ${workers.map((w) => w.name).join(", ")}`,
   );
 
   const shutdown = async () => {
