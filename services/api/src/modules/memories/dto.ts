@@ -30,7 +30,7 @@ export const CreateMemoryDtoSchema = z.object({
   sourceKind: z.enum(MEMORY_SOURCE_KINDS),
   sourceUrl: z.string().url().max(2000).optional(),
   rawText: z.string().max(20_000).optional(),
-  title: z.string().max(300).optional(),
+  title: z.string().trim().max(300).optional(),
   userNotes: z.string().max(5000).optional(),
   tags: TagsSchema.optional(),
 });
@@ -38,7 +38,7 @@ export type CreateMemoryDto = z.infer<typeof CreateMemoryDtoSchema>;
 
 export const CreateMemoryFromUploadDtoSchema = z.object({
   sourceKind: z.enum(["screenshot", "image", "document"]),
-  title: z.string().max(300).optional(),
+  title: z.string().trim().max(300).optional(),
   userNotes: z.string().max(5000).optional(),
 });
 export type CreateMemoryFromUploadDto = z.infer<typeof CreateMemoryFromUploadDtoSchema>;
@@ -49,7 +49,7 @@ export type CreateMemoryFromUploadDto = z.infer<typeof CreateMemoryFromUploadDto
  * always wins over whatever the classifier produced, and clears `categoryConfidence` to null (a
  * user-chosen category has no "confidence," it's a fact now). */
 export const UpdateMemoryDtoSchema = z.object({
-  title: z.string().max(300).optional(),
+  title: z.string().trim().max(300).optional(),
   userNotes: z.string().max(5000).nullable().optional(),
   category: z.enum(MEMORY_CATEGORIES).optional(),
   relatedPersonLabel: z.string().max(120).nullable().optional(),

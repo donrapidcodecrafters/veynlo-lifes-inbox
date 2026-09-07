@@ -239,7 +239,12 @@ export default function AskScreen() {
         <>
           <View style={{ gap: 12 }}>
             <TextField label="Question" value={question} onChangeText={setQuestion} placeholder="When does my warranty expire?" onSubmitEditing={() => ask()} returnKeyType="send" />
-            <Button onPress={() => ask()} loading={loading}>
+            {/* ask() bails on !q.trim(), so with the button always enabled a press on an empty box
+                produced nothing at all — no message, no error, no sign it registered. Same defect the web
+                /ask page had (DEF-039), same screen, same guard. Disabled until there is something to send,
+                which is what three other forms in this app already do, and makes "nothing will happen"
+                visible instead of silent. */}
+            <Button onPress={() => ask()} loading={loading} disabled={question.trim().length === 0}>
               Ask
             </Button>
           </View>
@@ -312,7 +317,7 @@ export default function AskScreen() {
               onSubmitEditing={runSearch}
               returnKeyType="search"
             />
-            <Button onPress={runSearch} loading={searchLoading}>
+            <Button onPress={runSearch} loading={searchLoading} disabled={searchQuery.trim().length === 0}>
               Search
             </Button>
           </View>

@@ -65,7 +65,7 @@ export type AddPersonNoteDto = z.infer<typeof AddPersonNoteDtoSchema>;
  * itself is shared household-wide (see personImportantDates' own schema doc comment).
  */
 export const AddImportantDateDtoSchema = z.object({
-  label: z.string().min(1).max(80),
+  label: z.string().trim().min(1).max(80),
   dateIso: z.string().min(1),
   isSensitive: z.boolean().optional(),
   reminderDaysBefore: z.number().int().min(0).max(90).optional(),
@@ -78,7 +78,7 @@ export const AddPersonRelationshipDtoSchema = z
   .object({
     toPersonId: z.string().nullable().optional(),
     toDependentProfileId: z.string().nullable().optional(),
-    label: z.string().min(1).max(80),
+    label: z.string().trim().min(1).max(80),
   })
   .refine((v) => Boolean(v.toPersonId) !== Boolean(v.toDependentProfileId), {
     message: "Provide exactly one of toPersonId or toDependentProfileId.",
@@ -86,7 +86,7 @@ export const AddPersonRelationshipDtoSchema = z
 export type AddPersonRelationshipDto = z.infer<typeof AddPersonRelationshipDtoSchema>;
 
 export const CreateOrganizationDtoSchema = z.object({
-  name: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
   organizationType: z.string().max(60).nullable().optional(),
   householdId: z.string().nullable().optional(),
 });

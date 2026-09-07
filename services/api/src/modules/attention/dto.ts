@@ -22,7 +22,7 @@ export const CorrectInboxItemDtoSchema = z.object({
   dueDateIso: z.string().min(1).optional(),
   autopayBelieved: z.boolean().optional(),
   // calendar_event
-  title: z.string().min(1).max(300).optional(),
+  title: z.string().trim().min(1).max(300).optional(),
   location: z.string().max(300).nullable().optional(),
   isAllDay: z.boolean().optional(),
   startIso: z.string().min(1).optional(),

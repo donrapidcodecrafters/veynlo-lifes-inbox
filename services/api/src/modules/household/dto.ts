@@ -2,12 +2,12 @@ import { z } from "zod";
 import { NormalizedEmailSchema } from "../../common/normalized-email";
 
 export const CreateHouseholdDtoSchema = z.object({
-  name: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
 });
 export type CreateHouseholdDto = z.infer<typeof CreateHouseholdDtoSchema>;
 
 export const RenameHouseholdDtoSchema = z.object({
-  name: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
 });
 export type RenameHouseholdDto = z.infer<typeof RenameHouseholdDtoSchema>;
 
