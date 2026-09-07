@@ -319,6 +319,9 @@ export default function DocumentsPage() {
       }
       return;
     }
+    // No catch here on purpose: this is one of the 42 unguarded action handlers that ActionFailureBanner
+    // now covers app-wide. Found here first — forcing this request to 500 produced no dialog, no new tab
+    // and no change on the page — but fixing it only here would have left the other 41 silent.
     const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url`);
     window.open(url, "_blank", "noopener,noreferrer");
   }
