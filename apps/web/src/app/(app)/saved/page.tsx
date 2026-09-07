@@ -176,7 +176,9 @@ export default function SavedMemoriesPage() {
               <Card className="transition-colors hover:bg-subtle">
                 <CardBody className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{m.title ?? m.sourceUrl ?? "Untitled save"}</p>
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={m.title ?? m.sourceUrl ?? "Untitled save"}>
+                      {m.title ?? m.sourceUrl ?? "Untitled save"}
+                    </p>
                     <div className="mt-1 flex items-center gap-2">
                       <Badge tone={m.category ? "brand" : "neutral"}>{categoryLabel(m.category)}</Badge>
                       {m.pinned && <Badge tone="warning">Pinned</Badge>}

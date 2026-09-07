@@ -309,7 +309,7 @@ function HouseholdDetail({
                         us show the normal "You" convention on the viewer's own row, and the second condition
                         below catches the same placeholder leaking into anyone else's view of that row by
                         falling back to the role label instead of trusting it as a real relationship label. */}
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{displayLabel}</p>
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={displayLabel ?? undefined}>{displayLabel}</p>
                     <p className="text-sm text-tertiary">{ROLE_LABEL[m.role]}</p>
                   </div>
                   <div className="flex items-center gap-2">

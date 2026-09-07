@@ -555,7 +555,13 @@ export default function ConnectionsPage() {
                 {financialAccounts.map((account) => (
                   <div key={account.id} className={`space-y-1 ${account.isIncluded ? "" : "opacity-50"}`}>
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate text-primary">
+                      {/* Truncation with no tooltip clipped real account names at 390px ("Rewards Card
+                          ····1187(excluded)" showed 154 of 208px), leaving no way to tell two similarly
+                          named accounts apart. Same `title` affordance documents/page.tsx already uses. */}
+                      <span
+                        className="min-w-0 truncate text-primary"
+                        title={`${account.name}${account.mask ? ` ····${account.mask}` : ""}${account.isIncluded ? "" : " (excluded)"}`}
+                      >
                         {account.name}
                         {account.mask && <span className="text-tertiary"> ····{account.mask}</span>}
                         {!account.isIncluded && <span className="ml-1.5 text-xs font-medium text-tertiary">(excluded)</span>}
@@ -599,7 +605,10 @@ export default function ConnectionsPage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Recurring income detected</p>
                 {incomeStreams.map((stream) => (
                   <div key={stream.id} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate text-primary">
+                    <span
+                      className="min-w-0 truncate text-primary"
+                      title={`~${formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every ${stream.cadenceLabel} from ${stream.description}`}
+                    >
                       ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every {stream.cadenceLabel} from {stream.description}
                     </span>
                     <Button variant="ghost" size="sm" onClick={() => dismissIncomeStream(stream.id)}>
@@ -615,7 +624,7 @@ export default function ConnectionsPage() {
                 {financialTransactions.slice(0, 15).map((txn) => (
                   <div key={txn.id} className="text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="min-w-0 truncate text-primary">
+                      <span className="min-w-0 truncate text-primary" title={txn.merchantName ?? txn.name}>
                         {txn.merchantName ?? txn.name}
                         {txn.pending && <span className="ml-1.5 text-xs text-tertiary">(pending)</span>}
                         {(txn.matchedPurchaseId || txn.matchedBillId) && <span className="ml-1.5 text-xs text-positive-subtle-text">matched</span>}
