@@ -1797,7 +1797,13 @@ export default function LifePage() {
         <FetchError what="some sections of this page" message="One or more sections below may be incomplete." onRetry={retryAllSections} />
       )}
 
-      {conflicts && conflicts.length > 0 && (
+      {/* §19 — a scheduling conflict is Schedule context, not every context. This banner sat above every
+          show* gate, so it appeared on Family, Health, Home & Vehicles and Documents too. Exactly the same
+          defect as the money cards below, and it survived that fix because schedule_conflicts was empty at
+          the time — the banner could not render for anyone to notice. Now seeded, so it shows.
+          transportConflicts is NOT this: it lives inside the School & Activities section and is already
+          scoped by that section's own gate. */}
+      {showSchedule && conflicts && conflicts.length > 0 && (
         <ConflictBanner conflicts={conflicts} events={events} onResolved={() => mutateConflicts()} />
       )}
 
