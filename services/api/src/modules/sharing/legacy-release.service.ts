@@ -375,23 +375,27 @@ export class LegacyReleaseService {
         .innerJoin(schema.users, eq(schema.users.id, schema.householdMemberships.userId))
         .where(and(eq(schema.householdMemberships.householdId, householdId), eq(schema.householdMemberships.status, "active")));
     }
+    // A merged-away vehicle/property/pet (mergedIntoVehicleId/mergedIntoPropertyId/mergedIntoPetId set) is
+    // never hard-deleted — see assets.service.ts's mergeVehicles doc comment — so it must be excluded here
+    // the same way ordinary list queries already do. Same gap found and fixed in emergency-binder.service.ts;
+    // this release packet is arguably even more sensitive (posthumous release to designated contacts).
     if (categories.includes("vehicles") && householdId) {
       packet.vehicles = await this.db
         .select({ label: schema.vehicleProfiles.label, make: schema.vehicleProfiles.make, model: schema.vehicleProfiles.model, year: schema.vehicleProfiles.year })
         .from(schema.vehicleProfiles)
-        .where(and(eq(schema.vehicleProfiles.householdId, householdId), isNull(schema.vehicleProfiles.deletedAt)));
+        .where(and(eq(schema.vehicleProfiles.householdId, householdId), isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId)));
     }
     if (categories.includes("properties") && householdId) {
       packet.properties = await this.db
         .select({ label: schema.propertyProfiles.label, propertyType: schema.propertyProfiles.propertyType, address: schema.propertyProfiles.address })
         .from(schema.propertyProfiles)
-        .where(and(eq(schema.propertyProfiles.householdId, householdId), isNull(schema.propertyProfiles.deletedAt)));
+        .where(and(eq(schema.propertyProfiles.householdId, householdId), isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId)));
     }
     if (categories.includes("pets") && householdId) {
       packet.pets = await this.db
         .select({ label: schema.petProfiles.label, species: schema.petProfiles.species, breed: schema.petProfiles.breed })
         .from(schema.petProfiles)
-        .where(and(eq(schema.petProfiles.householdId, householdId), isNull(schema.petProfiles.deletedAt)));
+        .where(and(eq(schema.petProfiles.householdId, householdId), isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId)));
     }
     if (categories.includes("identity_records")) {
       const rows = await this.db

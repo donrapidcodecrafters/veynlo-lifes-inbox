@@ -2747,12 +2747,17 @@ export class IngestionService {
    * unassigned for the user to resolve (see PetsService.assignEvent/assignVaccination).
    */
   private async resolvePetId(householdId: string | null, ownerUserId: string, petNameHint: string | null): Promise<string | null> {
+    // mergedIntoPetId excluded too — a merged-away duplicate is never hard-deleted (see
+    // assets.service.ts's mergeVehicles doc comment). Without this, a household with one real pet plus one
+    // merged-away duplicate would see pets.length === 2 here, breaking the unambiguous-single-match
+    // auto-assign shortcut below, and the duplicate's name could shadow the real pet's in a hint match.
     const pets = await this.db
       .select({ id: schema.petProfiles.id, label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           householdId ? eq(schema.petProfiles.householdId, householdId) : eq(schema.petProfiles.ownerUserId, ownerUserId),
         ),
       );
@@ -2778,12 +2783,15 @@ export class IngestionService {
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<boolean> {
     if (!this.ai.isConfigured()) return false;
+    // mergedIntoPetId excluded too — see resolvePetId's own doc comment above; a merged-away duplicate
+    // would otherwise shadow the real pet's name in this disambiguation list handed to the model.
     const pets = await this.db
       .select({ label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           ctx.householdId ? eq(schema.petProfiles.householdId, ctx.householdId) : eq(schema.petProfiles.ownerUserId, ctx.ownerUserId),
         ),
       );
@@ -2891,12 +2899,14 @@ export class IngestionService {
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<boolean> {
     if (!this.ai.isConfigured()) return false;
+    // mergedIntoPetId excluded too — see resolvePetId's own doc comment above.
     const pets = await this.db
       .select({ label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           ctx.householdId ? eq(schema.petProfiles.householdId, ctx.householdId) : eq(schema.petProfiles.ownerUserId, ctx.ownerUserId),
         ),
       );

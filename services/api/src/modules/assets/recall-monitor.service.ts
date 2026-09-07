@@ -318,10 +318,13 @@ export class RecallMonitorService {
    * catch-and-log behavior.
    */
   async scanAll(): Promise<{ vehiclesChecked: number; homeAssetsChecked: number }> {
+    // mergedIntoVehicleId excluded too — a merged-away duplicate is never hard-deleted (see
+    // assets.service.ts's mergeVehicles doc comment), so without this the scan wastes an NHTSA lookup on a
+    // vehicle no list ever shows, and any resulting recall match would be silently orphaned.
     const vehicles = await this.db
       .select({ id: schema.vehicleProfiles.id })
       .from(schema.vehicleProfiles)
-      .where(isNull(schema.vehicleProfiles.deletedAt));
+      .where(and(isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId)));
     let vehiclesChecked = 0;
     for (const v of vehicles) {
       const result = await this.checkVehicle(v.id);

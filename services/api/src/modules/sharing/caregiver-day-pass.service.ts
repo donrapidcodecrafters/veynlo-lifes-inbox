@@ -176,10 +176,20 @@ export class CaregiverDayPassService {
       packet.schedule = events.filter((e) => e.startSort && e.startSort >= now && e.startSort <= expiresAt);
     }
     if (scopes.includes("pets")) {
+      // A merged-away pet (mergedIntoPetId set) is never hard-deleted — see assets.service.ts's
+      // mergeVehicles doc comment for the same pattern — so it must be excluded here too. Same gap found
+      // and fixed in emergency-binder.service.ts and legacy-release.service.ts.
       const pets = await this.db
         .select({ id: schema.petProfiles.id, label: schema.petProfiles.label, species: schema.petProfiles.species, breed: schema.petProfiles.breed })
         .from(schema.petProfiles)
-        .where(and(eq(schema.petProfiles.householdId, householdId), isNull(schema.petProfiles.deletedAt), ne(schema.petProfiles.lifecycleStatus, "deceased")));
+        .where(
+          and(
+            eq(schema.petProfiles.householdId, householdId),
+            isNull(schema.petProfiles.deletedAt),
+            isNull(schema.petProfiles.mergedIntoPetId),
+            ne(schema.petProfiles.lifecycleStatus, "deceased"),
+          ),
+        );
       const petIds = pets.map((p) => p.id);
       const refills =
         petIds.length > 0
