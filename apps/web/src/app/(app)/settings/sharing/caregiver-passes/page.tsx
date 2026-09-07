@@ -119,8 +119,11 @@ export default function CaregiverDayPassesPage() {
             <CardBody>
               <form onSubmit={createPass} className="space-y-4">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-secondary">Label</label>
+                  <label htmlFor="caregiver-label" className="mb-1 block text-xs font-medium text-secondary">
+                    Label
+                  </label>
                   <input
+                    id="caregiver-label"
                     type="text"
                     placeholder="e.g. Saturday night sitter"
                     value={label}
@@ -159,8 +162,14 @@ export default function CaregiverDayPassesPage() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-secondary">Expires in</label>
+                    {/* These labels were adjacent but never ASSOCIATED — no htmlFor, and the control is
+                        not nested inside them — so axe reported the select as unnamed and the passcode
+                        input as unlabelled, both critical. Visually identical; now actually connected. */}
+                    <label htmlFor="caregiver-expires-in" className="mb-1 block text-xs font-medium text-secondary">
+                      Expires in
+                    </label>
                     <select
+                      id="caregiver-expires-in"
                       value={expiresInHours}
                       onChange={(e) => setExpiresInHours(e.target.value)}
                       className="h-9 rounded-lg border border-border-default bg-surface px-2 text-sm text-primary"
@@ -173,8 +182,11 @@ export default function CaregiverDayPassesPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-secondary">Optional passcode</label>
+                    <label htmlFor="caregiver-passcode" className="mb-1 block text-xs font-medium text-secondary">
+                      Optional passcode
+                    </label>
                     <input
+                      id="caregiver-passcode"
                       type="text"
                       value={passcode}
                       onChange={(e) => setPasscode(e.target.value)}

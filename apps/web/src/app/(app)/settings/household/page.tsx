@@ -417,7 +417,9 @@ function EmergencyBinderSection({ householdId, canManage }: { householdId: strin
 
       <p className="mb-3 mt-4 text-sm text-tertiary">
         Documents anyone in this household can find in an emergency. Share a document from the{" "}
-        <Link href="/documents" className="text-brand hover:underline">
+        {/* Inside a paragraph, so colour alone is not enough to tell it is a link (axe:
+            link-in-text-block). Underlined always, not only on hover. */}
+        <Link href="/documents" className="text-brand underline">
           Documents
         </Link>{" "}
         page and add it here.

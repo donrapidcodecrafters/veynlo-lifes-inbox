@@ -552,8 +552,14 @@ export default function ConnectionsPage() {
                   </p>
                 )}
                 {accountToggleError && <FieldError>{accountToggleError}</FieldError>}
+                {/* An excluded account used to be de-emphasised with `opacity-50`, which dropped this row's
+                    text to 2.62:1 in dark and 2.08:1 in light — well under WCAG AA's 4.5:1, measured rather
+                    than guessed. No opacity value passes in both themes (0.8 clears dark at 4.65:1 and still
+                    fails light at 3.65:1), so opacity is the wrong mechanism for de-emphasising text. The row
+                    already says "(excluded)" in words, which is the accessible signal and does not depend on
+                    contrast at all. */}
                 {financialAccounts.map((account) => (
-                  <div key={account.id} className={`space-y-1 ${account.isIncluded ? "" : "opacity-50"}`}>
+                  <div key={account.id} className="space-y-1">
                     <div className="flex items-center justify-between gap-3 text-sm">
                       {/* Truncation with no tooltip clipped real account names at 390px ("Rewards Card
                           ····1187(excluded)" showed 154 of 208px), leaving no way to tell two similarly

@@ -143,9 +143,12 @@ export default function SavedMemoriesPage() {
           onChange={(e) => setQuery(e.target.value)}
           className="min-w-[220px] flex-1"
         />
+        {/* No visible label sits next to this filter, so a screen reader announced it as just "combo box"
+            (axe: select-name, critical). */}
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
+          aria-label="Filter saved items by category"
           className="h-10 rounded-lg border border-border-default bg-surface px-3 text-sm text-primary"
         >
           {CATEGORIES.map((c) => (
