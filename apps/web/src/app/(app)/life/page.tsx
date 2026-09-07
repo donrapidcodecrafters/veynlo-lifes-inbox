@@ -1801,7 +1801,11 @@ export default function LifePage() {
         <ConflictBanner conflicts={conflicts} events={events} onResolved={() => mutateConflicts()} />
       )}
 
-      {savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
+      {/* §19 — money metrics belong to the Money context, not every context. These two cards sat ABOVE the
+          first show* gate, so picking Family to check a child's school events opened the screen with
+          subscription spend and store-credit totals instead. Gated on showMoney like every other money
+          section on this screen ("all" still shows them, which is the overview case §18 asks for). */}
+      {showMoney && savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
         <Card>
           <CardBody className="flex flex-wrap gap-6">
             <div>
@@ -1820,7 +1824,7 @@ export default function LifePage() {
         </Card>
       )}
 
-      {monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={() => mutateMonthlySpend()} />}
+      {showMoney && monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={() => mutateMonthlySpend()} />}
 
       {showSchedule && (
       <Section title="Appointments">

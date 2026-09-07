@@ -1922,7 +1922,11 @@ export default function LifeScreen() {
         </View>
       </View>
 
-      {savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
+      {/* §19 — money metrics belong to the Money context, not every context. These two cards sat ABOVE the
+          first show* gate, so picking Family to check a child's school events opened the screen with
+          subscription spend and store-credit totals instead. Gated on showMoney like every other money
+          section on this screen ("all" still shows them, which is the overview case §18 asks for). */}
+      {showMoney && savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
         <Card style={{ gap: 6 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>Saved from returns</Text>
@@ -1943,7 +1947,7 @@ export default function LifeScreen() {
         </Card>
       )}
 
-      {monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={load} />}
+      {showMoney && monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={load} />}
 
       {showSchedule && (
       <View style={{ gap: 8 }}>
