@@ -811,7 +811,12 @@ export default function PersonDetailPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-primary">{person.displayName}</h1>
           {organization && <p className="mt-1 text-sm text-tertiary">{organization.name}</p>}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" onClick={() => setEditingDetails((s) => !s)}>
             Edit
           </Button>

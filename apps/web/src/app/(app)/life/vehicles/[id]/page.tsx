@@ -549,7 +549,12 @@ export default function VehicleDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           {vehicle.vin && (
             <Button variant="ghost" onClick={decodeVin} loading={decodingVin}>
               Decode VIN
