@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "lint": "eslint src-tauri/capture-window --max-warnings 0",
     "tauri": "tauri"
   },
   "devDependencies": {
