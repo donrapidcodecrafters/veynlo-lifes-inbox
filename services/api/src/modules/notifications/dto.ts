@@ -8,8 +8,21 @@ import { z } from "zod";
 // intentionally not part of this allowlist.
 export const UpdateNotificationPreferencesDtoSchema = z.object({
   intensity: z.enum(["quiet", "balanced", "proactive"]).optional(),
-  quietHoursStart: z.string().nullable().optional(),
-  quietHoursEnd: z.string().nullable().optional(),
+  /* A 24-hour wall-clock time, or null to turn quiet hours off. Anything else was previously stored
+     verbatim — "notatime" reached the database intact, live-verified — and `isWithinQuietHours` then read
+     it back and silently muted the user from midnight. That function is defensive now, but garbage should
+     not be stored either: the client shows the field back to the user, and a saved value nobody can parse
+     is a setting they believe they have. Both bounds are checked, so "25:00" and "12:99" are refused too. */
+  quietHoursStart: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 22:00.")
+    .nullable()
+    .optional(),
+  quietHoursEnd: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 07:00.")
+    .nullable()
+    .optional(),
   // §NOT-002 "critical override only when user opted in and event qualifies" — lets a user turn OFF the
   // default always-override-quiet-hours behavior for critical-priority notifications; see
   // notification-delivery.service.ts's deliver() for the actual enforcement point.
