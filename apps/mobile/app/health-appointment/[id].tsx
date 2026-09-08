@@ -457,7 +457,7 @@ function ExportPanel({ appointmentId }: { appointmentId: string }) {
           </View>
         </View>
       )}
-      {copied && <Text style={{ fontSize: 13, color: theme.colors.positive }}>Copied to clipboard.</Text>}
+      {copied && <Text style={{ fontSize: 13, color: theme.colors.positiveSubtleText }}>Copied to clipboard.</Text>}
       {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
     </Card>
   );

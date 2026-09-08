@@ -191,7 +191,7 @@ export default function WarrantyDetailScreen() {
           case for this exact purchase line resolves. */}
       {warranty.voidedAt && (
         <Card style={{ backgroundColor: theme.colors.warningSubtleBg, borderColor: theme.colors.warning }}>
-          <Text style={{ fontSize: 13, color: theme.colors.warning }}>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>
             This product was returned on {new Date(warranty.voidedAt).toLocaleDateString()} — this warranty may no longer apply.
           </Text>
         </Card>

@@ -349,7 +349,7 @@ export default function AutomationsScreen() {
       </Card>
 
       {killSwitchPaused && (
-        <Text style={{ fontSize: 13, color: theme.colors.warning, backgroundColor: theme.colors.warningSubtleBg, padding: 10, borderRadius: theme.radius.md }}>
+        <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText, backgroundColor: theme.colors.warningSubtleBg, padding: 10, borderRadius: theme.radius.md }}>
           Automations are paused. No rule will run until you turn this back on.
         </Text>
       )}

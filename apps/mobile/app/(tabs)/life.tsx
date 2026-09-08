@@ -709,7 +709,7 @@ function SchoolSection() {
 
       {transportConflicts && transportConflicts.length > 0 && (
         <Card style={{ gap: 8, backgroundColor: theme.colors.warningSubtleBg }}>
-          <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warning }}>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warningSubtleText }}>
             {transportConflicts.length === 1 ? "1 drop-off/pickup conflict" : `${transportConflicts.length} drop-off/pickup conflicts`}
           </Text>
           {transportConflicts.map((c) => {
@@ -1672,7 +1672,7 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
         </View>
       )}
       {error && <Text style={{ fontSize: 12, color: theme.colors.critical }}>{error}</Text>}
-      {conflictNote && <Text style={{ fontSize: 12, color: theme.colors.warning }}>{conflictNote}</Text>}
+      {conflictNote && <Text style={{ fontSize: 12, color: theme.colors.warningSubtleText }}>{conflictNote}</Text>}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <View style={{ flex: 1 }}>
           <Button onPress={submit} loading={submitting} disabled={!title.trim() || !start}>
@@ -1715,12 +1715,12 @@ function ConflictBanner({ conflicts, events, onResolved }: { conflicts: Schedule
   if (conflicts.length === 0) return null;
   return (
     <Card style={{ gap: 8, backgroundColor: theme.colors.warningSubtleBg }}>
-      <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warning }}>
+      <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warningSubtleText }}>
         {conflicts.length === 1 ? "1 scheduling conflict" : `${conflicts.length} scheduling conflicts`}
       </Text>
       {conflicts.map((c) => (
         <View key={c.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <Text style={{ fontSize: 13, color: theme.colors.warning, flex: 1 }}>{c.involvedEventIds.map((id) => titleFor(id)).join(" overlaps with ")}</Text>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText, flex: 1 }}>{c.involvedEventIds.map((id) => titleFor(id)).join(" overlaps with ")}</Text>
           <Button variant="secondary" onPress={() => resolve(c.id)} loading={resolvingId === c.id}>
             Dismiss
           </Button>
