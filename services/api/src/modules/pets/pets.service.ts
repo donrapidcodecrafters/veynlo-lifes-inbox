@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { canCreateShareLink, generateId, type SensitivityTier, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -617,9 +617,10 @@ export class PetsService {
   }
 
   private assertPublicLinkAllowed(sensitivity: string): void {
-    // Same gate as AssetsService.assertPublicLinkAllowed — a microchip number at "highly_sensitive"/
-    // "secret" shouldn't get an unauthenticated, internet-reachable link.
-    if (sensitivity === "highly_sensitive" || sensitivity === "secret") {
+    // A microchip number at "highly_sensitive"/"secret" shouldn't get an unauthenticated,
+    // internet-reachable link. Asks the shared rule rather than restating the tier list, so this cannot
+    // drift away from DocumentsService and AssetsService the way it previously could.
+    if (!canCreateShareLink(sensitivity as SensitivityTier)) {
       throw new ForbiddenException({
         code: "SENSITIVITY_BLOCKS_PUBLIC_LINK",
         message: "This pet's sensitivity level doesn't allow public share links. Share it directly with someone's Veynlo account instead.",

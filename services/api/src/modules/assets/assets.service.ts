@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { canCreateShareLink, generateId, type SensitivityTier, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -1206,11 +1206,15 @@ export class AssetsService {
   }
 
   private assertPublicLinkAllowed(sensitivity: string, resourceLabel: "property" | "vehicle"): void {
-    // HH-002 Permissions: "High-sensitivity categories can disallow public links." Same gate as
-    // DocumentsService.createShareLink — a home address or a VIN at "highly_sensitive"/"secret" shouldn't
-    // get an unauthenticated, internet-reachable link; a direct grant (unrestricted by sensitivity, since
-    // it targets one named Veynlo account) is still available for that case.
-    if (sensitivity === "highly_sensitive" || sensitivity === "secret") {
+    // HH-002 Permissions: "High-sensitivity categories can disallow public links." A home address or a VIN
+    // at "highly_sensitive"/"secret" shouldn't get an unauthenticated, internet-reachable link; a direct
+    // grant (unrestricted by sensitivity, since it targets one named Veynlo account) is still available.
+    //
+    // Asks the shared rule rather than restating it. The tier list used to be hardcoded here — correct,
+    // and therefore invisible: if a tier were added or the rule changed, DocumentsService would follow it
+    // and this would not. canCreateShareLink is Appendix C's own statement of the rule and the single
+    // place it lives.
+    if (!canCreateShareLink(sensitivity as SensitivityTier)) {
       throw new ForbiddenException({
         code: "SENSITIVITY_BLOCKS_PUBLIC_LINK",
         message: `This ${resourceLabel}'s sensitivity level doesn't allow public share links. Share it directly with someone's Veynlo account instead.`,
