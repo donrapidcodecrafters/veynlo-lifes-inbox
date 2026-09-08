@@ -208,6 +208,7 @@ export default function BillingScreen() {
                         <Pressable accessibilityRole="button"
                           key={interval}
                           onPress={() => setIntervalByPlan((prev) => ({ ...prev, [planKey]: interval }))}
+                          accessibilityState={{ selected: active }}
                           style={{
                             flex: 1,
                             paddingVertical: 6,

@@ -113,6 +113,7 @@ export default function ListsScreen() {
               <Pressable accessibilityRole="button"
                 key={k.value}
                 onPress={() => setKind(k.value)}
+                          accessibilityState={{ selected: active }}
                 style={{
                   paddingVertical: 6,
                   paddingHorizontal: 12,
@@ -147,6 +148,7 @@ export default function ListsScreen() {
                   <Pressable accessibilityRole="button"
                     key={h.household.id}
                     onPress={() => setHouseholdId(h.household.id)}
+                          accessibilityState={{ selected: active }}
                     style={{
                       paddingVertical: 6,
                       paddingHorizontal: 12,
