@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createOnboardedUser, API_BASE_URL } from "./support/api";
+import { API_BASE_URL, createSignedInUser } from "./support/api";
 
 /**
  * Connections page load — every connector card (Gmail, Outlook, calendars, etc; see AVAILABLE_CONNECTORS
@@ -10,12 +10,7 @@ import { createOnboardedUser, API_BASE_URL } from "./support/api";
  */
 test.describe("Connections", () => {
   test.beforeEach(async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "connections");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    const user = await createSignedInUser(page, "connections");
   });
 
   test("the Connections page loads and lists available connectors", async ({ page }) => {

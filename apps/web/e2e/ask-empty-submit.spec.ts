@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createOnboardedUser } from "./support/api";
+import { createSignedInUser } from "./support/api";
 
 /**
  * Ask must never look like it accepted an empty question.
@@ -16,12 +16,7 @@ import { createOnboardedUser } from "./support/api";
  */
 test.describe("Ask — empty submit", () => {
   test.beforeEach(async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "ask-empty");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    const user = await createSignedInUser(page, "ask-empty");
   });
 
   test("the submit button is unavailable until there is a question to send", async ({ page }) => {
