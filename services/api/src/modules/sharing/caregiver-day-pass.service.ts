@@ -136,9 +136,13 @@ export class CaregiverDayPassService {
       throw new NotFoundException({ code: "DAY_PASS_NOT_FOUND", message: "This pass is invalid or has expired." });
     }
     if (pass.passcodeHash) {
+      // Same per-pass counter as a share link's, on SharingService so there is one implementation rather
+      // than two that can drift - see assertPasscodeAttemptAllowed's own doc comment.
+      await this.sharing.assertPasscodeAttemptAllowed("day_pass", pass.id);
       if (!passcode || !(await argon2.verify(pass.passcodeHash, passcode))) {
         throw new ForbiddenException({ code: "PASSCODE_REQUIRED", message: "This pass needs a passcode." });
       }
+      await this.sharing.clearPasscodeAttempts("day_pass", pass.id);
     }
     await this.sharing.recordAnonymousAccess("caregiver_day_pass", pass.id);
     return this.buildPacket(pass.householdId, pass.scopes as CaregiverDayPassScope[], pass.label, pass.expiresAt);
