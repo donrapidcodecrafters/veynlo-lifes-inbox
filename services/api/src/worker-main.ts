@@ -33,6 +33,7 @@ import {
   type ResurfacingScanJobData,
   type LegacyReleaseInactivityScanJobData,
   type DataIntegrityScanJobData,
+  type SearchIndexBackfillJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
@@ -63,6 +64,7 @@ import { CaregiverDayPassService } from "./modules/sharing/caregiver-day-pass.se
 import { recordConnectorSyncFailure, providerFamilyFor } from "./modules/connectors/connection-health.util";
 import { LegacyReleaseService } from "./modules/sharing/legacy-release.service";
 import { DataIntegrityService } from "./modules/data-integrity/data-integrity.service";
+import { SearchBackfillService } from "./modules/search/search-backfill.service";
 
 const logger = new Logger("Worker");
 
@@ -109,6 +111,7 @@ async function bootstrap() {
   const caregiverDayPasses = appContext.get(CaregiverDayPassService);
   const legacyRelease = appContext.get(LegacyReleaseService);
   const dataIntegrity = appContext.get(DataIntegrityService);
+  const searchBackfill = appContext.get(SearchBackfillService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -557,6 +560,17 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /** §44.3 "search documents ... deleted/reindexed with canonical data" — see SearchBackfillService for
+   * why a forward-only index needs a reconciliation pass at all. Concurrency 1: two overlapping full
+   * reindexes would do identical work twice and contend on the same rows for no benefit. */
+  const searchIndexBackfillWorker = new Worker<SearchIndexBackfillJobData>(
+    QUEUE_NAMES.searchIndexBackfill,
+    async () => {
+      await searchBackfill.run();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   /** §29.1 SAVE-001/002 — see queue-names.ts's MemoryClassificationJobData doc comment for why this moved
    * off the synchronous save request. */
   const memoryClassificationWorker = new Worker<MemoryClassificationJobData>(
@@ -597,6 +611,7 @@ async function bootstrap() {
     caregiverDayPassScanWorker,
     legacyReleaseInactivityScanWorker,
     dataIntegrityScanWorker,
+    searchIndexBackfillWorker,
     memoryClassificationWorker,
     resurfacingScanWorker,
   ];
@@ -618,6 +633,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringCaregiverDayPassScan();
   await queueProducer.scheduleRecurringLegacyReleaseInactivityScan();
   await queueProducer.scheduleRecurringDataIntegrityScan();
+  await queueProducer.scheduleRecurringSearchIndexBackfill();
 
   // Derived from `workers`, never retyped. This line used to be a hardcoded string listing 20 queue
   // names while the process actually ran 21 — data-integrity-scan was added with a real worker, wired

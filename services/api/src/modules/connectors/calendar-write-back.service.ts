@@ -6,6 +6,7 @@ import { DATABASE } from "../../database/database.module";
 import { ConnectorsService } from "./connectors.service";
 import { GoogleCalendarAdapter, type WriteBackEventInput } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
+import { SearchIndexService } from "../search/search-index.service";
 
 /**
  * CAL-001 "write-back capability" — the single place both `POST /v1/calendar-events/:id/push` (a manually
@@ -24,6 +25,7 @@ export class CalendarWriteBackService {
     @Inject(ConnectorsService) private readonly connectors: ConnectorsService,
     @Inject(GoogleCalendarAdapter) private readonly googleCalendar: GoogleCalendarAdapter,
     @Inject(MicrosoftCalendarAdapter) private readonly microsoftCalendar: MicrosoftCalendarAdapter,
+    @Inject(SearchIndexService) private readonly searchIndex?: SearchIndexService,
   ) {}
 
   private toWriteBackInput(event: typeof schema.calendarEvents.$inferSelect): WriteBackEventInput {
@@ -119,6 +121,7 @@ export class CalendarWriteBackService {
     }
 
     await this.db.delete(schema.calendarEvents).where(eq(schema.calendarEvents.id, event.id));
+    await this.searchIndex?.markDeleted("calendar_event", event.id);
     return { deleted: true };
   }
 }

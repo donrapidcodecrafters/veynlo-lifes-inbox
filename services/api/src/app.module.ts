@@ -45,6 +45,7 @@ import { IdentityRecordsModule } from "./modules/identity-records/identity-recor
 import { CaregiverDayPassModule } from "./modules/sharing/caregiver-day-pass.module";
 import { LegacyReleaseModule } from "./modules/sharing/legacy-release.module";
 import { DataIntegrityModule } from "./modules/data-integrity/data-integrity.module";
+import { SearchBackfillModule } from "./modules/search/search-backfill.module";
 import { HistoryModule } from "./modules/history/history.module";
 
 @Module({
@@ -94,6 +95,7 @@ import { HistoryModule } from "./modules/history/history.module";
     CaregiverDayPassModule,
     LegacyReleaseModule,
     DataIntegrityModule,
+    SearchBackfillModule,
     HistoryModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

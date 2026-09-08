@@ -25,6 +25,7 @@ export const QUEUE_NAMES = {
   caregiverDayPassScan: "caregiver-day-pass-scan",
   legacyReleaseInactivityScan: "legacy-release-inactivity-scan",
   dataIntegrityScan: "data-integrity-scan",
+  searchIndexBackfill: "search-index-backfill",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -178,3 +179,9 @@ export type LegacyReleaseInactivityScanJobData = Record<string, never>;
 /** §Operations "data-integrity/orphan-check job" — recurring tick with no payload; its processor
  * (DataIntegrityService.scanForOrphans) finds every orphaned cross-table link itself. */
 export type DataIntegrityScanJobData = Record<string, never>;
+
+/** §44.3 "search documents ... deleted/reindexed with canonical data" — recurring tick with no payload;
+ * its processor (SearchBackfillService) reconciles every user's search_documents against the canonical
+ * tables itself. The index is otherwise written forward-only, so anything that skips a domain service
+ * (a seed, an importer, a failed upsert, a newly added resource type) stays permanently unfindable. */
+export type SearchIndexBackfillJobData = Record<string, never>;

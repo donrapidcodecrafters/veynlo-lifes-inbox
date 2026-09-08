@@ -456,6 +456,9 @@ export class TripsService {
       })
       .where(eq(schema.trips.id, target.id));
     await this.db.update(schema.trips).set({ deletedAt: new Date(), suggestedMergeTripIds: [] }).where(eq(schema.trips.id, source.id));
+    // The merged-away trip is gone from every read path; its search document has to go too, or searching
+    // the old destination keeps ranking a trip the user can no longer open.
+    await this.searchIndex?.markDeleted("trip", source.id);
     return { id: target.id };
   }
 

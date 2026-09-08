@@ -634,6 +634,10 @@ export class DocumentsService {
       throw new BadRequestException({ code: "INVALID_STATE_TRANSITION", message: `Can't delete a document that's currently "${from}".` });
     }
     await this.db.update(schema.documents).set({ deletedAt: new Date(), processingState: "deleted", updatedAt: new Date() }).where(eq(schema.documents.id, documentId));
+    // Without this the document stays in `search_documents`. It would not leak its contents — structuredSearch
+    // re-fetches every hit from the source table — but the orphan row still consumes one of this domain's
+    // RESULTS_PER_DOMAIN ranked slots, so a deleted document can silently push a live one out of the results.
+    await this.searchIndex?.markDeleted("document", documentId);
   }
 
   /**

@@ -458,6 +458,7 @@ export class MemoriesService {
   async delete(id: string, userId: string): Promise<void> {
     await this.assertOwned(id, userId);
     await this.db.delete(schema.savedMemories).where(eq(schema.savedMemories.id, id));
+    await this.searchIndex?.markDeleted("saved_memory", id);
   }
 
   /** SAVE-001 "convert to task/event/object" — see PromoteMemoryDtoSchema's own doc comment: the client
