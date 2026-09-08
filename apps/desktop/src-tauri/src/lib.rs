@@ -53,8 +53,25 @@ const SESSION_COOKIE_NAME: &str = "veynlo_session";
 /// deliberately the same "document/image types" DSK-003 names, not an open-ended "any file" acceptance.
 const ALLOWED_DROP_EXTENSIONS: [&str; 8] = ["pdf", "png", "jpg", "jpeg", "heic", "doc", "docx", "txt"];
 
+/// Host AND scheme. Checking the host alone was scheme-blind, which two probes showed concretely:
+/// `http://app.veynlo.com/home` passed, and so did `ftp://localhost/x`. The first is the one that
+/// matters — in a release build that is a plaintext downgrade into the window holding the user's real
+/// session cookie jar, so anyone able to tamper with the network could render their own page inside the
+/// app shell. The existing tests covered `file:///`, `data:` and `about:blank`, but all three carry no
+/// host and were already rejected for that reason rather than for their scheme, so none of them caught
+/// this.
+///
+/// `http` stays allowed for `localhost` alone, because that is what `tauri dev` actually loads.
 fn is_allowed_navigation(url: &tauri::Url) -> bool {
-    url.host_str().is_some_and(|host| ALLOWED_HOSTS.contains(&host))
+    let Some(host) = url.host_str() else { return false };
+    if !ALLOWED_HOSTS.contains(&host) {
+        return false;
+    }
+    match url.scheme() {
+        "https" => true,
+        "http" => host == "localhost",
+        _ => false,
+    }
 }
 
 /// Debug builds (`tauri dev`) point at the local web dev server; release builds point at the real
@@ -549,6 +566,28 @@ mod tests {
         assert!(!allowed("file:///C:/Windows/System32/drivers/etc/hosts"));
         assert!(!allowed("data:text/html,<script>fetch('/v1/auth/me')</script>"));
         assert!(!allowed("about:blank"));
+    }
+
+    #[test]
+    fn rejects_a_plaintext_downgrade_of_a_deployed_host() {
+        // The check used to look at the host and nothing else, so every one of these passed. The first is
+        // the real one: in a release build it is a plaintext navigation into the window holding the
+        // session cookie jar, which anyone able to tamper with the network could answer themselves.
+        assert!(!allowed("http://app.veynlo.com/home"));
+        assert!(!allowed("http://api.veynlo.com/v1/auth/me"));
+        assert!(!allowed("http://auth.veynlo.com/oauth/callback"));
+    }
+
+    #[test]
+    fn rejects_other_schemes_even_on_an_allowed_host() {
+        assert!(!allowed("ftp://localhost/x"));
+        assert!(!allowed("ws://localhost:3000/socket"));
+    }
+
+    #[test]
+    fn still_allows_plain_http_for_localhost_because_tauri_dev_uses_it() {
+        assert!(allowed("http://localhost:3000/"));
+        assert!(allowed("https://localhost:3000/"));
     }
 
     #[test]
