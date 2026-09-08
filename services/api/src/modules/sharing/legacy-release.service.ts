@@ -54,6 +54,16 @@ export class LegacyReleaseService {
   /** "Say 75%" — the earlier grace-warning point as a fraction of the owner's own `inactivityThresholdDays`. */
   private static readonly WARNING_THRESHOLD_FRACTION = 0.75;
 
+  /**
+   * How long a finalized release stays redeemable.
+   *
+   * Long on purpose. This exists for someone settling an estate, and that takes months — a short window
+   * would defeat the feature for the exact case it is built for, which is why the recipient's access is
+   * not cut off quickly. It is bounded rather than infinite so that a forwarded email, or the contact's
+   * mailbox breached years later, does not still reach live data.
+   */
+  private static readonly RELEASE_VALID_DAYS = 365;
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(IdentityService) private readonly identity: IdentityService,
@@ -135,16 +145,31 @@ export class LegacyReleaseService {
   /** "Revocation must be explicit" — deliberately no step-up gate: revoking access should always be at
    * least as easy as granting it, same posture as every other revoke path in this codebase (resourceGrants/
    * shareLinks/caregiverDayPasses). Works from any non-released status. */
+  /**
+   * Revocable from ANY status, including "released".
+   *
+   * It used to throw ALREADY_RELEASED once finalized, which meant a finalized release was permanent and
+   * unrevocable by anyone — including an owner who was demonstrably alive and using the app. If the
+   * inactivity path ever fired wrongly (a long hospital stay, a sabbatical), the returning owner had no
+   * recourse at all. That was not a decision anyone made: this class's own comment on revocation says it
+   * should be "at least as easy as granting it, same posture as every other revoke path in this codebase",
+   * and resourceGrants/shareLinks/caregiverDayPasses all honour that unconditionally.
+   *
+   * Revoking a released config also CLEARS releaseTokenHash, so the emailed link stops resolving
+   * immediately rather than merely failing a status check — nothing is left in the row to redeem.
+   */
   async revoke(id: string, ownerUserId: string) {
     const config = await this.loadOwned(id, ownerUserId);
-    if (config.status === "released") {
-      throw new BadRequestException({ code: "ALREADY_RELEASED", message: "This has already been released and can no longer be revoked." });
-    }
     if (config.status === "revoked") {
       throw new BadRequestException({ code: "ALREADY_REVOKED", message: "This was already revoked." });
     }
-    await this.db.update(schema.legacyReleaseConfigs).set({ status: "revoked", revokedAt: new Date(), updatedAt: new Date() }).where(eq(schema.legacyReleaseConfigs.id, id));
-    await this.recordAudit("user", ownerUserId, "legacy_release.revoke", id, { beforeJson: { status: config.status } });
+    await this.db
+      .update(schema.legacyReleaseConfigs)
+      .set({ status: "revoked", revokedAt: new Date(), releaseTokenHash: null, releaseExpiresAt: null, updatedAt: new Date() })
+      .where(eq(schema.legacyReleaseConfigs.id, id));
+    await this.recordAudit("user", ownerUserId, "legacy_release.revoke", id, {
+      beforeJson: { status: config.status, wasReleased: config.status === "released" },
+    });
     return { id, status: "revoked" };
   }
 
@@ -240,7 +265,14 @@ export class LegacyReleaseService {
     const releaseTokenHash = createHash("sha256").update(token).digest("hex");
     await this.db
       .update(schema.legacyReleaseConfigs)
-      .set({ status: "released", releaseFinalizedByAdminId: actingAdminId, releasedAt: new Date(), releaseTokenHash, updatedAt: new Date() })
+      .set({
+        status: "released",
+        releaseFinalizedByAdminId: actingAdminId,
+        releasedAt: new Date(),
+        releaseTokenHash,
+        releaseExpiresAt: new Date(Date.now() + LegacyReleaseService.RELEASE_VALID_DAYS * 86_400_000),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.legacyReleaseConfigs.id, id));
     await this.recordAudit("support_agent", actingAdminId, "legacy_release.finalize", id);
     // The raw token is returned exactly once, here — same "never stored, only its hash is" posture as
@@ -360,7 +392,11 @@ export class LegacyReleaseService {
   async access(token: string) {
     const releaseTokenHash = createHash("sha256").update(token).digest("hex");
     const [config] = await this.db.select().from(schema.legacyReleaseConfigs).where(eq(schema.legacyReleaseConfigs.releaseTokenHash, releaseTokenHash)).limit(1);
-    if (!config || config.status !== "released") {
+    // An expiry that is missing is treated as expired, not as "no expiry". Every released row was
+    // backfilled by migration 0068, so a null here means a row that never went through finalizeRelease —
+    // and defaulting THAT to unlimited access is the exact hole this closes. Same message and shape for
+    // every rejection, so an expired link is indistinguishable from an unknown one.
+    if (!config || config.status !== "released" || !config.releaseExpiresAt || config.releaseExpiresAt <= new Date()) {
       throw new NotFoundException({ code: "LEGACY_RELEASE_NOT_FOUND", message: "This link is invalid." });
     }
     await this.sharing.recordAnonymousAccess("legacy_release", config.id);

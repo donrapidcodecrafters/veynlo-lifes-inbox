@@ -58,6 +58,7 @@ export default function CaregiverDayPassesPage() {
   const [passcode, setPasscode] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const [newLinkUrl, setNewLinkUrl] = useState<string | null>(null);
 
   function toggleScope(scope: DayPassScope) {
@@ -91,12 +92,27 @@ export default function CaregiverDayPassesPage() {
   async function revoke(passId: string, passLabel: string) {
     if (!householdId) return;
     if (!window.confirm(`End "${passLabel}" now? Anyone using it loses access immediately.`)) return;
-    await api.delete(`/v1/caregiver-day-passes/${householdId}/${passId}`);
-    mutate();
+    setRevokeError(null);
+    try {
+      await api.delete(`/v1/caregiver-day-passes/${householdId}/${passId}`);
+    } catch (err) {
+      setRevokeError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't end "${passLabel}". It is still active — please try again.`,
+      );
+    } finally {
+      mutate();
+    }
   }
 
   return (
     <div className="space-y-6">
+      {revokeError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {revokeError}
+        </p>
+      )}
       <header className="space-y-1">
         <Link href="/settings/sharing" className="text-sm text-tertiary hover:text-primary">
           ← Sharing

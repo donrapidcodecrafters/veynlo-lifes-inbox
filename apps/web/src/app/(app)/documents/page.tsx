@@ -175,15 +175,37 @@ export default function DocumentsPage() {
     }
   }
 
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
+
   async function toggleHousehold(doc: DocumentRow) {
     if (!myHousehold) return;
-    await api.put(`/v1/documents/${doc.id}/household`, { householdId: doc.householdId ? null : myHousehold.household.id });
-    revalidateAllFilters();
+    setVisibilityError(null);
+    try {
+      await api.put(`/v1/documents/${doc.id}/household`, { householdId: doc.householdId ? null : myHousehold.household.id });
+    } catch (err) {
+      setVisibilityError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't change who can see "${doc.title}". It is unchanged — please try again.`,
+      );
+    } finally {
+      revalidateAllFilters();
+    }
   }
 
   async function toggleBinder(doc: DocumentRow) {
-    await api.put(`/v1/documents/${doc.id}/emergency-binder`, { isEmergencyBinderItem: !doc.isEmergencyBinderItem });
-    revalidateAllFilters();
+    setVisibilityError(null);
+    try {
+      await api.put(`/v1/documents/${doc.id}/emergency-binder`, { isEmergencyBinderItem: !doc.isEmergencyBinderItem });
+    } catch (err) {
+      setVisibilityError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't update the emergency binder for "${doc.title}". It is unchanged — please try again.`,
+      );
+    } finally {
+      revalidateAllFilters();
+    }
   }
 
   // §40.3 Document state machine's "verified"/"archived" — the two single-click user actions this vault
@@ -405,6 +427,12 @@ export default function DocumentsPage() {
       {stateActionError && (
         <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
           {stateActionError}
+        </p>
+      )}
+
+      {visibilityError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {visibilityError}
         </p>
       )}
 

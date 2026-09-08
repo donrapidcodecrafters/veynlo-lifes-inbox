@@ -168,6 +168,10 @@ export default function VehicleDetailPage() {
   const [odometerReading, setOdometerReading] = useState("");
   const [odometerError, setOdometerError] = useState<string | null>(null);
   const [addingTire, setAddingTire] = useState(false);
+  // Distinct from addingTire, which is "the add form is open". This is "a create is in flight" —
+  // without it the Add button stayed live through the POST while the fields still held their values, so a
+  // double-click wrote two identical tires (DEF-071).
+  const [addingTireBusy, setAddingTireBusy] = useState(false);
   const [tireBrand, setTireBrand] = useState("");
   const [tireModel, setTireModel] = useState("");
   const [tireSize, setTireSize] = useState("");
@@ -327,6 +331,8 @@ export default function VehicleDetailPage() {
   }
 
   async function addTire() {
+    if (addingTireBusy) return;
+    setAddingTireBusy(true);
     setTireError(null);
     const validationErrors = validateTireFields();
     if (validationErrors) {
@@ -362,6 +368,8 @@ export default function VehicleDetailPage() {
         setTireFieldErrors(Object.fromEntries(Object.entries(err.fieldErrors).map(([k, v]) => [k, v[0] ?? ""])));
       }
       setTireError(err instanceof ApiError ? err.message : "Couldn't add that tire.");
+    } finally {
+      setAddingTireBusy(false);
     }
   }
 
@@ -827,7 +835,9 @@ export default function VehicleDetailPage() {
                 />
               )}
               <div className="flex gap-2">
-                <Button onClick={addTire}>Add</Button>
+                <Button onClick={addTire} loading={addingTireBusy}>
+                  Add
+                </Button>
                 <Button
                   variant="secondary"
                   onClick={() => {
