@@ -21,6 +21,7 @@ import type {
   SetMemberLabelDto,
   TransferOwnershipDto,
 } from "./dto";
+import { localDayWindow } from "../../common/local-day";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — longer-lived than a password reset since a household invite is a lower-stakes, non-account-recovery action
 
@@ -215,9 +216,13 @@ export class HouseholdService {
    */
   async today(householdId: string, userId: string) {
     await this.assertOwnerOrAdult(householdId, userId);
+    // "Today" now means the requesting user's local day. There is still no household-level timezone (the
+    // doc comment above is unchanged on that point), but this view is always rendered FOR someone, and
+    // their own calendar day is a better answer than the UTC one — and it agrees with what the personal
+    // Today view shows the same person, which the UTC boundary did not.
+    const [viewer] = await this.db.select({ timezone: schema.users.timezone }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     const now = new Date();
-    const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+    const { startOfDay, endOfDay } = localDayWindow(now, viewer?.timezone);
 
     const events = await this.db
       .select()
