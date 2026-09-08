@@ -73,6 +73,14 @@ function generateInboundAlias(): string {
 const SIGN_IN_FAILURE_LIMIT = 10;
 const SIGN_IN_FAILURE_WINDOW_SECONDS = 15 * 60;
 
+/**
+ * Tighter than sign-in's ten, because the situations are not the same. Step-up is re-entered by someone
+ * already signed in, deliberately, for one sensitive action — five wrong attempts in fifteen minutes is
+ * generous for a person and a hard ceiling for someone working through a stolen session.
+ */
+const STEP_UP_FAILURE_LIMIT = 5;
+const STEP_UP_FAILURE_WINDOW_SECONDS = 15 * 60;
+
 export interface SessionIssued {
   token: string;
   expiresAt: Date;
@@ -834,12 +842,38 @@ export class IdentityService {
     const [user] = await this.db.select({ passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     if (!user?.passwordHash) return;
     if (!password) {
+      // Deliberately NOT counted. This is the normal first half of the flow — the client calls without a
+      // password precisely to be told one is needed, and the emergency binder's unlock does exactly that
+      // on every open. Counting it would burn a legitimate user's allowance before they typed anything.
       throw new UnauthorizedException({ code: "PASSWORD_REQUIRED", message: "Re-enter your password to continue." });
     }
+
+    // Throttled HERE rather than at each caller, so a new step-up-protected action cannot be added without
+    // it. This gate had none: an attacker holding a stolen session could guess the step-up password at the
+    // global per-IP rate to unlock the emergency binder (identity records, vehicles, properties, pets,
+    // medical appointments) or reveal a passport number. Both of those endpoints wrote an audit row on
+    // every failed attempt and nothing counted them — the same shape as sign-in before DEF-057, on the
+    // second factor rather than the first. Data export was the one caller with a per-route @Throttle,
+    // which is what made the absence on the others visible.
+    if (this.cache) {
+      const key = `stepup-fail:${userId}`;
+      const attempts = await this.cache.incr(key);
+      if (attempts === 1) await this.cache.expire(key, STEP_UP_FAILURE_WINDOW_SECONDS);
+      if (attempts > STEP_UP_FAILURE_LIMIT) {
+        throw new HttpException(
+          { code: "TOO_MANY_REQUESTS", message: "You're doing that too much. Please wait a bit and try again." },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
     const valid = await argon2.verify(user.passwordHash, password);
     if (!valid) {
       throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect password." });
     }
+    // Cleared on success, so the counter measures attempts since the last correct password rather than
+    // accumulating across a user's normal use of a step-up-gated feature.
+    await this.cache?.del(`stepup-fail:${userId}`);
   }
 
   /**
