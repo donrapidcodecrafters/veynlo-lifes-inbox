@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { isIPv4, isIPv6 } from "node:net";
 
 const MAX_REDIRECTS = 5;
-const FETCH_TIMEOUT_MS = 10_000;
+export const FETCH_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 5_000_000; // 5MB — a captured page's text content has no business being larger
 
 /**
