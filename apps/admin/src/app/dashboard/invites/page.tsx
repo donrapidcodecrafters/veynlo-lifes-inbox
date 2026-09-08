@@ -25,10 +25,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function inviteStatus(invite: SignupInvite): { label: string; className: string } {
-  if (invite.revokedAt) return { label: "revoked", className: "text-critical" };
+  if (invite.revokedAt) return { label: "revoked", className: "text-critical-subtle-text" };
   if (invite.redeemedAt) return { label: "redeemed", className: "text-tertiary" };
-  if (invite.expiresAt && new Date(invite.expiresAt) <= new Date()) return { label: "expired", className: "text-critical" };
-  return { label: "active", className: "text-positive" };
+  if (invite.expiresAt && new Date(invite.expiresAt) <= new Date()) return { label: "expired", className: "text-critical-subtle-text" };
+  return { label: "active", className: "text-positive-subtle-text" };
 }
 
 export default function InvitesPage() {

@@ -230,7 +230,7 @@ export default function MerchantsPage() {
                     {entry.unmergedAt ? (
                       <span className="text-tertiary">undone</span>
                     ) : (
-                      <span className="text-positive">active</span>
+                      <span className="text-positive-subtle-text">active</span>
                     )}
                   </td>
                   <td className="py-2">
