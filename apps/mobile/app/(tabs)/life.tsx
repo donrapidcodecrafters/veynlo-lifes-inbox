@@ -670,11 +670,19 @@ function SchoolSection() {
     }, [load]),
   );
 
+  // Found by the same sweep that produced DEF-091: this section's three actions fired an api.put/post
+  // with no catch, so a failure propagated unhandled - the crash-overlay class already fixed in the
+  // ConflictBanner component further down this same file.
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function assignChild(eventId: string, dependentId: string) {
     setAssigningId(eventId);
+    setActionError(null);
     try {
       await api.put(`/v1/school/events/${eventId}/assign-child`, { dependentId });
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't assign that child. Please try again.");
     } finally {
       setAssigningId(null);
     }
@@ -682,9 +690,12 @@ function SchoolSection() {
 
   async function advanceForm(id: string, state: string) {
     setAdvancingId(id);
+    setActionError(null);
     try {
       await api.put(`/v1/school/forms/${id}/state`, { state });
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't update that form. Please try again.");
     } finally {
       setAdvancingId(null);
     }
@@ -692,9 +703,12 @@ function SchoolSection() {
 
   async function resolveTransportConflict(id: string) {
     setResolvingConflictId(id);
+    setActionError(null);
     try {
       await api.post(`/v1/schedule-conflicts/${id}/resolve`);
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't resolve that conflict. Please try again.");
     } finally {
       setResolvingConflictId(null);
     }
@@ -706,6 +720,7 @@ function SchoolSection() {
   return (
     <View style={{ gap: 8 }}>
       <SectionHeading title="School & activities" />
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
 
       {transportConflicts && transportConflicts.length > 0 && (
         <Card style={{ gap: 8, backgroundColor: theme.colors.warningSubtleBg }}>
@@ -1011,11 +1026,16 @@ function HealthSection() {
     }, [load]),
   );
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function markPickedUp(id: string) {
     setMarkingId(id);
+    setActionError(null);
     try {
       await api.post(`/v1/health/refill-reminders/${id}/picked-up`);
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't mark that as picked up. Please try again.");
     } finally {
       setMarkingId(null);
     }
@@ -1026,6 +1046,7 @@ function HealthSection() {
   return (
     <View style={{ gap: 8 }}>
       <SectionHeading title="Health" />
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>
         Private by default — a household member can&apos;t see these unless you share them individually.
       </Text>
@@ -1702,11 +1723,16 @@ function ConflictBanner({ conflicts, events, onResolved }: { conflicts: Schedule
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const titleFor = (id: string) => events?.find((e) => e.id === id)?.title ?? "another event";
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function resolve(id: string) {
     setResolvingId(id);
+    setActionError(null);
     try {
       await api.post(`/v1/schedule-conflicts/${id}/resolve`);
       onResolved();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't resolve that conflict. Please try again.");
     } finally {
       setResolvingId(null);
     }
@@ -1715,6 +1741,7 @@ function ConflictBanner({ conflicts, events, onResolved }: { conflicts: Schedule
   if (conflicts.length === 0) return null;
   return (
     <Card style={{ gap: 8, backgroundColor: theme.colors.warningSubtleBg }}>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warningSubtleText }}>
         {conflicts.length === 1 ? "1 scheduling conflict" : `${conflicts.length} scheduling conflicts`}
       </Text>

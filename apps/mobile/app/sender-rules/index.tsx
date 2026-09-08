@@ -76,11 +76,17 @@ export default function SenderRulesScreen() {
     }
   }
 
+  // Same shape as calendar-trust: addError existed, remove had nothing.
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function removeRule(id: string) {
     setRemovingId(id);
+    setActionError(null);
     try {
       await api.delete(`/v1/inbox/sender-rules/${id}`);
       load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't remove that rule. Please try again.");
     } finally {
       setRemovingId(null);
     }
@@ -88,6 +94,7 @@ export default function SenderRulesScreen() {
 
   return (
     <Screen>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <ScreenHeader
         title="Sender rules"
         subtitle="Teach Veynlo once: always file a sender as School or Bills, ignore it, keep only attachments, or mark it household-shared."

@@ -201,9 +201,12 @@ export default function PropertyDetailScreen() {
 
   async function checkAssetRecalls(assetId: string) {
     setCheckingAssetId(assetId);
+    setActionError(null);
     try {
       await api.post(`/v1/home-assets/${assetId}/check-recalls`, {});
       load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't check for recalls. Please try again.");
     } finally {
       setCheckingAssetId(null);
     }

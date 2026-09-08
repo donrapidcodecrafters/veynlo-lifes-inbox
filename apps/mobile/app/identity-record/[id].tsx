@@ -222,14 +222,19 @@ function ReminderLeadTimePanel({ record, onSaved }: { record: IdentityRecordDeta
   const [days, setDays] = useState(String(record.reminderLeadDays));
   const [busy, setBusy] = useState(false);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function save() {
     const parsed = Number(days);
     if (!Number.isInteger(parsed) || parsed < 1) return;
     setBusy(true);
+    setActionError(null);
     try {
       await api.put(`/v1/identity-records/${record.id}`, { reminderLeadDays: parsed });
       setEditing(false);
       onSaved();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't save that lead time. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -238,6 +243,7 @@ function ReminderLeadTimePanel({ record, onSaved }: { record: IdentityRecordDeta
   return (
     <Card style={{ gap: 8 }}>
       <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Reminder lead time</Text>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       {!editing ? (
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <Text style={{ fontSize: 13, color: theme.colors.textTertiary, flex: 1 }}>You&apos;ll be reminded {record.reminderLeadDays} days before this expires.</Text>

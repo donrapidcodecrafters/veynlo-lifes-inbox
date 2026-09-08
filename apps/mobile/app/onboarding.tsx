@@ -184,11 +184,16 @@ function GoalStep({ onPicked, onSkip }: { onPicked: () => void; onSkip: () => vo
   const { theme } = useAppTheme();
   const [busy, setBusy] = useState(false);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function pick(goal: OnboardingGoal) {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/onboarding/goal", { goal });
       onPicked();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't save that choice. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -196,6 +201,7 @@ function GoalStep({ onPicked, onSkip }: { onPicked: () => void; onSkip: () => vo
 
   return (
     <Card style={{ gap: 12 }}>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <View style={{ gap: 4 }}>
         <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary }}>What do you most want help with?</Text>
         <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>We'll set up one thing based on your answer.</Text>
@@ -233,11 +239,16 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
     api.get<ConsentPreview>(`/v1/onboarding/consent-preview?connector=${connector}`).then(setPreview);
   }, [isOAuthConnector, connector]);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function continueToDepth() {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/onboarding/advance", { step: "historical_depth" });
       onAdvance();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't continue. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -245,10 +256,13 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
 
   async function createHousehold() {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/households", { name: householdName || "My Household" });
       await api.post("/v1/onboarding/advance", { step: "household_invite" });
       onAdvance();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't create that household. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -256,9 +270,12 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
 
   async function toThingsIOwn() {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/onboarding/advance", { step: "household_invite" });
       onAdvance();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't continue. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -293,6 +310,7 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
 
   return (
     <Card style={{ gap: 12 }}>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary }}>
         {preview?.title ?? `Connect ${connector ? CONNECTOR_LABEL[connector] : "a source"}`}
       </Text>
@@ -589,12 +607,18 @@ function HouseholdInviteStep({ onAdvance, onSkip: _onSkip }: { onAdvance: () => 
     api.get<{ id: string; name: string }[]>("/v1/households").then(setHouseholds);
   }, []);
 
+  // This step already had error/setError state for the invite path (sendInvite below) and never used it
+  // for finish() - the same within-file inconsistency this audit keeps finding. Reuses that state
+  // rather than adding a second one, so the step has one place errors appear.
   async function finish(offered: boolean) {
     setBusy(true);
+    setError(null);
     try {
       await api.post("/v1/onboarding/household-invite-offered", { offered });
       await api.post("/v1/onboarding/complete");
       onAdvance();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't finish setting up. Please try again.");
     } finally {
       setBusy(false);
     }
