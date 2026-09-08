@@ -34,12 +34,11 @@ describe("byDecryptedText", () => {
   it("gives the same order regardless of the order the database returned the rows in", () => {
     // A fresh random IV per write means the SQL order is a new permutation after any edit. The sorted
     // result must not depend on it.
-    const base = [
-      { label: "The Subaru", id: "veh_3" },
-      { label: "Jordan's Civic", id: "veh_1" },
-      { label: "Subaru Outback", id: "veh_2" },
-    ];
-    const shuffles = [base, [base[2], base[0], base[1]], [base[1], base[2], base[0]], [...base].reverse()];
+    const theSubaru = { label: "The Subaru", id: "veh_3" };
+    const civic = { label: "Jordan's Civic", id: "veh_1" };
+    const outback = { label: "Subaru Outback", id: "veh_2" };
+    const base = [theSubaru, civic, outback];
+    const shuffles = [base, [outback, theSubaru, civic], [civic, outback, theSubaru], [...base].reverse()];
     const orders = shuffles.map((rows) => sort(rows).map((r) => r.id).join(","));
     expect(new Set(orders).size).toBe(1);
     expect(orders[0]).toBe("veh_1,veh_2,veh_3"); // Jordan's Civic, Subaru Outback, The Subaru

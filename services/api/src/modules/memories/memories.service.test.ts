@@ -217,6 +217,38 @@ describe("MemoriesService", () => {
     await memories.delete(id, ownerUserId);
   });
 
+  // The existing sharing test above passes with or without this fix — a stranger sees nothing because
+  // they have no access, not because their query failed to match. This is the one that catches it:
+  // search() ranked and truncated but never filtered on score, so any query at all returned the first 30
+  // rows of the account. Found by the Mac against the live API: `q=test`, `q=zzznonsensequery12345` and
+  // `q=Lodge` all returned the same 16 items, and the two nonsense queries were byte-identical in order
+  // — every row scoring 0 and a stable sort leaving them in arrival order.
+  it("SAVE-005: a query that matches nothing returns nothing, rather than the whole account", async () => {
+    if (!dbAvailable) return;
+    const ai = new FakeModelProvider();
+    ai.configured = false;
+    const memories = makeService(ai);
+
+    const created = await Promise.all([
+      memories.create(ownerUserId, { sourceKind: "note", rawText: "Ski lodge in Vermont with a hot tub", title: "Mountain Lodge" }),
+      memories.create(ownerUserId, { sourceKind: "note", rawText: "Replace the kitchen tap washer", title: "Tap repair" }),
+      memories.create(ownerUserId, { sourceKind: "note", rawText: "Anniversary dinner reservation ideas", title: "Dinner ideas" }),
+    ]);
+
+    // A term that appears in exactly one row returns exactly that row, ranked first.
+    const lodge = await memories.search(ownerUserId, "lodge");
+    expect(lodge[0]?.id).toBe(created[0].id);
+    expect(lodge.map((m) => m.id)).not.toContain(created[1].id);
+
+    // A term that appears in none of them returns none of them.
+    expect(await memories.search(ownerUserId, "zzznonsensequery12345")).toEqual([]);
+
+    // And an empty query is not "everything" either.
+    expect(await memories.search(ownerUserId, "   ")).toEqual([]);
+
+    for (const c of created) await memories.delete(c.id, ownerUserId);
+  });
+
   it("SAVE-003: smart list criteria evaluation matches category/person/price and stays scoped to one owner's own saves", async () => {
     if (!dbAvailable) return;
     const ai = new FakeModelProvider();

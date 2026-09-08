@@ -12,7 +12,7 @@ import { DocumentsService } from "../documents/documents.service";
 import { HouseholdService } from "../household/household.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { CreateShareLinkDto } from "../sharing/dto";
-import { rankByRelevance, scoreRelevance } from "../search/relevance-ranking";
+import { scoreRelevance } from "../search/relevance-ranking";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CreateMemoryDto, CreateMemoryFromUploadDto, UpdateMemoryDto, PromoteMemoryDto, CreateResurfacingRuleDto, SmartListQuery } from "./dto";
 
@@ -493,7 +493,21 @@ export class MemoriesService {
     // existence/content through search relevance even though the returned row itself looked redacted.
     const candidates = [...ownRows, ...grantedRows].map((r) => this.redactNotesForNonOwner(r, userId));
     const textFor = (r: SavedMemoryRow) => [r.title, r.userNotes, r.sourceUrl, r.rawText, r.category, r.relatedPersonLabel].filter(Boolean).join(" ");
-    return rankByRelevance(query, candidates, textFor, 30).filter((r) => textFor(r).length > 0);
+    // Only rows that actually MATCH. rankByRelevance ranks and truncates but does not filter, so this
+    // returned the first 30 rows for any query at all: `q=zzznonsensequery12345` came back with the
+    // account's entire saved list, byte-identical to `q=test`, because every row scored 0 and a stable
+    // sort left them in arrival order. A search box that answers every question with "everything" is
+    // indistinguishable from one that is broken — and the ranking itself was fine, which is why it looked
+    // plausible: a real term did sort its match to position 1. relatedForQuery below already filters
+    // score > 0 for exactly this reason; this is the same rule on the endpoint a user types into.
+    const q = query.trim();
+    if (!q) return [];
+    return candidates
+      .map((row) => ({ row, score: scoreRelevance(q, textFor(row)) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 30)
+      .map((entry) => entry.row);
   }
 
   /**
