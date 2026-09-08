@@ -141,6 +141,29 @@ export class IdentityService {
     return `signin-fail:${createHash("sha256").update(normalized).digest("hex").slice(0, 32)}`;
   }
 
+  /**
+   * A real argon2 verify against a throwaway hash, so an address with no account costs the same time as
+   * one with an account whose password was wrong.
+   *
+   * forgotPassword below states the rule this restores, citing the spec: the response "(and timing/shape)
+   * must not let a caller distinguish 'sent' from 'no such account'" (§28.8, "return generic
+   * authorization errors where detail would help enumerate accounts"). Sign-in — far more commonly probed
+   * than password reset — returned early for an unknown address without ever reaching argon2, and so
+   * answered measurably sooner. Measured against the running API before this, four samples each:
+   *
+   *   real account, wrong password:  0.255  0.256  0.255  0.254
+   *   no such account:               0.223  0.215  0.217  0.233
+   *
+   * Every sample separated — the slowest unknown still beat the fastest real one — which makes it a
+   * reliable test for "does this address have a Veynlo account", not a statistical lean. Same fix, and
+   * the same cached-dummy-hash shape, as CaregiverDayPassService.dummyPasscodeHash.
+   */
+  private dummySignInHashCache: Promise<string> | null = null;
+  private dummySignInHash(): Promise<string> {
+    if (!this.dummySignInHashCache) this.dummySignInHashCache = argon2.hash(randomBytes(16).toString("hex"));
+    return this.dummySignInHashCache;
+  }
+
   private async assertNotSignInThrottled(email: string): Promise<void> {
     if (!this.cache) return;
     const current = await this.cache.incr(this.signInFailureKey(email));
@@ -238,6 +261,9 @@ export class IdentityService {
     await this.assertNotSignInThrottled(dto.email);
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.email, dto.email)).limit(1);
     if (!user || !user.passwordHash) {
+      // Spend the same argon2 time a real account would, so the response does not answer "is this an
+      // account" on its own — see dummySignInHash above for the measurements this removes.
+      await argon2.verify(await this.dummySignInHash(), dto.password).catch(() => false);
       await this.recordAuditEvent("system", null, "user.sign_in", "user", dto.email, "failure");
       throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect email or password." });
     }
