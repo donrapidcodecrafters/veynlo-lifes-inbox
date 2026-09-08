@@ -20,7 +20,7 @@ const CPSC_TIMEOUT_BYTES = 2_000_000;
  * This runs on a background scan rather than in a user request, so a slow call costs nothing a person is
  * waiting on. The cap still exists to stop a hung connection holding a worker indefinitely.
  */
-const CPSC_TIMEOUT_MS = 35_000;
+export const CPSC_TIMEOUT_MS = 35_000;
 
 interface NhtsaRecallResult {
   NHTSACampaignNumber: string;

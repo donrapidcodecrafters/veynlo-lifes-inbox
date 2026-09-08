@@ -2,7 +2,25 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
-import { RecallMonitorService } from "./recall-monitor.service";
+import { CPSC_TIMEOUT_MS, RecallMonitorService } from "./recall-monitor.service";
+
+/**
+ * A CPSC test must be allowed to outlast the CPSC call it makes.
+ *
+ * Both live-CPSC tests carried a hardcoded 15s vitest timeout while the call itself is deliberately given
+ * CPSC_TIMEOUT_MS (35s) — and this service's own comment records why, from live measurement: one
+ * manufacturer query took 15.6s (Carrier), 15.2s (LG) and 23.1s (Rheem). So the test could not survive the
+ * call completing normally, let alone slowly, and it failed CI on exactly that ("Test timed out in
+ * 15000ms").
+ *
+ * Worse, it defeated the degradation this file documents at the top: a vitest timeout kills the test
+ * outright, so the try/catch around each network call — which exists so an unreachable API SKIPS rather
+ * than fails — never ran. The guarantee held for a blocked network and not for a slow one, which is the
+ * far likelier case.
+ *
+ * Derived from the constant rather than hardcoded again, so the two cannot drift apart a second time.
+ */
+const CPSC_TEST_TIMEOUT_MS = CPSC_TIMEOUT_MS + 10_000;
 import { SafeUrlFetcher } from "../ingestion/safe-url-fetcher";
 
 /**
@@ -220,7 +238,7 @@ describe("RecallMonitorService — live NHTSA/CPSC integration", () => {
       const rows = await db.select().from(schema.recallMatches).where(eq(schema.recallMatches.homeAssetId, homeAssetId));
       expect(rows).toHaveLength(0);
     },
-    15_000,
+    CPSC_TEST_TIMEOUT_MS,
   );
 
   it(
@@ -260,6 +278,6 @@ describe("RecallMonitorService — live NHTSA/CPSC integration", () => {
         expect(`${row.summary} ${row.component ?? ""}`.toLowerCase()).toContain("dryer");
       }
     },
-    15_000, // CPSC's manufacturer-filtered response can be large (many historical recalls) — the default 5s test timeout was too tight
+    CPSC_TEST_TIMEOUT_MS,  // CPSC's manufacturer-filtered response can be large (many historical recalls) — the default 5s test timeout was too tight
   );
 });
