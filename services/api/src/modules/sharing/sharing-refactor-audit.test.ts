@@ -37,7 +37,7 @@ import type { MemoriesService } from "../memories/memories.service";
  * resourceType precisely so callers dispatch on it rather than guessing).
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 // This audit exercises access control, not recall monitoring — stubbed the same way noopMailer/noopCache
 // are, rather than pulling in real Redis/BullMQ or a real outbound NHTSA/CPSC call.

@@ -20,7 +20,7 @@ import type { MailerService } from "../notifications/mailer.service";
  * visibility regression only shows up against real membership/delegation rows, not a mock).
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 
 describe("TimelineService — Phase 3 domain coverage (School/Trips/Pets/Health Logistics)", () => {

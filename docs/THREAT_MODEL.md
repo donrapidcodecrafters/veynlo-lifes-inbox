@@ -71,11 +71,25 @@ token (native).
 | Repudiation | No record of sign-in/recovery events | `audit_events` covers login/recovery/OAuth changes | Done |
 | Information disclosure | Account enumeration via forgot-password response | Response is identical whether or not the email matches a real account | Done |
 | Elevation of privilege | OAuth sign-in silently linking to an existing password account by email match | Deliberately rejected — only links via an explicit prior `identity_links` row | Done |
-| Elevation of privilege | Brute-force / credential-stuffing against sign-in | `@Throttle` per-route rate limiting | Done |
+| Elevation of privilege | Brute-force / credential-stuffing against sign-in | Per-IP `@Throttle` **and** a per-account failure counter (10 per 15 min, Redis-backed) | Done |
 
-**Abuse case**: attacker with a large credential-stuffing list hits `/sign-in` — mitigated by rate limiting
-alone today; no CAPTCHA/risk-scoring layer exists (blueprint §28.16 describes a fuller risk engine as a
-later-stage control, not MVP-blocking).
+**Abuse case**: attacker with a large credential-stuffing list hits `/sign-in`.
+
+This entry previously read "mitigated by rate limiting" and cited the route's `@Throttle`. That claim did
+not survive a look at the control. Credential stuffing is distributed by definition, and `@Throttle` is
+keyed by IP, so a list spread across a botnet never trips it; the counters are also ThrottlerModule's
+in-memory default, meaning per-process and reset on every deploy. Failed sign-ins were written to
+`access_audit_events` and never read, so nothing anywhere counted failures against an account.
+
+There is now a per-ACCOUNT counter as well (`IdentityService.assertNotSignInThrottled`): 10 attempts per
+address per 15 minutes, in Redis, checked before the user lookup so it behaves identically for an address
+that exists and one that does not, keyed by a hash of the address so the cache is not an inventory of who
+has an account, and expiring so it cannot be used to lock a known address out. That bounds a distributed
+attack to 10 guesses per account per window however many IPs it arrives from.
+
+Still no CAPTCHA/risk-scoring layer (blueprint §28.16 describes a fuller risk engine as a later-stage
+control, not MVP-blocking), and the per-IP layer remains per-process until a shared `ThrottlerStorage` is
+wired — both recorded here as real remaining gaps rather than implied to be covered.
 
 ### 2. Email/calendar connector ingestion (Gmail, Outlook, Google Calendar, Microsoft Calendar)
 

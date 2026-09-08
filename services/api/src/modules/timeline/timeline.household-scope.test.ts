@@ -21,7 +21,7 @@ import type { MailerService } from "../notifications/mailer.service";
  * and mutated mid-test (a member leaving).
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 
 describe("TimelineService — household-shared visibility", () => {

@@ -20,7 +20,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
  * automatic gift-idea birthday resurfacing-rule creation, and smart-list criteria evaluation.
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubDocuments = { documentDetail: async () => ({ version: null }) } as unknown as DocumentsService;
 

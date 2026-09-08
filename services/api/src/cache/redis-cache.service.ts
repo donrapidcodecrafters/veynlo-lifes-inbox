@@ -11,4 +11,8 @@ export class RedisCacheService implements Cache {
   async expire(key: string, ttlSeconds: number): Promise<void> {
     await getRedisConnection().expire(key, ttlSeconds);
   }
+
+  async del(key: string): Promise<void> {
+    await getRedisConnection().del(key);
+  }
 }

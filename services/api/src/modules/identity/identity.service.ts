@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
-import { randomBytes } from "node:crypto";
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { createHash, randomBytes } from "node:crypto";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import * as argon2 from "argon2";
 import { SignJWT, createRemoteJWKSet, jwtVerify, importPKCS8 } from "jose";
@@ -14,6 +14,7 @@ import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured, isAppleSignInConfigured, isInboundEmailConfigured } from "../../config/env";
 import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
+import { CACHE, type Cache } from "../../cache/cache.interface";
 import { MailerService } from "../notifications/mailer.service";
 import { OnboardingService } from "../onboarding/onboarding.service";
 import { AnalyticsService, toAnalyticsPlatform } from "../analytics/analytics.service";
@@ -64,6 +65,14 @@ function generateInboundAlias(): string {
   return `u-${randomBytes(8).toString("hex")}`;
 }
 
+/**
+ * Ten failed attempts against ONE account in fifteen minutes. Generous enough that a person mistyping a
+ * password never meets it, tight enough that a distributed list-attack gets ten guesses per account per
+ * window no matter how many IPs it comes from.
+ */
+const SIGN_IN_FAILURE_LIMIT = 10;
+const SIGN_IN_FAILURE_WINDOW_SECONDS = 15 * 60;
+
 export interface SessionIssued {
   token: string;
   expiresAt: Date;
@@ -86,7 +95,57 @@ export class IdentityService {
     // notifications, widgets — not just this module's own tests) don't all need updating for an
     // analytics-only concern. `this.analytics?.track(...)` below is simply a no-op when undefined.
     @Inject(AnalyticsService) private readonly analytics?: AnalyticsService,
+    // Trailing/optional for the same reason as `analytics` above — the many tests across other modules
+    // that construct this service positionally would otherwise all need updating. Wired for real by the
+    // @Global() CacheModule, so it is present everywhere the app actually runs; when it is absent (unit
+    // tests) the per-account throttle below simply does not engage, which is what a test wants.
+    @Inject(CACHE) private readonly cache?: Cache,
   ) {}
+
+  /**
+   * Per-ACCOUNT sign-in throttling, on top of the per-IP `@Throttle` on the route.
+   *
+   * THREAT_MODEL.md states the abuse case as "attacker with a large credential-stuffing list hits
+   * /sign-in — mitigated by rate limiting", and SECURITY_CONTROLS.md V2.2 cites the route's `@Throttle`
+   * as that mitigation. It is not one. Credential stuffing is distributed by definition, and the route
+   * limit is keyed by IP — a list spread across a botnet never trips it. It is also `ThrottlerModule`'s
+   * default in-memory storage, so its counters are per-process and reset on deploy.
+   *
+   * This is keyed by the account instead, in Redis, which is what `Cache`'s own doc comment says the
+   * interface exists for (§16 "Distributed rate-limit counters"). Nothing counted failures before —
+   * they were written to the audit log and never read.
+   *
+   * Deliberate details:
+   *  - Checked BEFORE the user lookup and before argon2 verification, so a throttled request costs
+   *    nothing and behaves identically for an address that exists and one that does not.
+   *  - The key is a hash of the email, not the email: this is a shared Redis, and a key namespace full of
+   *    plaintext addresses is an inventory of who has an account.
+   *  - The response is the generic "too much" message the route throttler already returns. Saying
+   *    "account locked" would confirm the address is registered.
+   *  - It expires. This slows an attacker without giving anyone a way to lock a known address out
+   *    indefinitely by failing sign-ins against it on purpose.
+   */
+  private signInFailureKey(email: string): string {
+    // Normalised here as well as at the DTO boundary (SignInDtoSchema uses NormalizedEmailSchema). Belt
+    // and braces, and free: if this ever ran on an un-normalised address, "Foo@x.com" and "foo@x.com"
+    // would keep separate counters and an attacker would get a fresh allowance per casing variant.
+    const normalized = email.trim().toLowerCase();
+    return `signin-fail:${createHash("sha256").update(normalized).digest("hex").slice(0, 32)}`;
+  }
+
+  private async assertNotSignInThrottled(email: string): Promise<void> {
+    if (!this.cache) return;
+    const current = await this.cache.incr(this.signInFailureKey(email));
+    // The counter is incremented on every ATTEMPT and cleared on success, so it also bounds an attacker
+    // who never guesses right — not just one who is close.
+    if (current === 1) await this.cache.expire(this.signInFailureKey(email), SIGN_IN_FAILURE_WINDOW_SECONDS);
+    if (current > SIGN_IN_FAILURE_LIMIT) {
+      throw new HttpException(
+        { code: "TOO_MANY_REQUESTS", message: "You're doing that too much. Please wait a bit and try again." },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
 
   async signUp(dto: SignUpDto, deviceInfo: { platform: string; displayName?: string }): Promise<SessionIssued> {
     const [existing] = await this.db.select().from(schema.users).where(eq(schema.users.email, dto.email)).limit(1);
@@ -168,6 +227,7 @@ export class IdentityService {
   }
 
   async signIn(dto: SignInDto, deviceInfo: { platform: string; displayName?: string }): Promise<SessionIssued> {
+    await this.assertNotSignInThrottled(dto.email);
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.email, dto.email)).limit(1);
     if (!user || !user.passwordHash) {
       await this.recordAuditEvent("system", null, "user.sign_in", "user", dto.email, "failure");
@@ -199,6 +259,10 @@ export class IdentityService {
       throw new UnauthorizedException({ code: "ACCOUNT_SUSPENDED", message: "This account has been suspended." });
     }
     await this.recordAuditEvent("user", user.id, "user.sign_in", "user", user.id, "success");
+    // Cleared only on a sign-in that actually succeeded — not on `deleted`/`suspended`, which are
+    // rejections, and not merely on a correct password. A few typos followed by getting it right should
+    // not leave the account part-way to its limit for the rest of the window.
+    await this.cache?.del(this.signInFailureKey(dto.email));
     return this.issueSession(user.id, deviceInfo);
   }
 

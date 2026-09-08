@@ -18,7 +18,7 @@ import type { Cache } from "../../cache/cache.interface";
  *      (`needsOnboarding: false`) — the backend half of "never trap the user".
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 
 describe("OnboardingService", () => {
   let db: Database;
