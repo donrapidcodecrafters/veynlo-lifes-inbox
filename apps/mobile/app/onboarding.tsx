@@ -477,20 +477,37 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [continueError, setContinueError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  // The failure path matters more here than almost anywhere else in the app: this is the first-run
+  // experience, and `items` starting as null means the render below shows "Loading…". Unguarded, a failed
+  // fetch left that on screen permanently — no error, no retry, nothing to press — while the rejection went
+  // nowhere. Same shape as DEF-037 on web, which apps/web now catches at the shell; mobile has no such
+  // shell handler, so each call site has to carry its own.
   const load = useCallback(async () => {
-    setItems(await api.get<InboxItem[]>("/v1/inbox?reviewState=new"));
+    setLoadError(null);
+    try {
+      setItems(await api.get<InboxItem[]>("/v1/inbox?reviewState=new"));
+    } catch (err) {
+      setItems([]);
+      setLoadError(err instanceof ApiError ? err.message : "We couldn't load what we found. Please try again.");
+    }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   async function act(id: string, action: "confirm" | "dismiss") {
     setBusy(id);
+    setLoadError(null);
+    // try/finally with no catch cleared the spinner and showed nothing else, so a failed confirm was
+    // indistinguishable from a button that does nothing — and threw out of the press handler on the way.
     try {
       await api.post(`/v1/inbox/${id}/${action}`);
       await load();
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "That didn't go through. Please try again.");
     } finally {
       setBusy(null);
     }
@@ -545,6 +562,14 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
               : "This deployment doesn't have AI extraction configured yet, so scanned messages aren't being categorized."
           }
         />
+      )}
+      {loadError && (
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.critical }}>{loadError}</Text>
+          <Button variant="secondary" onPress={() => void load()}>
+            Try again
+          </Button>
+        </View>
       )}
       {continueError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{continueError}</Text>}
       <Button onPress={continueOn}>Continue</Button>
