@@ -673,8 +673,23 @@ async function bootstrap() {
     await appContext.close();
     process.exit(0);
   };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  // Wrapped, not passed directly: `shutdown` is async, so a rejecting worker.close() would become an
+  // unhandled rejection and `process.exit(0)` would never run — the worker would sit there until whatever
+  // sent the signal gave up and SIGKILLed it, which is the opposite of a graceful shutdown. Exit either
+  // way, and say what went wrong on the way out.
+  const onSignal = (signal: string) => {
+    shutdown().catch((err) => {
+      logger.error(`Shutdown after ${signal} failed: ${String(err)}`);
+      process.exit(1);
+    });
+  };
+  process.on("SIGTERM", () => onSignal("SIGTERM"));
+  process.on("SIGINT", () => onSignal("SIGINT"));
 }
 
-bootstrap();
+// Same reasoning as apps' main.ts: an unhandled rejection here is "the worker process never started" with
+// no explanation attached.
+bootstrap().catch((err) => {
+  console.error("Veynlo worker process failed to start:", err);
+  process.exit(1);
+});

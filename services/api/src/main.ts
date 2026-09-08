@@ -81,4 +81,10 @@ async function bootstrap() {
   app.get(Logger).log(`Veynlo API listening on port ${env.PORT} (${env.NODE_ENV})`);
 }
 
-bootstrap();
+// A rejection here is the process failing to start at all. Unhandled, Node prints a bare stack and exits
+// with a code an orchestrator reads as "crashed" without saying why; this makes the reason the last line
+// in the log, which is what someone reading a crash-looping container actually has to go on.
+bootstrap().catch((err) => {
+  console.error("Veynlo API failed to start:", err);
+  process.exit(1);
+});

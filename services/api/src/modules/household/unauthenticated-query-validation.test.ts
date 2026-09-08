@@ -78,7 +78,7 @@ describe("unauthenticated token endpoints reject a missing query param with 400,
     });
   }
 
-  it("a well-formed token is passed through to the service rather than rejected", () => {
+  it("a well-formed token is passed through to the service rather than rejected", async () => {
     // Guards against over-correcting into rejecting everything: only the malformed cases must throw.
     const calls: string[] = [];
     const recording = {
@@ -87,7 +87,10 @@ describe("unauthenticated token endpoints reject a missing query param with 400,
         return null;
       },
     } as unknown as HouseholdService;
-    new HouseholdController(recording).peekInvite({ token: "a-real-looking-opaque-token" });
+    // Awaited: unawaited, this asserted only that the synchronous part ran, and an async rejection from
+    // peekInvite would have surfaced as an unhandled rejection rather than a failing test — the assertion
+    // below would still have passed, because `calls` is pushed to before the promise settles.
+    await new HouseholdController(recording).peekInvite({ token: "a-real-looking-opaque-token" });
     expect(calls).toEqual(["a-real-looking-opaque-token"]);
   });
 });
