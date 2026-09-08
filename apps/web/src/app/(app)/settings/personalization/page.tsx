@@ -47,15 +47,27 @@ export default function PersonalizationSettingsPage() {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [nameStatus, setNameStatus] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
+  // Both handlers below wrote optimistically into the SWR cache and then awaited the PUT with no
+  // try/catch — DEF-066's shape. A rejection skipped the revalidating mutate, and neither key has a
+  // refreshInterval, so the page went on showing a module order or a personalization setting the server
+  // had never accepted. Lower stakes than the kill switch or the notification-preview toggle, identical
+  // mechanism.
+  const [prefsError, setPrefsError] = useState<string | null>(null);
 
   const moduleOrder = resolveModuleOrder(modulePrefs);
   const hiddenModules = new Set(modulePrefs?.hiddenModules ?? []);
 
   async function saveHomeModulePreferences(nextOrder: OptionalModuleKey[], nextHidden: Set<string>) {
     const patch = { moduleOrder: nextOrder, hiddenModules: [...nextHidden] };
+    setPrefsError(null);
     mutateModulePrefs({ moduleOrder: nextOrder, hiddenModules: [...nextHidden] }, false);
-    await api.put("/v1/home-module-preferences", patch);
-    mutateModulePrefs();
+    try {
+      await api.put("/v1/home-module-preferences", patch);
+    } catch (err) {
+      setPrefsError(err instanceof ApiError ? err.message : "Couldn't save your Home layout. It has been left as it was.");
+    } finally {
+      mutateModulePrefs();
+    }
   }
 
   function moveModule(key: OptionalModuleKey, direction: -1 | 1) {
@@ -107,13 +119,24 @@ export default function PersonalizationSettingsPage() {
   }
 
   async function updatePersonalization(patch: Partial<typeof personalization>) {
+    setPrefsError(null);
     mutatePersonalization({ ...personalization, ...patch }, false);
-    await api.put("/v1/personalization-preferences", patch);
-    mutatePersonalization();
+    try {
+      await api.put("/v1/personalization-preferences", patch);
+    } catch (err) {
+      setPrefsError(err instanceof ApiError ? err.message : "Couldn't save that preference. It has been left as it was.");
+    } finally {
+      mutatePersonalization();
+    }
   }
 
   return (
     <div className="space-y-6">
+      {prefsError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {prefsError}
+        </p>
+      )}
       <header>
         <Link href="/settings" className="text-sm text-tertiary hover:text-primary">
           ← Settings
