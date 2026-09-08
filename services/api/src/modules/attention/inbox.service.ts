@@ -8,7 +8,7 @@ import { temporalToSortDate } from "../ingestion/temporal.util";
 import { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
 import { ConflictService } from "../schedule/conflict.service";
 import { normalizeSenderDomain, extractEmailAddress } from "../intelligence/deterministic-prefilter";
-import { resolvePriceAdjustmentPolicy, priceAdjustmentDeadline, daysUntil } from "../commerce/price-adjustment-policy";
+import { resolvePriceAdjustmentPoliciesForMerchants, priceAdjustmentDeadline, daysUntil, DEFAULT_PRICE_ADJUSTMENT_POLICY } from "../commerce/price-adjustment-policy";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CorrectInboxItemDto, AddToCalendarDto, ApplyRescheduleDto, AddSenderRuleDto, SenderRuleAction } from "./dto";
 
@@ -109,9 +109,20 @@ export class InboxService {
       string,
       { deadline: string; daysLeft: number; windowDays: number; policyConfidence: string; policySourceNote: string | null }
     >();
+    // One policy query for every merchant on the page, rather than one per purchase inside the loop.
+    // This runs on a request path and the loop is bounded only by however many purchase items the inbox
+    // returns, so the previous shape was N round trips for an answer that is per-merchant, not per-purchase.
+    const policies = await resolvePriceAdjustmentPoliciesForMerchants(
+      this.db,
+      purchases.map((p) => p.merchantId).filter((id): id is string => Boolean(id)),
+      userId,
+    );
+
     for (const p of purchases) {
       if (!p.purchaseDateSort) continue;
-      const policy = await resolvePriceAdjustmentPolicy(this.db, p.merchantId, userId);
+      // A merchant with no policy row is absent from the map and takes the same flat default the
+      // single-merchant resolver falls back to.
+      const policy = (p.merchantId ? policies.get(p.merchantId) : undefined) ?? DEFAULT_PRICE_ADJUSTMENT_POLICY;
       const deadline = priceAdjustmentDeadline(p.purchaseDateSort, policy.windowDays);
       map.set(p.id, {
         deadline: deadline.toISOString(),
