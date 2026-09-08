@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Linking, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, Linking, Text, View, type AppStateStatus } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
@@ -46,6 +46,14 @@ interface IdentityRecordDetail {
  * `reveal(withPassword)` shape (try with no password first — a no-op for an OAuth-only account, prompt only
  * if the server asks) — same pattern health-appointment/[id].tsx's DocumentsPanel already uses. Copies to
  * the clipboard via expo-clipboard rather than a native "select all" gesture on a masked field. */
+/**
+ * How long a copied document number is left on the system clipboard.
+ *
+ * Long enough to paste somewhere, short enough that it is not still sitting in a system-wide buffer any
+ * installed app can read hours later. The clipboard is only cleared if it still holds what we put there.
+ */
+const CLIPBOARD_CLEAR_MS = 60_000;
+
 function RevealDocumentNumberPanel({ recordId }: { recordId: string }) {
   const { theme } = useAppTheme();
   const [revealed, setRevealed] = useState<string | null>(null);
@@ -54,6 +62,25 @@ function RevealDocumentNumberPanel({ recordId }: { recordId: string }) {
   const [passwordPromptOpen, setPasswordPromptOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // Re-hide the decrypted number when the app leaves the foreground, matching emergency-binder.tsx's own
+  // AppState listener. Without it the number stayed on screen through a home-button press or an app
+  // switch, which is when the OS captures the thumbnail it shows in the recents list — a copy of a
+  // passport number the user never chose to create. Navigation focus/blur does NOT fire for that case,
+  // which is why this is an AppState listener and not useFocusEffect.
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (appStateRef.current === "active" && next !== "active") {
+        setRevealed(null);
+        setPassword("");
+        setPasswordPromptOpen(false);
+        setCopied(false);
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
 
   async function reveal(withPassword?: string) {
     setBusy(true);
@@ -76,8 +103,18 @@ function RevealDocumentNumberPanel({ recordId }: { recordId: string }) {
 
   async function copy() {
     if (!revealed) return;
-    await Clipboard.setStringAsync(revealed);
+    const value = revealed;
+    await Clipboard.setStringAsync(value);
     setCopied(true);
+    // Also resets the button label, which previously said "Copied" permanently — connections.tsx:1225
+    // already does that with the same shape.
+    setTimeout(() => setCopied(false), CLIPBOARD_CLEAR_MS);
+    setTimeout(() => {
+      // Only clear what we put there. Overwriting whatever the user copied since would be its own bug.
+      void Clipboard.getStringAsync().then((current) => {
+        if (current === value) void Clipboard.setStringAsync("");
+      });
+    }, CLIPBOARD_CLEAR_MS);
   }
 
   return (

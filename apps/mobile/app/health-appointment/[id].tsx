@@ -1,6 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
+
+/**
+ * How long a step-up-gated value is left on the system clipboard.
+ *
+ * Both writes below sit behind the §28.9 step-up password — one is a signed URL that opens a medical
+ * document, the other is the entire medical export as JSON. The gate exists to say this data deserves
+ * protection beyond an active session, and handing it to a system-wide buffer that any installed app can
+ * read, with no lifetime and no indication it is still there, gives most of that back.
+ *
+ * Cleared only if the clipboard still holds what we put there — overwriting whatever the user copied since
+ * would be its own bug.
+ */
+const CLIPBOARD_CLEAR_MS = 60_000;
+
+async function copyThenClear(value: string): Promise<void> {
+  await Clipboard.setStringAsync(value);
+  setTimeout(() => {
+    void Clipboard.getStringAsync().then((current) => {
+      if (current === value) void Clipboard.setStringAsync("");
+    });
+  }, CLIPBOARD_CLEAR_MS);
+}
 import { useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -324,7 +346,7 @@ function DocumentsPanel({ appointmentId, linkedDocuments, onChanged }: { appoint
       const result = await api.post<{ url: string }>(`/v1/health/documents/${documentId}/unlock`, { password: withPassword });
       setPasswordPromptFor(null);
       setPassword("");
-      await Clipboard.setStringAsync(result.url);
+      await copyThenClear(result.url);
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.code === "PASSWORD_REQUIRED") {
@@ -396,7 +418,7 @@ function ExportPanel({ appointmentId }: { appointmentId: string }) {
       const manifest = await api.post(`/v1/health/export`, { appointmentId, password: withPassword });
       setPasswordPromptOpen(false);
       setPassword("");
-      await Clipboard.setStringAsync(JSON.stringify(manifest, null, 2));
+      await copyThenClear(JSON.stringify(manifest, null, 2));
       setCopied(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "PASSWORD_REQUIRED") {
