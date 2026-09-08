@@ -16,6 +16,12 @@ import type { CoverageContext } from "./coverage";
  * credits, travel estimates, schedule conflicts, permission forms, data-export history — had never been
  * seen with data by any pass.
  *
+ * `caregiver_delegations` was missed by this file's first pass — neither seeded nor listed below as
+ * deliberately empty, despite HouseholdService granting/listing/revoking it and Settings › Household
+ * rendering it. It is seeded now. The gap is worth recording rather than quietly closing: this file's
+ * header claimed to have accounted for every table, and the count it published (39 empty, 31 seeded, 8
+ * left) added up only because one table had fallen out of the analysis entirely.
+ *
  * DELIBERATELY NOT SEEDED — the remaining 8 tables the API never reads:
  *   smart_connections, smart_devices, device_signals — smart-home.ts says in its own header that this is
  *     "DATA MODEL ONLY, with zero live connectors", that nothing writes a connected row and no UI presents
@@ -304,6 +310,50 @@ export async function seedEmptyAreas(db: Db, ctx: CoverageContext): Promise<void
     .values([
       { id: "mev_seed_pass", modelKey: "seed-primary-model", goldenSetVersion: "v3", totalCases: 120, passedCases: 114, passRate: 0.95, triggeredBy: "seed", runAt: day(-7) },
       { id: "mev_seed_regress", modelKey: "seed-legacy-model", goldenSetVersion: "v3", totalCases: 120, passedCases: 88, passRate: 0.7333, triggeredBy: "seed", runAt: day(-7) },
+    ])
+    .onConflictDoNothing();
+
+  // ── Caregiver delegations ───────────────────────────────────────────────────────────────────────
+  // The one API-readable table this file's own audit missed: not seeded, and not listed above as
+  // deliberately empty either. HouseholdService grants, lists and revokes these (FAM-006 "scoped access"),
+  // and Settings › Household renders them — against zero rows, so every device pass has been looking at
+  // that feature's empty state and recording it as covered. Its sibling `caregiver_day_passes` was
+  // seeded; the delegations behind them were not.
+  //
+  // Three rows so the list has something to distinguish: a live delegation, one already revoked (the
+  // revoked path is what `listDelegations` filters on), and one that has expired by date rather than by
+  // revocation — two different ways of being inactive that a screen can easily conflate.
+  await db
+    .insert(schema.caregiverDelegations)
+    .values([
+      {
+        id: "cgd_seed_active",
+        householdId,
+        delegateUserId: partnerUserId,
+        scopes: ["schedule:read", "health:read", "pets:manage"],
+        expiresAt: day(45),
+        grantedByUserId: userId,
+        grantedAt: day(-10),
+      },
+      {
+        id: "cgd_seed_revoked",
+        householdId,
+        delegateUserId: partnerUserId,
+        scopes: ["documents:read"],
+        expiresAt: day(30),
+        grantedByUserId: userId,
+        grantedAt: day(-60),
+        revokedAt: day(-30),
+      },
+      {
+        id: "cgd_seed_expired",
+        householdId,
+        delegateUserId: partnerUserId,
+        scopes: ["commerce:read", "lists:read"],
+        expiresAt: day(-5),
+        grantedByUserId: userId,
+        grantedAt: day(-90),
+      },
     ])
     .onConflictDoNothing();
 
