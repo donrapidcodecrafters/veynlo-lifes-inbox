@@ -127,7 +127,10 @@ export class DataExportService {
             createdAt: schema.documents.createdAt,
           })
           .from(schema.documents)
-          .where(eq(schema.documents.ownerUserId, userId))
+          // Soft-deleted documents stay out: a user who deleted one and then exports should not get it
+          // back in the file. Every other domain in this manifest already filtered deletedAt; documents,
+          // personNotes, personImportantDates, maintenanceRules and registrationRecords did not.
+          .where(and(eq(schema.documents.ownerUserId, userId), isNull(schema.documents.deletedAt)))
       : [];
     const inboxItems = wants("inboxItems") ? await this.db.select().from(schema.inboxItems).where(eq(schema.inboxItems.ownerUserId, userId)) : [];
     const notifications = wants("notifications") ? await this.db.select().from(schema.notifications).where(eq(schema.notifications.ownerUserId, userId)) : [];
@@ -144,8 +147,8 @@ export class DataExportService {
     const people = wants("people") ? await this.db.select().from(schema.people).where(and(eq(schema.people.ownerUserId, userId), isNull(schema.people.deletedAt))) : [];
     const aliases = wants("people") ? await this.db.select().from(schema.aliases).where(eq(schema.aliases.ownerUserId, userId)) : [];
     const organizations = wants("people") ? await this.db.select().from(schema.organizations).where(and(eq(schema.organizations.ownerUserId, userId), isNull(schema.organizations.deletedAt))) : [];
-    const personNotes = wants("people") ? await this.db.select().from(schema.personNotes).where(eq(schema.personNotes.ownerUserId, userId)) : [];
-    const personImportantDates = wants("people") ? await this.db.select().from(schema.personImportantDates).where(eq(schema.personImportantDates.ownerUserId, userId)) : [];
+    const personNotes = wants("people") ? await this.db.select().from(schema.personNotes).where(and(eq(schema.personNotes.ownerUserId, userId), isNull(schema.personNotes.deletedAt))) : [];
+    const personImportantDates = wants("people") ? await this.db.select().from(schema.personImportantDates).where(and(eq(schema.personImportantDates.ownerUserId, userId), isNull(schema.personImportantDates.deletedAt))) : [];
     const personRelationships = wants("people") ? await this.db.select().from(schema.personRelationships).where(eq(schema.personRelationships.ownerUserId, userId)) : [];
 
     const pets = wants("pets") ? await this.db.select().from(schema.petProfiles).where(and(eq(schema.petProfiles.ownerUserId, userId), isNull(schema.petProfiles.deletedAt))) : [];
@@ -154,12 +157,12 @@ export class DataExportService {
     const properties = wants("home") ? await this.db.select().from(schema.propertyProfiles).where(and(eq(schema.propertyProfiles.ownerUserId, userId), isNull(schema.propertyProfiles.deletedAt))) : [];
     const homeAssets = wants("home") ? await this.db.select().from(schema.homeAssets).where(and(eq(schema.homeAssets.ownerUserId, userId), isNull(schema.homeAssets.deletedAt))) : [];
     const maintenanceRecords = wants("home") ? await this.db.select().from(schema.maintenanceRecords).where(eq(schema.maintenanceRecords.ownerUserId, userId)) : [];
-    const maintenanceRules = wants("home") ? await this.db.select().from(schema.maintenanceRules).where(eq(schema.maintenanceRules.ownerUserId, userId)) : [];
+    const maintenanceRules = wants("home") ? await this.db.select().from(schema.maintenanceRules).where(and(eq(schema.maintenanceRules.ownerUserId, userId), isNull(schema.maintenanceRules.deletedAt))) : [];
 
     const vehicles = wants("vehicles") ? await this.db.select().from(schema.vehicleProfiles).where(and(eq(schema.vehicleProfiles.ownerUserId, userId), isNull(schema.vehicleProfiles.deletedAt))) : [];
     const odometerObservations = wants("vehicles") ? await this.db.select().from(schema.odometerObservations).where(eq(schema.odometerObservations.ownerUserId, userId)) : [];
     const tires = wants("vehicles") ? await this.db.select().from(schema.tires).where(eq(schema.tires.ownerUserId, userId)) : [];
-    const registrationRecords = wants("vehicles") ? await this.db.select().from(schema.registrationRecords).where(eq(schema.registrationRecords.ownerUserId, userId)) : [];
+    const registrationRecords = wants("vehicles") ? await this.db.select().from(schema.registrationRecords).where(and(eq(schema.registrationRecords.ownerUserId, userId), isNull(schema.registrationRecords.deletedAt))) : [];
 
     const ownPlaces = wants("places") ? await this.db.select().from(schema.places).where(and(eq(schema.places.ownerUserId, userId), isNull(schema.places.deletedAt))) : [];
     const geofences = wants("places") ? await this.db.select().from(schema.geofences).where(eq(schema.geofences.ownerUserId, userId)) : [];
