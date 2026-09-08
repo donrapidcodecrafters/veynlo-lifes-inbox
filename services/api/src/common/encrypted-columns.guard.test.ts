@@ -5,7 +5,7 @@ import path from "node:path";
 /**
  * A guard, not a unit test: nothing may compare or order an encrypted column in SQL.
  *
- * `encryptedText`/`encryptedJson` store AES-256-GCM ciphertext and Drizzle only decrypts on the way out
+ * `encryptedText`/`encryptedJsonb` store AES-256-GCM ciphertext and Drizzle only decrypts on the way out
  * (`fromDriver`), while `encryptField` picks a fresh random IV per write. So in SQL those columns support
  * neither comparison nor ordering, and both failures are silent:
  *
@@ -21,6 +21,14 @@ import path from "node:path";
  * Neither shows up as an error, a warning, or a failing test — only as wrong data — so the protection has
  * to be a rule about the code. Reads that do not depend on contents (`isNull`, selecting the column,
  * inserting into it) are fine and are not matched here.
+ *
+ * The column pattern below matches `encryptedJsonb<T>(...)` as well as `encryptedText(...)`. It did not
+ * at first — `encrypted(?:Text|Json)\s*\(` cannot match `encryptedJsonb<string[]>(`, because of the
+ * trailing `b` and the generic — so all 16 encrypted JSON columns were invisible to this guard and to
+ * the two scanners it came from, which reported 119 columns rather than 133. Nothing was actually
+ * offending in those 16, but the guard would have said so either way. That is the same failure I had
+ * just written up twice: a scanner does not report what it never looks at, and a clean result from an
+ * incomplete scan is indistinguishable from a clean result.
  */
 const REPO = path.join(__dirname, "..", "..", "..", "..");
 const SCHEMA_DIR = path.join(REPO, "packages", "db", "src", "schema");
@@ -38,7 +46,7 @@ function encryptedColumns(): Map<string, Set<string>> {
     for (let i = 0; i < starts.length; i++) {
       const body = src.slice(starts[i]!.at, i + 1 < starts.length ? starts[i + 1]!.at : src.length);
       const cols = new Set<string>();
-      const colRe = /(\w+)\s*:\s*encrypted(?:Text|Json)\s*\(/g;
+      const colRe = /(\w+)\s*:\s*encrypted(?:Text|Jsonb?)\s*[<(]/g;
       let c: RegExpExecArray | null;
       while ((c = colRe.exec(body)) !== null) cols.add(c[1]!);
       if (cols.size) byTable.set(starts[i]!.name, cols);
