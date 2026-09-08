@@ -22,6 +22,10 @@ import {
   type AddSenderRuleDto,
   AddSenderRuleFromInboxItemDtoSchema,
   type AddSenderRuleFromInboxItemDto,
+  DismissAttentionItemDtoSchema,
+  type DismissAttentionItemDto,
+  SnoozeInboxItemDtoSchema,
+  type SnoozeInboxItemDto,
 } from "./dto";
 
 @Controller()
@@ -49,8 +53,9 @@ export class AttentionController {
   }
 
   @Post("v1/attention/:id/dismiss")
-  dismiss(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("reason") reason?: string) {
-    return this.attention.dismiss(id, user.userId, reason ?? "not_relevant");
+  @UsePipes(new ZodValidationPipe(DismissAttentionItemDtoSchema))
+  dismiss(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: DismissAttentionItemDto) {
+    return this.attention.dismiss(id, user.userId, dto.reason ?? "not_relevant");
   }
 
   @Get("v1/inbox")
@@ -161,7 +166,8 @@ export class AttentionController {
   }
 
   @Post("v1/inbox/:id/snooze")
-  snooze(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("until") until: string) {
-    return this.inbox.snooze(id, user.userId, new Date(until));
+  @UsePipes(new ZodValidationPipe(SnoozeInboxItemDtoSchema))
+  snooze(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SnoozeInboxItemDto) {
+    return this.inbox.snooze(id, user.userId, new Date(dto.until));
   }
 }

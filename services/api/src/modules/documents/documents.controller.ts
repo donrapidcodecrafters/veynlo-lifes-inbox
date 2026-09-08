@@ -10,6 +10,10 @@ import {
   LinkDocumentToEntityDtoSchema,
   type LinkDocumentToEntityDto,
   DocumentListFilterSchema,
+  SetDocumentHouseholdDtoSchema,
+  type SetDocumentHouseholdDto,
+  SetEmergencyBinderItemDtoSchema,
+  type SetEmergencyBinderItemDto,
 } from "./dto";
 import { CreateResourceGrantDtoSchema, type CreateResourceGrantDto, CreateShareLinkDtoSchema, type CreateShareLinkDto } from "../sharing/dto";
 import { Throttle } from "@nestjs/throttler";
@@ -117,14 +121,16 @@ export class DocumentsController {
 
   /** Found live while wiring the emergency binder — see DocumentsService.setHousehold's own doc comment: this was previously entirely dead on the write side. */
   @Put(":id/household")
-  async setHousehold(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("householdId") householdId: string | null) {
-    await this.documents.setHousehold(id, user.userId, householdId ?? null);
+  @UsePipes(new ZodValidationPipe(SetDocumentHouseholdDtoSchema))
+  async setHousehold(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetDocumentHouseholdDto) {
+    await this.documents.setHousehold(id, user.userId, dto.householdId ?? null);
     return { success: true };
   }
 
   @Put(":id/emergency-binder")
-  async setEmergencyBinderItem(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("isEmergencyBinderItem") isEmergencyBinderItem: boolean) {
-    await this.documents.setEmergencyBinderItem(id, user.userId, Boolean(isEmergencyBinderItem));
+  @UsePipes(new ZodValidationPipe(SetEmergencyBinderItemDtoSchema))
+  async setEmergencyBinderItem(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetEmergencyBinderItemDto) {
+    await this.documents.setEmergencyBinderItem(id, user.userId, dto.isEmergencyBinderItem);
     return { success: true };
   }
 

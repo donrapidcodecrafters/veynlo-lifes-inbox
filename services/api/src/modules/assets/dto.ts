@@ -239,3 +239,11 @@ export const MergePropertiesDtoSchema = z.object({
   mergedPropertyId: z.string().min(1),
 });
 export type MergePropertiesDto = z.infer<typeof MergePropertiesDtoSchema>;
+
+/**
+ * Distinct from DecodeVinDtoSchema above, which requires a vin because its endpoint decodes a VIN the
+ * caller supplies. This one is for decoding a VEHICLE's VIN: omitted, applyVinDecode uses whatever is
+ * already on file, so vin is an optional override. Same bounds as the required one.
+ */
+export const DecodeVehicleVinDtoSchema = z.object({ vin: z.string().min(5).max(32).optional() });
+export type DecodeVehicleVinDto = z.infer<typeof DecodeVehicleVinDtoSchema>;
