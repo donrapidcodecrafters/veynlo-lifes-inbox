@@ -25,6 +25,7 @@ export const QUEUE_NAMES = {
   caregiverDayPassScan: "caregiver-day-pass-scan",
   legacyReleaseInactivityScan: "legacy-release-inactivity-scan",
   dataIntegrityScan: "data-integrity-scan",
+  expectedEventScan: "expected-event-scan",
   searchIndexBackfill: "search-index-backfill",
 } as const;
 
@@ -175,6 +176,10 @@ export type CaregiverDayPassScanJobData = Record<string, never>;
  * own doc comment for what a tick actually does (the earlier "still there?" warning, and the auto-initiated
  * waiting period once the full threshold is crossed). */
 export type LegacyReleaseInactivityScanJobData = Record<string, never>;
+
+/** Recurring tick with no payload — its processor (AttentionService.scanForMissingExpectedEvents) finds
+ * overdue essential recurring streams itself. Restored with the monitor; see PROJECT_AUDIT.md DEF-082. */
+export type ExpectedEventScanJobData = Record<string, never>;
 
 /** §Operations "data-integrity/orphan-check job" — recurring tick with no payload; its processor
  * (DataIntegrityService.scanForOrphans) finds every orphaned cross-table link itself. */

@@ -33,6 +33,7 @@ import {
   type ResurfacingScanJobData,
   type LegacyReleaseInactivityScanJobData,
   type DataIntegrityScanJobData,
+  type ExpectedEventScanJobData,
   type SearchIndexBackfillJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
@@ -560,6 +561,17 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /** Expected-event monitor — restored with the service method; see PROJECT_AUDIT.md DEF-082. Concurrency
+   * 1: the scan advances nextExpectedDate as it files, so two overlapping ticks could file the same missed
+   * cycle twice. */
+  const expectedEventScanWorker = new Worker<ExpectedEventScanJobData>(
+    QUEUE_NAMES.expectedEventScan,
+    async () => {
+      await attention.scanForMissingExpectedEvents();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   /** §44.3 "search documents ... deleted/reindexed with canonical data" — see SearchBackfillService for
    * why a forward-only index needs a reconciliation pass at all. Concurrency 1: two overlapping full
    * reindexes would do identical work twice and contend on the same rows for no benefit. */
@@ -611,6 +623,7 @@ async function bootstrap() {
     caregiverDayPassScanWorker,
     legacyReleaseInactivityScanWorker,
     dataIntegrityScanWorker,
+    expectedEventScanWorker,
     searchIndexBackfillWorker,
     memoryClassificationWorker,
     resurfacingScanWorker,
@@ -633,6 +646,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringCaregiverDayPassScan();
   await queueProducer.scheduleRecurringLegacyReleaseInactivityScan();
   await queueProducer.scheduleRecurringDataIntegrityScan();
+  await queueProducer.scheduleRecurringExpectedEventScan();
   await queueProducer.scheduleRecurringSearchIndexBackfill();
 
   // Derived from `workers`, never retyped. This line used to be a hardcoded string listing 20 queue
@@ -666,6 +680,7 @@ async function bootstrap() {
       caregiverDayPassScanWorker.close(),
       legacyReleaseInactivityScanWorker.close(),
       dataIntegrityScanWorker.close(),
+      expectedEventScanWorker.close(),
       searchIndexBackfillWorker.close(),
       memoryClassificationWorker.close(),
       resurfacingScanWorker.close(),
