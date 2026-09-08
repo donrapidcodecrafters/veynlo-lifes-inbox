@@ -160,9 +160,20 @@ export async function request<T>(path: string, init?: RequestInit, isRetryAfterR
 // drain loop can actually replay a queued mutation through the exact same auth/refresh/CSRF pipeline as
 // every other request, without that file needing to import anything from here (see its own top doc comment
 // for why: a static import of react-native/expo-constants there would break its plain-Node unit test).
-configureExecutor(async ({ method, path, body }) => {
+configureExecutor(async ({ id, method, path, body }) => {
   try {
-    const data = await request(path, { method, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const data = await request(path, {
+      method,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      // The queue's stable command id, per §42.6. It is the same value on every replay of this mutation,
+      // which is the entire point: a server that dedups on it collapses "the server applied this and the
+      // response was lost" into one effect instead of two.
+      //
+      // Sent even though the API ignores it today, because QueuedMutation.id's doc comment claims a
+      // server-side check could be added "without any client-side change" - and that was not true while
+      // this callback dropped the id on the floor. Now it is.
+      headers: { "Idempotency-Key": id },
+    });
     return { outcome: "success", data };
   } catch (err) {
     // The one distinction this whole mechanism exists to make: `err instanceof ApiError` only happens
