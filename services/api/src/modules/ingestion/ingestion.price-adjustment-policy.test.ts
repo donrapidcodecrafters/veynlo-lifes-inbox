@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { IngestionService } from "./ingestion.service";
@@ -133,10 +133,14 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
     await buyTwice(merchantName, "Policy Test Short-Window Widget", "PADJ-SHORT-001", "2026-01-01", 9_000, "PADJ-SHORT-002", "2026-01-21", 6_000);
 
     const lines = await db
-      .select({ line: schema.purchaseLines })
+      .select({ line: schema.purchaseLines, orderNumber: schema.purchases.orderNumber })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
-      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+      .where(eq(schema.purchases.ownerUserId, ownerUserId))
+      // Ordered, because the assertions below index into this. Without it the row order is whatever
+      // Postgres happens to return, and the long-window test looked up the wrong line roughly one run in
+      // three — the observation attaches to the FIRST purchase's line.
+      .orderBy(asc(schema.purchases.orderNumber), asc(schema.purchaseLines.id));
     const matching = lines.filter((l) => l.line.productLabel === "Policy Test Short-Window Widget");
     expect(matching).toHaveLength(2);
     const observations = await db.select().from(schema.priceObservations).where(eq(schema.priceObservations.subjectEntityId, matching[0]!.line.id));
@@ -166,10 +170,14 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
     await buyTwice(merchantName, "Policy Test Long-Window Widget", "PADJ-LONG-001", "2026-01-01", 9_000, "PADJ-LONG-002", "2026-02-05", 6_000);
 
     const lines = await db
-      .select({ line: schema.purchaseLines })
+      .select({ line: schema.purchaseLines, orderNumber: schema.purchases.orderNumber })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
-      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+      .where(eq(schema.purchases.ownerUserId, ownerUserId))
+      // Ordered, because the assertions below index into this. Without it the row order is whatever
+      // Postgres happens to return, and the long-window test looked up the wrong line roughly one run in
+      // three — the observation attaches to the FIRST purchase's line.
+      .orderBy(asc(schema.purchases.orderNumber), asc(schema.purchaseLines.id));
     const matching = lines.filter((l) => l.line.productLabel === "Policy Test Long-Window Widget");
     expect(matching).toHaveLength(2);
     const observations = await db.select().from(schema.priceObservations).where(eq(schema.priceObservations.subjectEntityId, matching[0]!.line.id));
@@ -195,10 +203,14 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
     await buyTwice(merchantName, "Policy Test No-Policy Widget", "PADJ-NONE-001", "2026-01-01", 9_000, "PADJ-NONE-002", "2026-01-30", 6_000);
 
     const lines = await db
-      .select({ line: schema.purchaseLines })
+      .select({ line: schema.purchaseLines, orderNumber: schema.purchases.orderNumber })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
-      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+      .where(eq(schema.purchases.ownerUserId, ownerUserId))
+      // Ordered, because the assertions below index into this. Without it the row order is whatever
+      // Postgres happens to return, and the long-window test looked up the wrong line roughly one run in
+      // three — the observation attaches to the FIRST purchase's line.
+      .orderBy(asc(schema.purchases.orderNumber), asc(schema.purchaseLines.id));
     const matching = lines.filter((l) => l.line.productLabel === "Policy Test No-Policy Widget");
     expect(matching).toHaveLength(2);
     const observations = await db.select().from(schema.priceObservations).where(eq(schema.priceObservations.subjectEntityId, matching[0]!.line.id));
