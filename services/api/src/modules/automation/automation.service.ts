@@ -172,6 +172,23 @@ export class AutomationService {
    * opposite: enabled, but always starting in the conservative `confirm_each_time` approval mode (see
    * `UpdateRuleDto` for how a user opts a specific rule into `auto_low_risk` afterward). */
   async createRuleFromText(userId: string, dto: CreateRuleFromTextDto) {
+    // Checked BEFORE the model call, both because a request that cannot succeed should not spend one and
+    // because this is an authorization boundary and belongs at the top.
+    //
+    // A rule carries its householdId onto everything it later creates: executeRun writes tasks and
+    // prepared_actions with rule.householdId, and both are read back by household (schedule.service's task
+    // list, attention.service's Needs You, household.service's open-task count). So a rule created with a
+    // household the author does not belong to injects rows into that household's shared lists every time
+    // it fires. Household ids are not guessable, but anyone who has ever seen one keeps it - a removed
+    // member is the obvious case, and "removed from the household" should end exactly this.
+    //
+    // Every sibling service that accepts a caller-supplied householdId already checks this - lists, people,
+    // identity-records, health-logistics, location and assets all do. This one did not. The gap was half
+    // known: executeRun's add_calendar_event branch notes that routing through ScheduleService.createEvent
+    // gained the membership check "the raw insert never checked", and calls a rule whose owner is no longer
+    // a member "exactly the kind of state a rule should stop acting on". That reasoning was applied to one
+    // of the three action branches and never carried back to where the household is chosen.
+    if (dto.householdId) await this.assertHouseholdMember(dto.householdId, userId);
     if (!this.ai.isConfigured()) {
       throw new ServiceUnavailableException({
         code: "AI_NOT_CONFIGURED",
@@ -271,6 +288,16 @@ export class AutomationService {
     const [rule] = await this.db.select().from(schema.automationRules).where(eq(schema.automationRules.id, ruleId)).limit(1);
     if (!rule || rule.ownerUserId !== userId) throw new NotFoundException({ code: "RULE_NOT_FOUND", message: "Automation rule not found." });
     return rule;
+  }
+
+  /** Same check, same wording and same status as AssetsService's, which is the existing precedent for it. */
+  private async assertHouseholdMember(householdId: string, userId: string): Promise<void> {
+    const [membership] = await this.db
+      .select({ id: schema.householdMemberships.id })
+      .from(schema.householdMemberships)
+      .where(and(eq(schema.householdMemberships.householdId, householdId), eq(schema.householdMemberships.userId, userId), eq(schema.householdMemberships.status, "active")))
+      .limit(1);
+    if (!membership) throw new ForbiddenException({ code: "NOT_HOUSEHOLD_MEMBER", message: "You're not an active member of that household." });
   }
 
   async updateRule(ruleId: string, userId: string, dto: UpdateRuleDto) {
