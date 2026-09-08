@@ -33,6 +33,7 @@ import type {
   UpdateRegistrationRecordDto,
   RenewRegistrationRecordDto,
 } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 function dateOnly(iso: string | null | undefined): TemporalValue | null {
   if (!iso) return null;
@@ -95,13 +96,14 @@ export class AssetsService {
     const grantedIds = await this.sharing.grantedResourceIds("property", userId);
     const baseCondition = await this.ownerOrDelegatedHousehold(userId, schema.propertyProfiles.ownerUserId, schema.propertyProfiles.householdId);
     const accessCondition = grantedIds.length > 0 ? or(baseCondition, inArray(schema.propertyProfiles.id, grantedIds))! : baseCondition;
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.propertyProfiles)
       // §40.2 — a merged-away property (mergedIntoPropertyId set) is excluded from ordinary list queries,
       // same as deletedAt, but never hard-deleted — see mergeProperties' own doc comment.
-      .where(and(isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId), accessCondition))
-      .orderBy(asc(schema.propertyProfiles.label));
+      .where(and(isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId), accessCondition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async createProperty(userId: string, dto: CreatePropertyProfileDto) {
@@ -137,11 +139,13 @@ export class AssetsService {
     // per asset) rather than a join: this app's per-household asset counts are small (see AssetsService's
     // own doc comment on scale elsewhere), and a join would need an awkward LEFT JOIN + in-app grouping for
     // what's otherwise a one-line loop.
-    const homeAssetRows = await this.db
-      .select()
-      .from(schema.homeAssets)
-      .where(and(eq(schema.homeAssets.propertyProfileId, propertyId), isNull(schema.homeAssets.deletedAt)))
-      .orderBy(asc(schema.homeAssets.label));
+    const homeAssetRows = (
+      await this.db
+        .select()
+        .from(schema.homeAssets)
+        .where(and(eq(schema.homeAssets.propertyProfileId, propertyId), isNull(schema.homeAssets.deletedAt)))
+      // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    ).sort(byDecryptedText((r) => r.label, (r) => r.id));
     const homeAssets = await Promise.all(
       homeAssetRows.map(async (asset) => ({
         ...asset,
@@ -199,13 +203,14 @@ export class AssetsService {
     const grantedIds = await this.sharing.grantedResourceIds("vehicle", userId);
     const baseCondition = await this.ownerOrDelegatedHousehold(userId, schema.vehicleProfiles.ownerUserId, schema.vehicleProfiles.householdId);
     const accessCondition = grantedIds.length > 0 ? or(baseCondition, inArray(schema.vehicleProfiles.id, grantedIds))! : baseCondition;
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.vehicleProfiles)
       // §40.2 — a merged-away vehicle (mergedIntoVehicleId set) is excluded from ordinary list queries,
       // same as deletedAt, but never hard-deleted — see mergeVehicles' own doc comment.
-      .where(and(isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId), accessCondition))
-      .orderBy(asc(schema.vehicleProfiles.label));
+      .where(and(isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId), accessCondition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async createVehicle(userId: string, dto: CreateVehicleProfileDto) {

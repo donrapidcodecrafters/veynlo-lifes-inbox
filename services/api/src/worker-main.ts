@@ -666,6 +666,7 @@ async function bootstrap() {
       caregiverDayPassScanWorker.close(),
       legacyReleaseInactivityScanWorker.close(),
       dataIntegrityScanWorker.close(),
+      searchIndexBackfillWorker.close(),
       memoryClassificationWorker.close(),
       resurfacingScanWorker.close(),
     ]);

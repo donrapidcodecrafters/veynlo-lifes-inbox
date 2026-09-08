@@ -10,6 +10,7 @@ import { SharingService } from "../sharing/sharing.service";
 import type { CreateShareLinkDto, ResourceGrantRight } from "../sharing/dto";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CreatePetProfileDto, UpdatePetProfileDto, CreatePetVaccinationDto, CreateRefillReminderDto } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 function dateOnly(iso: string | null | undefined): TemporalValue | null {
   if (!iso) return null;
@@ -71,13 +72,14 @@ export class PetsService {
     const grantedIds = await this.sharing.grantedResourceIds("pet", userId);
     const baseCondition = await this.ownerOrDelegatedHousehold(userId, schema.petProfiles.ownerUserId, schema.petProfiles.householdId);
     const accessCondition = grantedIds.length > 0 ? or(baseCondition, inArray(schema.petProfiles.id, grantedIds))! : baseCondition;
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.petProfiles)
       // §40.2 — a merged-away pet (mergedIntoPetId set) is excluded from ordinary list queries, same as
       // deletedAt, but never hard-deleted — see mergePets' own doc comment.
-      .where(and(isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId), accessCondition))
-      .orderBy(asc(schema.petProfiles.label));
+      .where(and(isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId), accessCondition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async create(userId: string, dto: CreatePetProfileDto): Promise<{ id: string }> {

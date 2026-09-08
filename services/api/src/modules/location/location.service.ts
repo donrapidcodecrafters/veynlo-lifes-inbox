@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { generateId, estimateTravelTime, extractPlaceCandidate } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -18,6 +18,7 @@ import type {
   UpsertLocationPermissionStateDto,
   EstimateTravelTimeDto,
 } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 /**
  * Phase 3 §30 "Location & Context" (LOC-003/004/005 buildable subset — see this module's own scoping
@@ -92,11 +93,12 @@ export class LocationService {
 
   async listPlaces(userId: string) {
     const condition = await this.ownerOrDelegatedHousehold(userId, schema.places.ownerUserId, schema.places.householdId);
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.places)
-      .where(and(isNull(schema.places.deletedAt), condition))
-      .orderBy(asc(schema.places.label));
+      .where(and(isNull(schema.places.deletedAt), condition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async createPlace(userId: string, dto: CreatePlaceDto) {
