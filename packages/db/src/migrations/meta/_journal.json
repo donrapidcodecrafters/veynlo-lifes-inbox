@@ -470,6 +470,13 @@
       "when": 1788781789839,
       "tag": "0066_flaky_energizer",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788843328326,
+      "tag": "0067_steady_blink",
+      "breakpoints": true
     }
   ]
 }
