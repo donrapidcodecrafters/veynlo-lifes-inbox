@@ -20,12 +20,21 @@ const SIGNED_IN_ROUTES = ["/dashboard", "/dashboard/admins", "/dashboard/invites
 
 interface Finding { route: string; id: string; impact: string; help: string; nodes: number }
 
+let SCHEME: "light" | "dark" = "light";
+
 async function scan(page: Page, route: string, into: Finding[], expectSignedIn = false) {
   await page.goto(`${ADMIN_BASE}${route}`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1200);
   if (expectSignedIn) {
     expect(new URL(page.url()).pathname.startsWith("/sign-in"), `${route} bounced to ${page.url()}`).toBe(false);
   }
+  // Admin has no theme toggle, so the only thing making it dark is the shared tokens' own
+  // prefers-color-scheme block. Confirm it actually took, or a "dark" run is a second light run wearing
+  // its name. Measured: dark paints rgb(14, 15, 20) and light rgb(248, 248, 251).
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const looksDark = bg.replace(/[^0-9,]/g, "").split(",").map(Number).slice(0, 3).every((c) => c < 80);
+  expect(looksDark, `expected a ${SCHEME} background, got ${bg}`).toBe(SCHEME === "dark");
+
   const textLength = (await page.locator("body").innerText()).trim().length;
   expect(textLength, `${route} rendered almost no text (${textLength} chars)`).toBeGreaterThan(40);
   const results = await new AxeBuilder({ page }).withTags(WCAG).analyze();
@@ -45,24 +54,45 @@ function report(findings: Finding[]): string {
     .join("\n");
 }
 
-test.describe("admin accessibility", () => {
-  test("the admin sign-in page has no WCAG A/AA violations", async ({ page }) => {
-    const findings: Finding[] = [];
-    await scan(page, "/sign-in", findings);
-    expect(findings, `axe violations on the admin sign-in page:${report(findings)}\n`).toEqual([]);
-  });
+/**
+ * Both colour schemes.
+ *
+ * The admin app has no theme toggle and no data-theme handling of its own, which makes it easy to assume
+ * it is light-only. It is not: it imports @veynlo/design-tokens/css, and that stylesheet switches on
+ * `@media (prefers-color-scheme: dark)`. So admin renders in dark for anyone whose OS prefers dark, and
+ * nothing had ever checked it — the same shape as DEF-076, where 58 violations sat in an app no scan had
+ * ever been pointed at.
+ *
+ * Playwright emulates the media query directly, which is the real mechanism here rather than a stored
+ * preference.
+ */
+for (const colorScheme of ["light", "dark"] as const) {
+  test.describe(`admin accessibility (${colorScheme})`, () => {
+    test.use({ colorScheme });
+    test.beforeEach(() => {
+      SCHEME = colorScheme;
+    });
 
-  test("every admin dashboard route has no WCAG A/AA violations", async ({ page }) => {
-    test.skip(!EMAIL || !PASSWORD, "set ADMIN_A11Y_EMAIL and ADMIN_A11Y_PASSWORD (see create-admin)");
-    test.setTimeout(180_000);
-    await page.goto(`${ADMIN_BASE}/sign-in`);
-    await page.getByLabel(/email/i).fill(EMAIL!);
-    await page.getByLabel(/password/i).fill(PASSWORD!);
-    await page.getByRole("button", { name: /sign in/i }).click();
-    await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
+    test("the admin sign-in page has no WCAG A/AA violations", async ({ page }) => {
+      const findings: Finding[] = [];
+      await scan(page, "/sign-in", findings);
+      expect(findings, `axe violations on the admin sign-in page (${colorScheme}):${report(findings)}
+`).toEqual([]);
+    });
 
-    const findings: Finding[] = [];
-    for (const route of SIGNED_IN_ROUTES) await scan(page, route, findings, true);
-    expect(findings, `axe violations across ${SIGNED_IN_ROUTES.length} admin routes:${report(findings)}\n`).toEqual([]);
+    test("every admin dashboard route has no WCAG A/AA violations", async ({ page }) => {
+      test.skip(!EMAIL || !PASSWORD, "set ADMIN_A11Y_EMAIL and ADMIN_A11Y_PASSWORD (see create-admin)");
+      test.setTimeout(180_000);
+      await page.goto(`${ADMIN_BASE}/sign-in`);
+      await page.getByLabel(/email/i).fill(EMAIL!);
+      await page.getByLabel(/password/i).fill(PASSWORD!);
+      await page.getByRole("button", { name: /sign in/i }).click();
+      await page.waitForURL("**/dashboard", { timeout: 20_000 });
+
+      const findings: Finding[] = [];
+      for (const route of SIGNED_IN_ROUTES) await scan(page, route, findings, true);
+      expect(findings, `axe violations across ${SIGNED_IN_ROUTES.length} admin routes (${colorScheme}):${report(findings)}
+`).toEqual([]);
+    });
   });
-});
+}

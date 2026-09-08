@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createOnboardedUser } from "./support/api";
+import { createSignedInUser } from "./support/api";
 
 /**
  * §42 / §50.1 "Accessibility ... automated checks" across the WHOLE app, not a sample.
@@ -14,6 +14,40 @@ import { createOnboardedUser } from "./support/api";
  * driving.
  */
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+
+/**
+ * The first version of this spec scanned the default theme only — which is light. Dark mode is half of
+ * what a user can be looking at, and contrast is the rule most likely to differ between them: an earlier
+ * commit in this audit fixed the dark theme's contrast on web ("which nothing was checking"), and DEF-076
+ * found 58 violations in an admin app nothing had ever scanned at all. A light-only pass would have
+ * reported the same clean result either way.
+ *
+ * The app reads its theme from localStorage before first paint (see theme-script.ts), so setting the key
+ * on the origin ahead of navigation is enough — no UI toggling, and no dependence on the OS preference.
+ */
+const THEME_STORAGE_KEY = "veynlo-theme";
+
+async function useTheme(page: Page, theme: "light" | "dark") {
+  await page.addInitScript(
+    ([key, value]) => {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // A blocked localStorage would leave the app on its default; the assertion below catches that.
+      }
+    },
+    [THEME_STORAGE_KEY, theme] as const,
+  );
+}
+
+/** Confirms the theme actually took, so a dark-mode pass cannot be a second light-mode pass wearing its
+ *  name — the same "did the instrument point at the subject" check the route guards make. */
+async function assertTheme(page: Page, theme: "light" | "dark") {
+  const applied = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+  if (theme === "dark") {
+    expect(applied, "dark mode did not apply — this run would have re-measured light mode").toBe("dark");
+  }
+}
 
 const PUBLIC_ROUTES = [
   "/", "/sign-in", "/sign-up", "/forgot-password", "/reset-password",
@@ -41,7 +75,7 @@ interface Finding {
   nodes: number;
 }
 
-async function scan(page: Page, route: string, into: Finding[], expectSignedIn = false) {
+async function scan(page: Page, route: string, into: Finding[], expectSignedIn = false, theme: "light" | "dark" = "light") {
   await page.goto(route, { waitUntil: "domcontentloaded" });
   // Let client-rendered content settle; an axe run against a spinner measures the spinner.
   await page.waitForTimeout(1200);
@@ -58,9 +92,10 @@ async function scan(page: Page, route: string, into: Finding[], expectSignedIn =
   const textLength = (await page.locator("body").innerText()).trim().length;
   expect(textLength, `${route} rendered almost no text (${textLength} chars) — scanning it proves nothing`).toBeGreaterThan(40);
 
+  await assertTheme(page, theme);
   const results = await new AxeBuilder({ page }).withTags(WCAG).analyze();
   for (const v of results.violations) {
-    into.push({ route, id: v.id, impact: v.impact ?? "unknown", help: v.help, nodes: v.nodes.length });
+    into.push({ route: `${route} [${theme}]`, id: v.id, impact: v.impact ?? "unknown", help: v.help, nodes: v.nodes.length });
   }
 }
 
@@ -78,24 +113,27 @@ function report(findings: Finding[]): string {
 }
 
 test.describe("accessibility — every static route", () => {
-  test("public routes have no WCAG A/AA violations", async ({ page }) => {
-    test.setTimeout(300_000);
-    const findings: Finding[] = [];
-    for (const route of PUBLIC_ROUTES) await scan(page, route, findings);
-    expect(findings, `axe violations across ${PUBLIC_ROUTES.length} public routes:${report(findings)}\n`).toEqual([]);
-  });
+  for (const theme of ["light", "dark"] as const) {
+    test(`public routes have no WCAG A/AA violations (${theme})`, async ({ page }) => {
+      test.setTimeout(300_000);
+      await useTheme(page, theme);
+      const findings: Finding[] = [];
+      for (const route of PUBLIC_ROUTES) await scan(page, route, findings, false, theme);
+      expect(findings, `axe violations across ${PUBLIC_ROUTES.length} public routes in ${theme}:${report(findings)}
+`).toEqual([]);
+    });
 
-  test("signed-in routes have no WCAG A/AA violations", async ({ page, request }) => {
-    test.setTimeout(600_000);
-    const user = await createOnboardedUser(request, "a11y");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    test(`signed-in routes have no WCAG A/AA violations (${theme})`, async ({ page }) => {
+      test.setTimeout(600_000);
+      await useTheme(page, theme);
+      // createSignedInUser rather than driving the sign-in form: this suite now runs twice, once per
+      // theme, and sign-in is throttled at 10/60s per IP (see DEF-081).
+      await createSignedInUser(page, `a11y-${theme}`);
 
-    const findings: Finding[] = [];
-    for (const route of SIGNED_IN_ROUTES) await scan(page, route, findings, true);
-    expect(findings, `axe violations across ${SIGNED_IN_ROUTES.length} signed-in routes:${report(findings)}\n`).toEqual([]);
-  });
+      const findings: Finding[] = [];
+      for (const route of SIGNED_IN_ROUTES) await scan(page, route, findings, true, theme);
+      expect(findings, `axe violations across ${SIGNED_IN_ROUTES.length} signed-in routes in ${theme}:${report(findings)}
+`).toEqual([]);
+    });
+  }
 });
