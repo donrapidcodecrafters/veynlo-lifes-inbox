@@ -23,6 +23,23 @@ import type { PreferencesService } from "../preferences/preferences.service";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
+/**
+ * Fixtures pin `effectiveFrom` to a fixed past instant rather than letting the column default to the
+ * database's `now()`. That default is why CI failed intermittently on
+ * "a merchant with a specific commonly_known policy resolves to that window" with `expected 30 to be 14`:
+ *
+ *   effective_from is `timestamp with time zone` at datetime_precision 6 (MICROseconds), defaulting to
+ *   now(). resolvePriceAdjustmentPolicy filters `lte(effectiveFrom, now)` where `now` is a JavaScript
+ *   `new Date()` — MILLIsecond precision. A row written at ...123456 is therefore NOT <= a `now` of
+ *   ...123000, so the policy is skipped and the flat 30-day default returned instead.
+ *
+ * The window is sub-millisecond, which is why it failed roughly one run in ten rather than every time. The
+ * product behaviour is fine — a policy that becomes effective in the future genuinely should not apply —
+ * so the fix belongs in the fixtures, which have no reason to depend on the clock at all.
+ */
+const FIXTURE_EFFECTIVE_FROM = new Date("2020-01-01T00:00:00.000Z");
+
+
 const stubNotifications = { createAndEnqueue: async () => ({ notificationId: "ntf_test_stub" }) } as unknown as NotificationDeliveryService;
 const stubStorage = {} as unknown as ObjectStorage;
 const stubMalwareScanner = { isConfigured: () => false } as unknown as MalwareScannerService;
@@ -109,6 +126,7 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
       windowDays: 10,
       confidence: "commonly_known",
       sourceNote: "Test fixture: a real 10-day policy.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     // 20 days apart — inside the flat 30-day default, but OUTSIDE this merchant's real 10-day policy.
@@ -141,6 +159,7 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
       windowDays: 45,
       confidence: "commonly_known",
       sourceNote: "Test fixture: a real 45-day policy.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     // 35 days apart — outside the flat 30-day default, but INSIDE this merchant's real 45-day policy.
