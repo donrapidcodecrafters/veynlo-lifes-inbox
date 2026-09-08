@@ -21,6 +21,7 @@ import type { CreateShareLinkDto } from "../sharing/dto";
 import { SearchIndexService } from "../search/search-index.service";
 import { DOCUMENT_PROCESSING_PIPELINE, isValidProcessingStateTransition } from "./processing-state";
 import type { DocumentListFilter } from "./dto";
+import { canCreateShareLink } from "@veynlo/core";
 
 const ALLOWED_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic", "text/plain"]);
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB — generous for scanned receipts/manuals, bounded against abuse
@@ -553,7 +554,13 @@ export class DocumentsService {
     // resource grant (createResourceGrant, above) stays unrestricted by sensitivity — it targets one named,
     // already-a-Veynlo-account recipient, not "anyone with the URL," which is the actual risk this rule is
     // guarding against.
-    if (doc.sensitivity === "highly_sensitive" || doc.sensitivity === "secret") {
+    // Asks the shared rule rather than restating it. `canCreateShareLink` is Appendix C's own statement
+    // of which tiers may have a public link, and until now it had ZERO callers anywhere — exported,
+    // documented as the gate, and enforced nowhere. Every domain that needed the rule had hardcoded its
+    // own copy (this one) or hardcoded a blanket refusal (health-logistics, identity-records, both
+    // correct). That is fine until someone adds the next shareable resource type and reasonably assumes a
+    // helper with that name is what enforces it.
+    if (!canCreateShareLink(doc.sensitivity)) {
       throw new ForbiddenException({
         code: "SENSITIVITY_BLOCKS_PUBLIC_LINK",
         message: "This document's sensitivity level doesn't allow public share links. Share it directly with someone's Veynlo account instead.",
