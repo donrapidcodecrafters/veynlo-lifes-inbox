@@ -167,7 +167,7 @@ export class ListsService {
       .select()
       .from(schema.savedItems)
       .where(eq(schema.savedItems.listId, listId))
-      .orderBy(asc(schema.savedItems.position), asc(schema.savedItems.createdAt));
+      .orderBy(asc(schema.savedItems.position), asc(schema.savedItems.createdAt), asc(schema.savedItems.id));
     // Spec: "private when needed" — a private item is visible only to whoever added it, even to other
     // members of an otherwise-shared household list (e.g. a surprise gift on a shared gift list).
     const visibleItems = items.filter((item) => !item.isPrivate || item.createdByUserId === userId);
@@ -347,7 +347,7 @@ export class ListsService {
       .select({ label: schema.savedItems.label, checked: schema.savedItems.checked })
       .from(schema.savedItems)
       .where(and(eq(schema.savedItems.listId, listId), eq(schema.savedItems.isPrivate, false)))
-      .orderBy(asc(schema.savedItems.position), asc(schema.savedItems.createdAt));
+      .orderBy(asc(schema.savedItems.position), asc(schema.savedItems.createdAt), asc(schema.savedItems.id));
     return { name: list.name, kind: list.kind, items };
   }
 }

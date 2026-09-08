@@ -408,7 +408,15 @@ export class MemoriesService {
     let rows = [...ownRows, ...grantedRows].map((r) => this.redactNotesForNonOwner(r, userId));
     if (opts?.category) rows = rows.filter((r) => r.category === opts.category);
     rows = rows.filter((r) => (opts?.archived ? r.archivedAt != null : r.archivedAt == null));
-    return rows.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt.getTime() - a.createdAt.getTime());
+    // The id tiebreak is not decoration: the seed inserts saved items in one batch, so many share a
+    // createdAt to the microsecond, and a stable sort then falls back to the unordered SQL order —
+    // which changes after any write. Same failure DEF-046 measured on Lists.
+    return rows.sort(
+      (a, b) =>
+        Number(b.pinned) - Number(a.pinned) ||
+        b.createdAt.getTime() - a.createdAt.getTime() ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
   }
 
   async detail(id: string, userId: string): Promise<SavedMemoryRow> {
@@ -505,7 +513,9 @@ export class MemoriesService {
     return candidates
       .map((row) => ({ row, score: scoreRelevance(q, textFor(row)) }))
       .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score)
+      // Equal scores are common (this is keyword overlap, not a continuous metric), and a stable sort
+      // would fall back to the unordered SQL order the candidates arrived in.
+      .sort((a, b) => b.score - a.score || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0))
       .slice(0, 30)
       .map((entry) => entry.row);
   }
@@ -539,7 +549,9 @@ export class MemoriesService {
     return candidates
       .map((r) => ({ row: r, score: scoreRelevance(q, textFor(r)) }))
       .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score)
+      // Equal scores are common (this is keyword overlap, not a continuous metric), and a stable sort
+      // would fall back to the unordered SQL order the candidates arrived in.
+      .sort((a, b) => b.score - a.score || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0))
       .slice(0, limit)
       .map((entry) => entry.row);
   }

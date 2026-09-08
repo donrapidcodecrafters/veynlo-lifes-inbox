@@ -134,9 +134,20 @@ export class TripsService {
       .select()
       .from(schema.trips)
       .where(and(accessCondition, isNull(schema.trips.deletedAt)))
-      .orderBy(asc(schema.trips.startDateSort));
+      .orderBy(asc(schema.trips.startDateSort), asc(schema.trips.id));
     if (rows.length === 0) return [];
-    const segments = await this.db.select().from(schema.tripSegments).where(inArray(schema.tripSegments.tripId, rows.map((r) => r.id)));
+    // Segments had no order at all, so a trip's own itinerary listed its flights/stays in whatever order
+    // the scan happened to return — and rewriting any one of them moved it. Chronological, then id.
+    const segments = await this.db
+      .select()
+      .from(schema.tripSegments)
+      .where(
+        inArray(
+          schema.tripSegments.tripId,
+          rows.map((r) => r.id),
+        ),
+      )
+      .orderBy(asc(schema.tripSegments.startAtSort), asc(schema.tripSegments.id));
     const byTrip = new Map<string, typeof segments>();
     for (const seg of segments) byTrip.set(seg.tripId, [...(byTrip.get(seg.tripId) ?? []), seg]);
     return rows.map((trip) => {

@@ -7,6 +7,7 @@ import { HouseholdService } from "../household/household.service";
 import { IdentityService } from "../identity/identity.service";
 import { identityRecordSafeColumns } from "../identity-records/identity-records.util";
 import type { UpdateEmergencyBinderSettingsDto } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 /**
  * Phase 2 §52.2 "emergency binder", the cross-domain packet spec §53's Future Feature Inventory describes
@@ -81,6 +82,10 @@ export class EmergencyBinderService {
       .limit(1);
     if (!household) throw new NotFoundException({ code: "HOUSEHOLD_NOT_FOUND", message: "Household not found." });
 
+    // Every list below is sorted after decryption. These columns are encrypted at rest (fresh random IV
+    // per write), so SQL cannot order them by anything a reader recognises — and this is a printable,
+    // shareable emergency packet: two prints of the same binder listed the household's people, vehicles
+    // and pets in different orders, because nothing ordered them at all.
     const memberRows = await this.db
       .select({
         id: schema.householdMemberships.id,
@@ -93,12 +98,14 @@ export class EmergencyBinderService {
       })
       .from(schema.householdMemberships)
       .leftJoin(schema.users, eq(schema.users.id, schema.householdMemberships.userId))
-      .where(and(eq(schema.householdMemberships.householdId, householdId), eq(schema.householdMemberships.status, "active")));
+      .where(and(eq(schema.householdMemberships.householdId, householdId), eq(schema.householdMemberships.status, "active")))
+      .then((rows) => rows.sort(byDecryptedText((r) => r.displayName, (r) => r.id)));
 
     const dependents = await this.db
       .select({ id: schema.dependentProfiles.id, displayName: schema.dependentProfiles.displayName, birthDate: schema.dependentProfiles.birthDate })
       .from(schema.dependentProfiles)
-      .where(eq(schema.dependentProfiles.householdId, householdId));
+      .where(eq(schema.dependentProfiles.householdId, householdId))
+      .then((rows) => rows.sort(byDecryptedText((r) => r.displayName, (r) => r.id)));
 
     // A merged-away vehicle/property/pet (mergedIntoVehicleId/mergedIntoPropertyId/mergedIntoPetId set) is
     // never hard-deleted — see assets.service.ts's mergeVehicles doc comment — so it must be excluded here
@@ -108,12 +115,14 @@ export class EmergencyBinderService {
     const vehicles = await this.db
       .select({ id: schema.vehicleProfiles.id, label: schema.vehicleProfiles.label, make: schema.vehicleProfiles.make, model: schema.vehicleProfiles.model, year: schema.vehicleProfiles.year, vin: schema.vehicleProfiles.vin })
       .from(schema.vehicleProfiles)
-      .where(and(eq(schema.vehicleProfiles.householdId, householdId), isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId)));
+      .where(and(eq(schema.vehicleProfiles.householdId, householdId), isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId)))
+      .then((rows) => rows.sort(byDecryptedText((r) => r.label, (r) => r.id)));
 
     const properties = await this.db
       .select({ id: schema.propertyProfiles.id, label: schema.propertyProfiles.label, propertyType: schema.propertyProfiles.propertyType, address: schema.propertyProfiles.address })
       .from(schema.propertyProfiles)
-      .where(and(eq(schema.propertyProfiles.householdId, householdId), isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId)));
+      .where(and(eq(schema.propertyProfiles.householdId, householdId), isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId)))
+      .then((rows) => rows.sort(byDecryptedText((r) => r.label, (r) => r.id)));
 
     // PET-001/PET-005 "share boarding/emergency packet" — this feature's own explicit requirement is that
     // the household-wide emergency binder already built this session is the right home for it (see this
@@ -139,26 +148,33 @@ export class EmergencyBinderService {
           isNull(schema.petProfiles.mergedIntoPetId),
           ne(schema.petProfiles.lifecycleStatus, "deceased"),
         ),
-      );
+      )
+      .then((rows) => rows.sort(byDecryptedText((r) => r.label, (r) => r.id)));
     const petIds = pets.map((p) => p.id);
     const petVaccinations =
       petIds.length > 0
         ? await this.db
-            .select({ petProfileId: schema.petVaccinations.petProfileId, label: schema.petVaccinations.label, expirationDate: schema.petVaccinations.expirationDate })
+            .select({ id: schema.petVaccinations.id, petProfileId: schema.petVaccinations.petProfileId, label: schema.petVaccinations.label, expirationDate: schema.petVaccinations.expirationDate })
             .from(schema.petVaccinations)
             .where(and(inArray(schema.petVaccinations.petProfileId, petIds), eq(schema.petVaccinations.source, "user_confirmed")))
         : [];
     const petRefillReminders =
       petIds.length > 0
         ? await this.db
-            .select({ petProfileId: schema.refillReminders.petProfileId, medicationName: schema.refillReminders.medicationName, nextRefillDate: schema.refillReminders.nextRefillDate, pharmacy: schema.refillReminders.pharmacy })
+            .select({ id: schema.refillReminders.id, petProfileId: schema.refillReminders.petProfileId, medicationName: schema.refillReminders.medicationName, nextRefillDate: schema.refillReminders.nextRefillDate, pharmacy: schema.refillReminders.pharmacy })
             .from(schema.refillReminders)
             .where(and(inArray(schema.refillReminders.petProfileId, petIds), isNull(schema.refillReminders.deletedAt)))
         : [];
     const petsWithRecords = pets.map((pet) => ({
       ...pet,
-      vaccinations: petVaccinations.filter((v) => v.petProfileId === pet.id).map(({ label, expirationDate }) => ({ label, expirationDate })),
-      medications: petRefillReminders.filter((r) => r.petProfileId === pet.id).map(({ medicationName, nextRefillDate, pharmacy }) => ({ medicationName, nextRefillDate, pharmacy })),
+      vaccinations: petVaccinations
+        .filter((v) => v.petProfileId === pet.id)
+        .sort(byDecryptedText((v) => v.label, (v) => v.id))
+        .map(({ label, expirationDate }) => ({ label, expirationDate })),
+      medications: petRefillReminders
+        .filter((r) => r.petProfileId === pet.id)
+        .sort(byDecryptedText((r) => r.medicationName, (r) => r.id))
+        .map(({ medicationName, nextRefillDate, pharmacy }) => ({ medicationName, nextRefillDate, pharmacy })),
     }));
 
     // "Identity & Legal Continuity" (ID-001..005) — the "explicit share for emergency/travel packets" this
@@ -175,7 +191,8 @@ export class EmergencyBinderService {
     const identityRecordRows = await this.db
       .select(identityRecordSafeColumns)
       .from(schema.identityRecords)
-      .where(and(eq(schema.identityRecords.householdId, householdId), ne(schema.identityRecords.status, "renewed"), isNull(schema.identityRecords.deletedAt)));
+      .where(and(eq(schema.identityRecords.householdId, householdId), ne(schema.identityRecords.status, "renewed"), isNull(schema.identityRecords.deletedAt)))
+      .then((rows) => rows.sort(byDecryptedText((r) => r.label, (r) => r.id)));
     const identityRecords = identityRecordRows.map((r) => ({
       id: r.id,
       recordType: r.recordType,
@@ -198,7 +215,8 @@ export class EmergencyBinderService {
           ne(schema.documents.visibility, "private"),
           isNull(schema.documents.deletedAt),
         ),
-      );
+      )
+      .then((rows) => rows.sort(byDecryptedText((r) => r.title, (r) => r.id)));
 
     return {
       household: { id: household.id, name: household.name },
