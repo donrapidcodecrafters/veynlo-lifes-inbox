@@ -15,6 +15,61 @@ explicitly rather than guessing.
 
 ---
 
+## 0. What you have already provided — verified 2026-09-10
+
+You told me these were already supplied, and you were right: they are on the **MacBook**, not the tower.
+This is the masked inventory from `services/api/.env` there (values never transmitted — names, lengths
+and first characters only).
+
+| Credential | Status | Notes |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | **Present and PROVEN WORKING** | Not merely "set" — the Mac drove a real Ask query end to end: `POST /v1/ask -> 201`, 3.7s, a coherent answer citing the actual seeded bills. That timing rules out the local not-configured fallback, which returns instantly |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | Present | 72 and 35 chars, correct prefixes |
+| `MICROSOFT_OAUTH_CLIENT_ID` / `_SECRET` | Present | 36 and 40 chars |
+| `APPLE_CLIENT_ID` | Present | `app.…`, 24 chars |
+| `APPLE_TEAM_ID` | Present | **`Q222B28WK6`** — not secret, appears in every provisioning profile |
+| `APPLE_KEY_ID` | Present | 10 chars |
+| **`APPLE_PRIVATE_KEY`** | **BROKEN — action needed** | **27 characters**, i.e. exactly `-----BEGIN PRIVATE KEY-----` with no body. A real ES256 `.p8` is several hundred characters. See below |
+| Stripe / RevenueCat / Plaid | Absent or empty | Not needed for testing — §4g |
+| SMTP | Points at local Mailhog | Fine for dev; §4f for testers |
+| Inbound email | Absent | Not needed — §4g |
+
+**None of these are on the tower**, which is why my Android sweep has never once exercised the AI code
+path. Moving them across is a real (if minor) unblock for audit coverage, not just tidiness.
+
+### The Apple private key needs re-downloading, and it was hiding a bug
+
+The 27-character value is a truncated placeholder. It cannot sign anything.
+
+Worse, it **passed** the app's own configuration check, because `isAppleSignInConfigured()` only tested
+that the four Apple variables were non-empty. So the API advertised Apple sign-in as available, the app
+rendered the "Sign in with Apple" button, and pressing it would have thrown inside `importPKCS8()` and
+surfaced as a `500 INTERNAL_ERROR` marked **retryable** — a configuration fault reported as a transient
+one, which no amount of retrying could fix.
+
+Fixed in commit `9360ea2` (shape validation plus a catch that degrades honestly), so the button now
+correctly hides instead of failing. **But you still need the real key** if you want Apple sign-in:
+
+1. <https://developer.apple.com/account/resources/authkeys/list>
+2. If a Sign in with Apple key already exists, note its Key ID — but **the `.p8` file itself can only be
+   downloaded once, at creation**. If you no longer have the file, revoke that key and create a new one.
+3. Create a key, tick **Sign in with Apple**, download the `.p8`.
+4. The value for `APPLE_PRIVATE_KEY` is the **entire file contents** including both `-----BEGIN` and
+   `-----END` lines — not a file path. `env.ts` documents this explicitly.
+
+### Still unknown — only you can answer these
+
+The Mac has no browser session logged into either console, so it could not check:
+
+1. **Is the Apple Developer Program membership actually active and paid** ($99/year), or is this just an
+   Apple ID? Having a Team ID does not by itself prove a paid membership.
+2. **Does a Google Play Console account exist**, and has an app with package `app.veynlo.mobile` been
+   created in it?
+
+Everything in §2 depends on the answers.
+
+---
+
 ## 1. What you do NOT need to pay for
 
 This is the part worth reading first, because the app is designed to run without most of its
