@@ -29,7 +29,7 @@ and first characters only).
 | `APPLE_CLIENT_ID` | Present | `app.…`, 24 chars |
 | `APPLE_TEAM_ID` | Present | **`Q222B28WK6`** — not secret, appears in every provisioning profile |
 | `APPLE_KEY_ID` | Present | 10 chars |
-| **`APPLE_PRIVATE_KEY`** | **BROKEN — action needed** | **27 characters**, i.e. exactly `-----BEGIN PRIVATE KEY-----` with no body. A real ES256 `.p8` is several hundred characters. See below |
+| **`APPLE_PRIVATE_KEY`** | **RESOLVED 2026-09-10** | Was a 27-character placeholder ( with no body). Since replaced with a real key — the Mac confirmed it imports via `jose.importPKCS8()`. Apple sign-in is live there |
 | Stripe / RevenueCat / Plaid | Absent or empty | Not needed for testing — §4g |
 | SMTP | Points at local Mailhog | Fine for dev; §4f for testers |
 | Inbound email | Absent | Not needed — §4g |
@@ -47,8 +47,26 @@ rendered the "Sign in with Apple" button, and pressing it would have thrown insi
 surfaced as a `500 INTERNAL_ERROR` marked **retryable** — a configuration fault reported as a transient
 one, which no amount of retrying could fix.
 
-Fixed in commit `9360ea2` (shape validation plus a catch that degrades honestly), so the button now
-correctly hides instead of failing. **But you still need the real key** if you want Apple sign-in:
+Fixed in commit `9360ea2` — shape validation plus a catch, so a bad key produces a clean
+`oauth_not_configured` instead of a 500.
+
+**Correction (2026-09-10).** An earlier version of this document said the fix makes "the button now
+correctly hide instead of failing". **That was wrong**, caught by the Mac session checking the client code
+rather than taking my word. The Apple button renders **unconditionally** on both
+`apps/web/src/app/(auth)/sign-in/page.tsx` and `apps/mobile/src/components/oauth-sign-in-buttons.tsx` —
+nothing gates it on configuration, and `9360ea2` changed server behaviour only.
+
+What actually happens when a provider is unconfigured: pressing the button hits `/v1/auth/<provider>/authorize`,
+which throws `OAuthNotConfiguredError`, and the user is redirected to `/sign-in?error=oauth_not_configured`
+(or `veynlo://auth-callback?error=…` on native) where both clients show *"That sign-in method isn't
+configured on this deployment yet."* So it is handled and honest — but it degrades **after** the click
+rather than before it, which is a UX wart rather than a fault. Recorded as such rather than
+overstated.
+
+**Also (2026-09-10): the key has since been replaced with a real one.** The Mac confirmed
+`APPLE_PRIVATE_KEY` now imports successfully via `jose.importPKCS8()`, so
+`isAppleSignInConfigured()` returns true on that machine and Apple sign-in is live there. The steps below
+are kept only for the case where the key is ever lost again.
 
 1. <https://developer.apple.com/account/resources/authkeys/list>
 2. If a Sign in with Apple key already exists, note its Key ID — but **the `.p8` file itself can only be
