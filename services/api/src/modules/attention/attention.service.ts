@@ -658,7 +658,23 @@ export class AttentionService {
       .from(schema.recallMatches)
       .leftJoin(schema.vehicleProfiles, eq(schema.vehicleProfiles.id, schema.recallMatches.vehicleProfileId))
       .leftJoin(schema.homeAssets, eq(schema.homeAssets.id, schema.recallMatches.homeAssetId))
-      .where(ne(schema.recallMatches.status, "closed_or_repaired"));
+      .where(
+        and(
+          ne(schema.recallMatches.status, "closed_or_repaired"),
+          // The scanner that CREATES these matches already excludes merged-away and soft-deleted vehicles,
+          // and RecallMonitorService.scanAll's own comment says why: "a merged-away duplicate is never
+          // hard-deleted ... any resulting recall match would be silently orphaned". This READ path had no
+          // equivalent exclusion, so a merged-away duplicate's pre-existing matches kept filing attention
+          // items under the old vehicle's name on every scan tick, for a vehicle no list screen shows and
+          // the user believes they already merged away.
+          //
+          // Safe for home-asset recalls: those rows have a null vehicleProfileId, so the left join yields
+          // null and isNull() passes. The same holds in reverse for vehicle recalls and homeAssets.
+          isNull(schema.vehicleProfiles.deletedAt),
+          isNull(schema.vehicleProfiles.mergedIntoVehicleId),
+          isNull(schema.homeAssets.deletedAt),
+        ),
+      );
     for (const row of openRecalls) {
       const ownerUserId = row.vehicle?.ownerUserId ?? row.homeAsset?.ownerUserId;
       if (!ownerUserId) continue; // orphaned match — its subject was deleted without the FK cascade running yet; nothing to notify
