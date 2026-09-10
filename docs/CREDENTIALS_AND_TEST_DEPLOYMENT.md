@@ -122,19 +122,17 @@ lose them: `FIELD_ENCRYPTION_KEY` encrypts user data at rest, and losing it mean
 
 ### 2a. Apple Developer Program — **ALREADY PAID AND ACTIVE** (confirmed 2026-09-10)
 
-Needed for TestFlight, which is the only sanctioned way to put an iOS build on someone else's phone.
+Nothing to do here. Membership is live and the Team ID is `Q222B28WK6`. TestFlight is available as soon
+as there is a build to submit — see §5d.
 
-1. Go to <https://developer.apple.com/programs/enroll/>.
-2. Enrol as an **Individual** unless you have a registered company — Organization enrolment additionally
-   requires a D-U-N-S number and takes considerably longer.
-3. You will need: an Apple ID with two-factor authentication on, a payment method, and government ID.
-   Approval is usually 24–48 hours but can take longer.
-4. Once approved, give me: **Team ID** (visible at
-   <https://developer.apple.com/account> → Membership).
+Two notes for when we get there:
 
-The app's iOS bundle identifier is already set to `app.veynlo.mobile` (`apps/mobile/app.json`). Register
-that identifier under Certificates, Identifiers & Profiles, or let EAS create it for you during the first
-build.
+- The iOS bundle identifier is already `app.veynlo.mobile` (`apps/mobile/app.json`). Either register it
+  yourself under Certificates, Identifiers & Profiles, or let EAS create it during the first build — EAS
+  handles certificates and provisioning profiles for you if you let it.
+- **Sign in with Apple is a separate thing from shipping a build.** It needs the real `.p8` described in
+  §0. Without it the app simply will not offer Apple as a sign-in option; testers use email and password.
+  Do not treat that as blocking a TestFlight release.
 
 ### 2b. Google Play Console — **$25 one-time**, required for Android via Play
 
