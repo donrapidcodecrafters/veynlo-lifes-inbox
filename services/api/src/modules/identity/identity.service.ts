@@ -626,7 +626,17 @@ export class IdentityService {
    */
   private async generateAppleClientSecret(): Promise<string> {
     const env = loadEnv();
-    const privateKey = await importPKCS8(env.APPLE_PRIVATE_KEY!, "ES256");
+    // A key that passes isAppleSignInConfigured()'s shape check can still be cryptographically invalid —
+    // right PEM envelope, wrong or corrupt contents. importPKCS8 throws on that, and an unhandled throw
+    // here becomes 500 INTERNAL_ERROR with retryable:true, telling the caller to retry a configuration
+    // fault that no retry can fix. Degrade to the same honest "not configured" answer every other
+    // unconfigured provider gives.
+    let privateKey: Awaited<ReturnType<typeof importPKCS8>>;
+    try {
+      privateKey = await importPKCS8(env.APPLE_PRIVATE_KEY!, "ES256");
+    } catch {
+      throw new OAuthNotConfiguredError("apple");
+    }
     return new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid: env.APPLE_KEY_ID })
       .setIssuer(env.APPLE_TEAM_ID!)
