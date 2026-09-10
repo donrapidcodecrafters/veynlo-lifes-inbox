@@ -29,7 +29,7 @@ and first characters only).
 | `APPLE_CLIENT_ID` | Present | `app.…`, 24 chars |
 | `APPLE_TEAM_ID` | Present | **`Q222B28WK6`** — not secret, appears in every provisioning profile |
 | `APPLE_KEY_ID` | Present | 10 chars |
-| **`APPLE_PRIVATE_KEY`** | **RESOLVED 2026-09-10** | Was a 27-character placeholder ( with no body). Since replaced with a real key — the Mac confirmed it imports via `jose.importPKCS8()`. Apple sign-in is live there |
+| **`APPLE_PRIVATE_KEY`** | **RESOLVED 2026-09-10** | Was a 27-character placeholder — just the `BEGIN PRIVATE KEY` header line with no body. Since replaced with a real key; the Mac confirmed it imports via `jose.importPKCS8()`. Apple sign-in is live there |
 | Stripe / RevenueCat / Plaid | Absent or empty | Not needed for testing — §4g |
 | SMTP | Points at local Mailhog | Fine for dev; §4f for testers |
 | Inbound email | Absent | Not needed — §4g |
@@ -37,9 +37,12 @@ and first characters only).
 **None of these are on the tower**, which is why my Android sweep has never once exercised the AI code
 path. Moving them across is a real (if minor) unblock for audit coverage, not just tidiness.
 
-### The Apple private key needs re-downloading, and it was hiding a bug
+### The Apple private key was a placeholder — now resolved, and it had been hiding a bug
 
-The 27-character value is a truncated placeholder. It cannot sign anything.
+**Status: fixed.** The key is real as of 2026-09-10. This section is kept because the bug it exposed is
+the part worth remembering.
+
+The old value was 27 characters — a truncated placeholder that could not sign anything.
 
 Worse, it **passed** the app's own configuration check, because `isAppleSignInConfigured()` only tested
 that the four Apple variables were non-empty. So the API advertised Apple sign-in as available, the app
@@ -79,8 +82,10 @@ are kept only for the case where the key is ever lost again.
 
 Don confirmed 2026-09-10 that the Apple Developer Program membership is **paid and active**. So §2a is
 already done and the $99 is already spent: TestFlight is available as soon as there is a build to submit.
-The only outstanding Apple item is the real `.p8` above, and that is needed for *Sign in with Apple* — it
-is **not** needed to build or ship a TestFlight build.
+
+**Nothing Apple-related is outstanding.** The membership is live, the Team ID is known, and the `.p8` has
+been replaced with a real key. Note for future reference: Sign in with Apple and shipping a TestFlight
+build are independent — a missing `.p8` would never have blocked a release, only that one sign-in option.
 
 ### Google Play — still open, and probably unnecessary
 
