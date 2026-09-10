@@ -29,7 +29,7 @@
     "@nestjs/event-emitter": "^12.0.0",
     "@nestjs/platform-fastify": "^11.0.0",
     "@nestjs/throttler": "^6.5.0",
-    "@simplewebauthn/server": "^13.3.3",
+    "@simplewebauthn/server": "^14.0.1",
     "@veynlo/core": "workspace:*",
     "@veynlo/db": "workspace:*",
     "@xenova/transformers": "^2.17.2",
