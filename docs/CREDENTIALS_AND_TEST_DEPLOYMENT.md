@@ -57,16 +57,27 @@ correctly hides instead of failing. **But you still need the real key** if you w
 4. The value for `APPLE_PRIVATE_KEY` is the **entire file contents** including both `-----BEGIN` and
    `-----END` lines — not a file path. `env.ts` documents this explicitly.
 
-### Still unknown — only you can answer these
+### Apple Developer membership — CONFIRMED ACTIVE
 
-The Mac has no browser session logged into either console, so it could not check:
+Don confirmed 2026-09-10 that the Apple Developer Program membership is **paid and active**. So §2a is
+already done and the $99 is already spent: TestFlight is available as soon as there is a build to submit.
+The only outstanding Apple item is the real `.p8` above, and that is needed for *Sign in with Apple* — it
+is **not** needed to build or ship a TestFlight build.
 
-1. **Is the Apple Developer Program membership actually active and paid** ($99/year), or is this just an
-   Apple ID? Having a Team ID does not by itself prove a paid membership.
-2. **Does a Google Play Console account exist**, and has an app with package `app.veynlo.mobile` been
-   created in it?
+### Google Play — still open, and probably unnecessary
 
-Everything in §2 depends on the answers.
+Two separate things, which is what my original question conflated:
+
+1. **A Play Console developer account** — the $25 one-time registration, i.e. you as a publisher.
+2. **An app entry inside that account** — created with "Create app". The Android package name
+   (`app.veynlo.mobile`) binds to it permanently on first upload and can never be changed.
+
+Check at <https://play.google.com/console>: a dashboard with a "Create app" button and no Veynlo listed
+means the account exists but the app entry does not.
+
+**Neither is required to get five people testing on Android.** `eas build --profile preview` produces a
+plain `.apk` that testers install from a link — free, instant, no Google account involved. Pay the $25
+only if you want Play's update delivery or intend to go beyond testing. See §5b.
 
 ---
 
@@ -107,9 +118,9 @@ lose them: `FIELD_ENCRYPTION_KEY` encrypts user data at rest, and losing it mean
 
 ## 2. The unavoidable spend: getting the app onto testers' phones
 
-**Total: $99/year + $25 once.** There is no way around the Apple fee if any tester uses an iPhone.
+**Total outstanding: $0.** The Apple membership is already paid and active (confirmed by Don), and the $25 Google fee is optional — see §2b. Both are recorded here for completeness rather than as things to buy.
 
-### 2a. Apple Developer Program — **$99/year**, required for iOS
+### 2a. Apple Developer Program — **ALREADY PAID AND ACTIVE** (confirmed 2026-09-10)
 
 Needed for TestFlight, which is the only sanctioned way to put an iOS build on someone else's phone.
 
