@@ -15,7 +15,7 @@
     "clean": "rm -rf .next"
   },
   "dependencies": {
-    "@simplewebauthn/browser": "^13.1.0",
+    "@simplewebauthn/browser": "^14.0.0",
     "@veynlo/core": "workspace:*",
     "@veynlo/design-tokens": "workspace:*",
     "next": "^15.1.3",
