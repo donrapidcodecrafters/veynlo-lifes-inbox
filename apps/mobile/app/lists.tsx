@@ -131,7 +131,9 @@ export default function ListsScreen() {
           <>
             <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Share with</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {/* Its sibling chip below already announced its selected state; this one did not. */}
               <Pressable accessibilityRole="button"
+                accessibilityState={{ selected: householdId === null }}
                 onPress={() => setHouseholdId(null)}
                 style={{
                   paddingVertical: 6,

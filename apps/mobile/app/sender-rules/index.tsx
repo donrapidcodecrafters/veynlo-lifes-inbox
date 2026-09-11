@@ -105,6 +105,7 @@ export default function SenderRulesScreen() {
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
           {ACTION_OPTIONS.map((opt) => (
             <Pressable accessibilityRole="button"
+              accessibilityState={{ selected: action === opt }}
               key={opt}
               onPress={() => setAction(opt)}
               style={{

@@ -1266,6 +1266,7 @@ function AddPersonRow({ organizations, onAdded }: { organizations: OrganizationR
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Organization (optional)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityState={{ selected: organizationId === null }}
               onPress={() => setOrganizationId(null)}
               style={{
                 paddingHorizontal: 10,
@@ -1279,6 +1280,7 @@ function AddPersonRow({ organizations, onAdded }: { organizations: OrganizationR
             </Pressable>
             {organizations.map((o) => (
               <Pressable accessibilityRole="button"
+                accessibilityState={{ selected: organizationId === o.id }}
                 key={o.id}
                 onPress={() => setOrganizationId(o.id)}
                 style={{
@@ -1657,6 +1659,7 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Vehicle (optional)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityState={{ selected: vehicleProfileId === null }}
               onPress={() => setVehicleProfileId(null)}
               style={{
                 paddingVertical: 6,
@@ -1673,6 +1676,7 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
             </Pressable>
             {vehicles.map((v) => (
               <Pressable accessibilityRole="button"
+                accessibilityState={{ selected: vehicleProfileId === v.id }}
                 key={v.id}
                 onPress={() => setVehicleProfileId(v.id)}
                 style={{
