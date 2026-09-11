@@ -725,11 +725,11 @@ export default function VehicleDetailScreen() {
             {r.status !== "closed_or_repaired" && (
               <View style={{ flexDirection: "row", gap: 12 }}>
                 {r.status === "potential_match_verify_vin" && (
-                  <Pressable accessibilityRole="button" onPress={() => confirmRecall(r.id)}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`This affects my VIN: ${r.component ?? "Recall"}`} onPress={() => confirmRecall(r.id)}>
                     <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault }}>This affects my VIN</Text>
                   </Pressable>
                 )}
-                <Pressable accessibilityRole="button" onPress={() => resolveRecall(r.id)}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Mark repaired: ${r.component ?? "Recall"}`} onPress={() => resolveRecall(r.id)}>
                   <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary }}>Mark repaired</Text>
                 </Pressable>
               </View>
@@ -830,10 +830,10 @@ export default function VehicleDetailScreen() {
                 </View>
                 {t.status === "active" && confirmingReplaceTireId !== t.id && (
                   <View style={{ flexDirection: "row", gap: 12 }}>
-                    <Pressable accessibilityRole="button" onPress={() => rotateTire(t.id)} disabled={busy}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Rotate ${label}`} accessibilityState={{ disabled: busy }} onPress={() => rotateTire(t.id)} disabled={busy}>
                       <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Rotate</Text>
                     </Pressable>
-                    <Pressable accessibilityRole="button" onPress={() => setConfirmingReplaceTireId(t.id)} disabled={busy}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Replace ${label}`} accessibilityState={{ disabled: busy }} onPress={() => setConfirmingReplaceTireId(t.id)} disabled={busy}>
                       <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.critical, opacity: busy ? 0.5 : 1 }}>Replace</Text>
                     </Pressable>
                   </View>
@@ -982,10 +982,10 @@ export default function VehicleDetailScreen() {
                   )}
                 </View>
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <Pressable accessibilityRole="button" onPress={() => completeRule(r.id)} disabled={busy}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Mark done: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => completeRule(r.id)} disabled={busy}>
                     <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Mark done</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" onPress={() => deleteRule(r.id)} disabled={busy}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove maintenance rule: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => deleteRule(r.id)} disabled={busy}>
                     <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
                   </Pressable>
                 </View>
@@ -1092,10 +1092,10 @@ export default function VehicleDetailScreen() {
                 </View>
               ) : (
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <Pressable accessibilityRole="button" onPress={() => startRenew(r.id)} disabled={busy}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Record renewal: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} accessibilityState={{ disabled: busy }} onPress={() => startRenew(r.id)} disabled={busy}>
                     <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Renewed</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" onPress={() => deleteRegistrationRecord(r.id)} disabled={busy}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} accessibilityState={{ disabled: busy }} onPress={() => deleteRegistrationRecord(r.id)} disabled={busy}>
                     <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
                   </Pressable>
                 </View>

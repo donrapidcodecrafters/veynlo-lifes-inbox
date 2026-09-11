@@ -277,7 +277,7 @@ function TasksPanel({ appointmentId, linkedTasks, onChanged }: { appointmentId: 
       {linkedTasks.map((t) => (
         <View key={t.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 8 }}>
           <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }}>{t.title}</Text>
-          <Pressable accessibilityRole="button" onPress={() => unlink(t.id)} disabled={busy}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Unlink task: ${t.title}`} accessibilityState={{ disabled: busy }} onPress={() => unlink(t.id)} disabled={busy}>
             <Text style={{ fontSize: 13, color: theme.colors.critical }}>Unlink</Text>
           </Pressable>
         </View>
@@ -367,7 +367,7 @@ function DocumentsPanel({ appointmentId, linkedDocuments, onChanged }: { appoint
         <View key={d.id} style={{ gap: 6, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 8 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }}>{d.title}</Text>
-            <Pressable accessibilityRole="button" onPress={() => unlink(d.id)} disabled={busy}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Unlink document: ${d.title}`} accessibilityState={{ disabled: busy }} onPress={() => unlink(d.id)} disabled={busy}>
               <Text style={{ fontSize: 13, color: theme.colors.critical }}>Unlink</Text>
             </Pressable>
           </View>

@@ -512,6 +512,8 @@ function OrganizationEditor({ person, organizations, onSaved }: { person: Person
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityLabel="Organization: none"
+              accessibilityState={{ selected: organizationId === null }}
               onPress={() => setOrganizationId(null)}
               style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: organizationId === null ? theme.colors.brandDefault : theme.colors.borderSubtle }}
             >
@@ -520,6 +522,7 @@ function OrganizationEditor({ person, organizations, onSaved }: { person: Person
             {organizations.map((o) => (
               <Pressable accessibilityRole="button"
                 key={o.id}
+                accessibilityState={{ selected: organizationId === o.id }}
                 onPress={() => setOrganizationId(o.id)}
                 style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: organizationId === o.id ? theme.colors.brandDefault : theme.colors.borderSubtle }}
               >
@@ -611,6 +614,7 @@ function AliasesCard({ personId, aliases, contactSources, onChanged }: { personI
             {(["email", "phone", "name_variant"] as const).map((k) => (
               <Pressable accessibilityRole="button"
                 key={k}
+                accessibilityState={{ selected: kind === k }}
                 onPress={() => setKind(k)}
                 style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: kind === k ? theme.colors.brandDefault : theme.colors.borderSubtle }}
               >
@@ -912,6 +916,7 @@ function RelationshipsCard({
               {(["person", "dependent"] as const).map((k) => (
                 <Pressable accessibilityRole="button"
                   key={k}
+                  accessibilityState={{ selected: targetKind === k }}
                   onPress={() => {
                     setTargetKind(k);
                     setTargetId(null);
@@ -934,6 +939,7 @@ function RelationshipsCard({
               {candidates.map((c) => (
                 <Pressable accessibilityRole="button"
                   key={c.id}
+                  accessibilityState={{ selected: targetId === c.id }}
                   onPress={() => setTargetId(c.id)}
                   style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: targetId === c.id ? theme.colors.brandDefault : theme.colors.borderSubtle }}
                 >

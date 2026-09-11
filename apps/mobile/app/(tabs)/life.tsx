@@ -791,6 +791,7 @@ function SchoolSection() {
                     {dependents.map((d) => (
                       <Pressable accessibilityRole="button"
                         key={d.id}
+                        accessibilityState={{ disabled: assigningId === e.id }}
                         disabled={assigningId === e.id}
                         onPress={() => assignChild(e.id, d.id)}
                         style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.borderDefault }}
@@ -1266,6 +1267,7 @@ function AddPersonRow({ organizations, onAdded }: { organizations: OrganizationR
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Organization (optional)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityLabel="Organization: none"
               accessibilityState={{ selected: organizationId === null }}
               onPress={() => setOrganizationId(null)}
               style={{
@@ -1659,6 +1661,7 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Vehicle (optional)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityLabel="Vehicle: none"
               accessibilityState={{ selected: vehicleProfileId === null }}
               onPress={() => setVehicleProfileId(null)}
               style={{
@@ -2007,6 +2010,11 @@ export default function LifeScreen() {
               return (
                 <View key={e.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.colors.borderSubtle }}>
                   <Pressable accessibilityRole="button"
+                    accessibilityState={memberCount > 1 ? { expanded } : undefined}
+                    accessibilityActions={memberCount > 1 ? [{ name: "expand", label: expanded ? "Collapse sources" : "Show sources" }] : undefined}
+                    onAccessibilityAction={(evt) => {
+                      if (evt.nativeEvent.actionName === "expand") setExpandedEventId(expanded ? null : e.id);
+                    }}
                     onPress={() => router.push(`/event/${e.id}`)}
                     style={{
                       flexDirection: "row",
@@ -2032,6 +2040,7 @@ export default function LifeScreen() {
                       {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary, textAlign: "right" }}>{when}</Text>}
                       {memberCount > 1 && (
                         <Pressable accessibilityRole="button"
+                          importantForAccessibility="no"
                           onPress={(evt) => {
                             evt.stopPropagation();
                             setExpandedEventId(expanded ? null : e.id);

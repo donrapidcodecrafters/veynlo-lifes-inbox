@@ -382,7 +382,7 @@ export default function PropertyDetailScreen() {
                   {a.room ? ` — ${a.room}` : ""}
                   {(a.make || a.model) ? ` — ${[a.make, a.model].filter(Boolean).join(" ")}` : ""}
                 </Text>
-                <Pressable accessibilityRole="button" onPress={() => checkAssetRecalls(a.id)}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Check recalls for ${a.label}`} accessibilityState={{ busy: checkingAssetId === a.id }} onPress={() => checkAssetRecalls(a.id)}>
                   <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.brandDefault }}>
                     {checkingAssetId === a.id ? "Checking…" : "Check recalls"}
                   </Text>
@@ -406,10 +406,10 @@ export default function PropertyDetailScreen() {
                       )}
                     </View>
                     <View style={{ flexDirection: "row", gap: 8 }}>
-                      <Pressable accessibilityRole="button" onPress={() => completeAssetRule(r.id)} disabled={busy}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Mark done: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => completeAssetRule(r.id)} disabled={busy}>
                         <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Mark done</Text>
                       </Pressable>
-                      <Pressable accessibilityRole="button" onPress={() => deleteAssetRule(r.id)} disabled={busy}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove maintenance rule: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => deleteAssetRule(r.id)} disabled={busy}>
                         <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
                       </Pressable>
                     </View>
@@ -448,6 +448,7 @@ export default function PropertyDetailScreen() {
                 </View>
               ) : (
                 <Pressable accessibilityRole="button"
+                  accessibilityLabel={`Add maintenance rule to ${a.label}`}
                   onPress={() => {
                     setAddingRuleForAsset(a.id);
                     loadAssetRuleTemplates(a.id);
@@ -462,7 +463,7 @@ export default function PropertyDetailScreen() {
                   <Text style={{ fontSize: 11, color: theme.colors.textSecondary, flex: 1 }}>{r.component ?? r.summary}</Text>
                   <Badge tone={RECALL_STATUS_TONE[r.status]}>{RECALL_STATUS_LABEL[r.status]}</Badge>
                   {r.status !== "closed_or_repaired" && (
-                    <Pressable accessibilityRole="button" onPress={() => resolveAssetRecall(r.id)}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Resolve recall: ${r.component ?? r.summary}`} onPress={() => resolveAssetRecall(r.id)}>
                       <Text style={{ fontSize: 11, color: theme.colors.textTertiary, marginLeft: 6 }}>Resolve</Text>
                     </Pressable>
                   )}

@@ -97,6 +97,7 @@ function AddIdentityRecordForm({ onAdded }: { onAdded: () => void }) {
         {RECORD_TYPE_OPTIONS.map((opt) => (
           <Pressable accessibilityRole="button"
             key={opt.value}
+            accessibilityState={{ selected: recordType === opt.value }}
             onPress={() => setRecordType(opt.value)}
             style={{
               paddingVertical: 6,
