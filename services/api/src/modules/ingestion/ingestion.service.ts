@@ -2162,7 +2162,7 @@ export class IngestionService {
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("calendar_event"));
     const zone = result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId));
-    const start = toTemporalValueWithTime(result.data.startDate, result.data.startTime, zone);
+    const start = toTemporalValueWithTime(result.data.startDate, result.data.startTime, zone, { isAllDay: result.data.isAllDay });
     const startSort = temporalToSortDate(start);
 
     // CAL-004 reschedule reconciliation: a second email about the same appointment (a reminder, or a
@@ -3299,7 +3299,9 @@ export class IngestionService {
     // trip's departure, and left every school event sorting at UTC midnight with its reminder an evening
     // early. toTemporalValueWithTime still refuses to invent anything: no time, or no zone, and the value
     // stays exactly the date-precision it was.
-    const start = toTemporalValueWithTime(result.data.eventDate, result.data.eventTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)));
+    const start = toTemporalValueWithTime(result.data.eventDate, result.data.eventTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)), {
+      isAllDay: result.data.isAllDay,
+    });
     const startSort = temporalToSortDate(start);
 
     let dependentId: string | null = null;

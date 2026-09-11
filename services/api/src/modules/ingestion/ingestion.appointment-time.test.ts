@@ -180,6 +180,40 @@ describe("DEF-102 — an extracted appointment keeps its time of day", () => {
     expect(start.instantUtc).toBeNull();
   });
 
+  it("an all-day event never gains an instant, even when the model answers with a time as well", async () => {
+    if (!dbAvailable) return;
+    fresh();
+    const date = dayFromNow(9);
+    ai.enqueue("domain_classifier_v1", fakeExtraction({ domains: ["calendar_event"] }));
+    ai.enqueue(
+      "calendar_event_extraction_v1",
+      fakeExtraction({
+        title: "School closed for in-service",
+        startDate: { iso_date: date, approximate_text: null },
+        // The schema declares isAllDay and startTime independently, so a model CAN answer both. Nothing
+        // forbids it, and the resulting row would have the reminder default, the display and the
+        // write-back all disagreeing about whether this event has a time.
+        startTime: "09:00",
+        timezone: "America/New_York",
+        location: null,
+        isAllDay: true,
+      }),
+    );
+    await ingestion.ingestManualText({
+      ownerUserId,
+      householdId: null,
+      fromAddress: "office@school.example",
+      subject: "No school",
+      bodyText: `School closed for in-service on ${date}.`,
+    });
+
+    const [event] = await eventsTitled("School closed for in-service");
+    expect(event).toBeDefined();
+    expect(event!.isAllDay).toBe(true);
+    const start = event!.start as { precision?: string; instantUtc?: string | null };
+    expect(start.precision).toBe("date");
+    expect(start.instantUtc).toBeNull();
+  });
   it("a school event keeps its time — the field is called eventTime, and the defect was never about the name", async () => {
     if (!dbAvailable) return;
     fresh();

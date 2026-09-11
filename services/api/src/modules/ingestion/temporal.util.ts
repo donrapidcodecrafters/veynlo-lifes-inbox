@@ -39,8 +39,17 @@ export function toTemporalValueWithTime(
   extracted: ExtractedDate | null,
   time: string | null,
   timezone: string | null,
+  opts: { isAllDay?: boolean } = {},
 ): TemporalValue {
   const base = toTemporalValue(extracted, timezone);
+  // An all-day event has no time of day — that is what the words mean. The extraction schemas declare
+  // `isAllDay` and the time field independently, so a model can answer both, and the resulting row
+  // would have three parts of the app disagreeing about it: defaultReminderMinutes would give it the
+  // night-before lead on the stated grounds that it has no time to count back from, formatTemporal
+  // would display the time it does have, and write-back would push it as all-day and drop that time.
+  // Enforced here rather than at the five call sites, because a rule implemented once and omitted at
+  // its siblings is the most common defect shape in this codebase.
+  if (opts.isAllDay) return base;
   if (base.precision !== "date" || !base.date || !time || !timezone) return base;
 
   const hhmm = /^(\d{1,2}):(\d{2})/.exec(time.trim());
