@@ -9,6 +9,21 @@ import type { HouseholdService } from "../household/household.service";
 import type { MemoriesService } from "../memories/memories.service";
 import type { ScheduleService } from "../schedule/schedule.service";
 
+/**
+ * Every date below is relative to now, never pinned.
+ *
+ * The paths these tests exercise compare an event's date against the clock — reschedule reconciliation
+ * only looks at still-upcoming events, the subscription state machine advances anything whose date has
+ * passed — so a hardcoded date stops testing the behaviour and starts testing the window, silently, on a
+ * date nobody chose. ingestion.dedup.test.ts did exactly that: pinned to 2026-09-10, green for months,
+ * then failing on 2026-09-11 against a commit that touched nothing near it.
+ *
+ * A month out, so every scenario here is comfortably upcoming, and offsets preserve the relative spacing
+ * each scenario depends on.
+ */
+const DATE_ANCHOR = Date.now() + 30 * 86_400_000;
+const day = (offsetDays: number) => new Date(DATE_ANCHOR + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
 const stubMemories = { evaluateSmartQuery: async () => [] } as unknown as MemoriesService;
 // This file doesn't exercise the "Add to calendar" action (see trips.segment-actions.test.ts for real
 // coverage of that against a real ScheduleService/Postgres) — a minimal stub is enough to satisfy
@@ -45,10 +60,10 @@ function baseSegment(overrides: Partial<IncomingTripSegment>, ownerUserId: strin
     confirmationNumber: null,
     locationLabel: "JFK -> LIS",
     destinationCityOrRegion: "Lisbon",
-    startAt: dateValue("2026-10-10"),
-    startAtSort: sortDate("2026-10-10"),
-    endAt: dateValue("2026-10-10"),
-    endAtSort: sortDate("2026-10-10"),
+    startAt: dateValue(day(0)),
+    startAtSort: sortDate(day(0)),
+    endAt: dateValue(day(0)),
+    endAtSort: sortDate(day(0)),
     detailsJson: {},
     cancellationDeadline: null,
     cancellationDeadlineSort: null,
@@ -129,7 +144,7 @@ describe("TripsService", () => {
     const first = await trips.clusterSegment(baseSegment({ kind: "flight", confirmationNumber: `CLUSTER-A-${generateId("tripSegment")}` }, ownerUserId, generateId("sourceEvent")));
     const second = await trips.clusterSegment(
       baseSegment(
-        { kind: "lodging", providerName: "Lisbon Hotel", confirmationNumber: `CLUSTER-B-${generateId("tripSegment")}`, startAt: dateValue("2026-10-11"), startAtSort: sortDate("2026-10-11"), endAt: dateValue("2026-10-14"), endAtSort: sortDate("2026-10-14") },
+        { kind: "lodging", providerName: "Lisbon Hotel", confirmationNumber: `CLUSTER-B-${generateId("tripSegment")}`, startAt: dateValue(day(1)), startAtSort: sortDate(day(1)), endAt: dateValue(day(4)), endAtSort: sortDate(day(4)) },
         ownerUserId,
         generateId("sourceEvent"),
       ),
@@ -140,14 +155,14 @@ describe("TripsService", () => {
     const detail = await trips.tripDetail(first.tripId, ownerUserId);
     expect(detail.segments).toHaveLength(2);
     // The trip's own range should have expanded to cover the later lodging checkout.
-    expect(detail.trip.endDateSort?.toISOString().slice(0, 10)).toBe("2026-10-14");
+    expect(detail.trip.endDateSort?.toISOString().slice(0, 10)).toBe(day(4));
   });
 
   it("creates a separate trip for an unrelated destination/date range", async () => {
     if (!dbAvailable) return;
     const unrelated = await trips.clusterSegment(
       baseSegment(
-        { destinationCityOrRegion: "Tokyo", confirmationNumber: `UNRELATED-${generateId("tripSegment")}`, startAt: dateValue("2027-03-01"), startAtSort: sortDate("2027-03-01"), endAt: dateValue("2027-03-01"), endAtSort: sortDate("2027-03-01") },
+        { destinationCityOrRegion: "Tokyo", confirmationNumber: `UNRELATED-${generateId("tripSegment")}`, startAt: dateValue(day(142)), startAtSort: sortDate(day(142)), endAt: dateValue(day(142)), endAtSort: sortDate(day(142)) },
         ownerUserId,
         generateId("sourceEvent"),
       ),
@@ -160,13 +175,13 @@ describe("TripsService", () => {
   it("reconciles a second email about the same confirmation number instead of creating a sibling segment, and detects a disruption", async () => {
     if (!dbAvailable) return;
     const confirmationNumber = `RECONCILE-${generateId("tripSegment")}`;
-    const first = await trips.clusterSegment(baseSegment({ confirmationNumber, destinationCityOrRegion: "Berlin", startAt: dateValue("2026-11-01"), startAtSort: sortDate("2026-11-01"), endAt: dateValue("2026-11-01"), endAtSort: sortDate("2026-11-01") }, ownerUserId, generateId("sourceEvent")));
+    const first = await trips.clusterSegment(baseSegment({ confirmationNumber, destinationCityOrRegion: "Berlin", startAt: dateValue(day(22)), startAtSort: sortDate(day(22)), endAt: dateValue(day(22)), endAtSort: sortDate(day(22)) }, ownerUserId, generateId("sourceEvent")));
     expect(first.isNewSegment).toBe(true);
 
     // A cancellation email about the exact same reservation — same confirmation number.
     const second = await trips.clusterSegment(
       baseSegment(
-        { confirmationNumber, destinationCityOrRegion: "Berlin", startAt: dateValue("2026-11-01"), startAtSort: sortDate("2026-11-01"), endAt: dateValue("2026-11-01"), endAtSort: sortDate("2026-11-01"), cancellationMentioned: true },
+        { confirmationNumber, destinationCityOrRegion: "Berlin", startAt: dateValue(day(22)), startAtSort: sortDate(day(22)), endAt: dateValue(day(22)), endAtSort: sortDate(day(22)), cancellationMentioned: true },
         ownerUserId,
         generateId("sourceEvent"),
       ),
@@ -185,11 +200,11 @@ describe("TripsService", () => {
     // Two DIFFERENT trips are seeded directly via the manual-seed path (not clusterSegment) so they don't
     // cluster into EACH OTHER first — simulating two independently-created trips that happen to overlap in
     // date/destination (e.g. a family's separately-booked legs of the same real trip).
-    const tripA = await trips.createManualTrip(ownerUserId, { destinationLabel: destination, startDateIso: "2026-12-01", endDateIso: "2026-12-05" });
-    const tripB = await trips.createManualTrip(ownerUserId, { destinationLabel: destination, startDateIso: "2026-12-02", endDateIso: "2026-12-06" });
+    const tripA = await trips.createManualTrip(ownerUserId, { destinationLabel: destination, startDateIso: day(52), endDateIso: day(56) });
+    const tripB = await trips.createManualTrip(ownerUserId, { destinationLabel: destination, startDateIso: day(53), endDateIso: day(57) });
     expect(tripA.id).not.toBe(tripB.id);
 
-    const third = await trips.clusterSegment(baseSegment({ kind: "ticket", destinationCityOrRegion: destination, confirmationNumber: `AMB-C-${generateId("tripSegment")}`, startAt: dateValue("2026-12-03"), startAtSort: sortDate("2026-12-03"), endAt: dateValue("2026-12-03"), endAtSort: sortDate("2026-12-03") }, ownerUserId, generateId("sourceEvent")));
+    const third = await trips.clusterSegment(baseSegment({ kind: "ticket", destinationCityOrRegion: destination, confirmationNumber: `AMB-C-${generateId("tripSegment")}`, startAt: dateValue(day(54)), startAtSort: sortDate(day(54)), endAt: dateValue(day(54)), endAtSort: sortDate(day(54)) }, ownerUserId, generateId("sourceEvent")));
     expect(third.isNewTrip).toBe(true);
     expect(third.tripId).not.toBe(tripA.id);
     expect(third.tripId).not.toBe(tripB.id);
@@ -209,7 +224,7 @@ describe("TripsService", () => {
   it("flags a passport that expires before the trip ends, and omits it from the redacted public share view", async () => {
     if (!dbAvailable) return;
     const result = await trips.clusterSegment(
-      baseSegment({ destinationCityOrRegion: "Nairobi", confirmationNumber: `DOC-${generateId("tripSegment")}`, startAt: dateValue("2027-06-01"), startAtSort: sortDate("2027-06-01"), endAt: dateValue("2027-06-10"), endAtSort: sortDate("2027-06-10") }, ownerUserId, generateId("sourceEvent")),
+      baseSegment({ destinationCityOrRegion: "Nairobi", confirmationNumber: `DOC-${generateId("tripSegment")}`, startAt: dateValue(day(234)), startAtSort: sortDate(day(234)), endAt: dateValue(day(243)), endAtSort: sortDate(day(243)) }, ownerUserId, generateId("sourceEvent")),
     );
     const documentId = generateId("document");
     await db.insert(schema.documents).values({
@@ -218,8 +233,8 @@ describe("TripsService", () => {
       documentType: "identity_document",
       title: "My passport",
       documentKind: "passport",
-      expiresAt: dateValue("2027-05-01"), // expires BEFORE the trip ends
-      expiresAtSort: sortDate("2027-05-01"),
+      expiresAt: dateValue(day(203)), // expires BEFORE the trip ends
+      expiresAtSort: sortDate(day(203)),
       tags: [],
     });
 

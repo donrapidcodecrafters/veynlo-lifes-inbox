@@ -17,6 +17,21 @@ import type { HouseholdService } from "../household/household.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
 
 /**
+ * Every date below is relative to now, never pinned.
+ *
+ * The paths these tests exercise compare an event's date against the clock — reschedule reconciliation
+ * only looks at still-upcoming events, the subscription state machine advances anything whose date has
+ * passed — so a hardcoded date stops testing the behaviour and starts testing the window, silently, on a
+ * date nobody chose. ingestion.dedup.test.ts did exactly that: pinned to 2026-09-10, green for months,
+ * then failing on 2026-09-11 against a commit that touched nothing near it.
+ *
+ * A month out, so every scenario here is comfortably upcoming, and offsets preserve the relative spacing
+ * each scenario depends on.
+ */
+const DATE_ANCHOR = Date.now() + 30 * 86_400_000;
+const day = (offsetDays: number) => new Date(DATE_ANCHOR + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+/**
  * CAL-003 "email-vs-calendar date disagreement" — real integration test against a real Postgres. Covers the
  * buildable, precision-first slice: a HIGH-CONFIDENCE email extraction whose title tightly (exact,
  * normalized) matches an EXISTING, DIFFERENT-source calendar event (a provider sync — `providerEventId` set,
@@ -87,7 +102,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
   it("files a conflict + inbox item when a high-confidence email states a different date than an existing provider-synced event under the same title", async () => {
     if (!dbAvailable) return;
     const title = "Sarah's Dentist Appointment";
-    const calendarEventId = await insertProviderSyncedEvent(title, "2026-11-10");
+    const calendarEventId = await insertProviderSyncedEvent(title, day(0));
 
     const ai = new FakeModelProvider();
     const conflicts = new ConflictService(db, stubHouseholds);
@@ -97,7 +112,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     ai.enqueue(
       "calendar_event_extraction_v1",
       fakeExtraction(
-        { title, startDate: { iso_date: "2026-11-17", approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" },
+        { title, startDate: { iso_date: day(7), approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" },
         0.9, // high confidence — required for this check to run at all
       ),
     );
@@ -110,7 +125,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     const emailEvent = emailEvents.find((e) => e.id !== calendarEventId);
     expect(emailEvent).toBeDefined();
     insertedEventIds.push(emailEvent!.id);
-    expect(emailEvent!.start.date).toBe("2026-11-17");
+    expect(emailEvent!.start.date).toBe(day(7));
     expect(emailEvent!.providerEventId).toBeNull(); // a genuinely new email-discovered row, not linked/merged
 
     const conflictRows = await db
@@ -143,7 +158,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     ai.enqueue(
       "calendar_event_extraction_v1",
       fakeExtraction(
-        { title, startDate: { iso_date: "2026-11-17", approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" },
+        { title, startDate: { iso_date: day(7), approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" },
         0.9,
       ),
     );
@@ -161,7 +176,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
   it("resolveDateDisagreement('use_email_date') updates the calendar-side event and resolves the conflict", async () => {
     if (!dbAvailable) return;
     const title = "Vet Checkup for Max";
-    const calendarEventId = await insertProviderSyncedEvent(title, "2026-12-01");
+    const calendarEventId = await insertProviderSyncedEvent(title, day(21));
 
     const ai = new FakeModelProvider();
     const conflicts = new ConflictService(db, stubHouseholds);
@@ -171,7 +186,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     ai.enqueue("domain_classifier_v1", fakeExtraction({ domains: ["calendar_event"] }));
     ai.enqueue(
       "calendar_event_extraction_v1",
-      fakeExtraction({ title, startDate: { iso_date: "2026-12-08", approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" }, 0.9),
+      fakeExtraction({ title, startDate: { iso_date: day(28), approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" }, 0.9),
     );
     await ingestion.ingestManualText({ ownerUserId, householdId: null, subject: title, bodyText: `${title} is now on December 8.` });
 
@@ -188,7 +203,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     await inbox.resolveDateDisagreement(inboxItem!.id, ownerUserId, "use_email_date");
 
     const [updatedCalendarEvent] = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, calendarEventId));
-    expect(updatedCalendarEvent!.start.date).toBe("2026-12-08"); // the calendar side now matches the email's date
+    expect(updatedCalendarEvent!.start.date).toBe(day(28)); // the calendar side now matches the email's date
 
     const [resolvedConflict] = await db.select().from(schema.scheduleConflicts).where(eq(schema.scheduleConflicts.id, conflictRow!.id));
     expect(resolvedConflict!.resolvedAt).not.toBeNull();
@@ -200,7 +215,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
   it("resolveDateDisagreement('keep_calendar_date') leaves both events untouched but resolves the conflict", async () => {
     if (!dbAvailable) return;
     const title = "Piano Recital";
-    const calendarEventId = await insertProviderSyncedEvent(title, "2027-01-10");
+    const calendarEventId = await insertProviderSyncedEvent(title, day(61));
 
     const ai = new FakeModelProvider();
     const conflicts = new ConflictService(db, stubHouseholds);
@@ -210,7 +225,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     ai.enqueue("domain_classifier_v1", fakeExtraction({ domains: ["calendar_event"] }));
     ai.enqueue(
       "calendar_event_extraction_v1",
-      fakeExtraction({ title, startDate: { iso_date: "2027-01-17", approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" }, 0.9),
+      fakeExtraction({ title, startDate: { iso_date: day(68), approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "clear" }, 0.9),
     );
     await ingestion.ingestManualText({ ownerUserId, householdId: null, subject: title, bodyText: `${title} moved to January 17.` });
 
@@ -225,7 +240,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     await inbox.resolveDateDisagreement(inboxItem!.id, ownerUserId, "keep_calendar_date");
 
     const [unchangedCalendarEvent] = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, calendarEventId));
-    expect(unchangedCalendarEvent!.start.date).toBe("2027-01-10"); // untouched — the calendar date wins
+    expect(unchangedCalendarEvent!.start.date).toBe(day(61)); // untouched — the calendar date wins
 
     const [resolvedConflict] = await db.select().from(schema.scheduleConflicts).where(eq(schema.scheduleConflicts.id, conflictRow!.id));
     expect(resolvedConflict!.resolvedAt).not.toBeNull();
@@ -234,7 +249,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
   it("does NOT flag a disagreement for a low-confidence extraction", async () => {
     if (!dbAvailable) return;
     const title = "Low Confidence Appointment";
-    await insertProviderSyncedEvent(title, "2027-02-01");
+    await insertProviderSyncedEvent(title, day(83));
 
     const ai = new FakeModelProvider();
     const conflicts = new ConflictService(db, stubHouseholds);
@@ -244,7 +259,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
     ai.enqueue(
       "calendar_event_extraction_v1",
       fakeExtraction(
-        { title, startDate: { iso_date: "2027-02-08", approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "vague" },
+        { title, startDate: { iso_date: day(90), approximate_text: null }, startTime: null, timezone: null, location: null, isAllDay: true, confidenceNotes: "vague" },
         0.6, // "needs_review" band under RISK_THRESHOLDS — below this check's high-confidence gate
       ),
     );
