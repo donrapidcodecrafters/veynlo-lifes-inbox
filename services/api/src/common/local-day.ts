@@ -77,7 +77,27 @@ export function localDayWindow(now: Date, timeZone: string | null | undefined): 
 
 /** The UTC instant of 00:00 local time on a given local date. */
 function startOfLocalDate(date: { year: number; month: number; day: number }, timeZone: string): Date {
-  const wallClock = Date.UTC(date.year, date.month - 1, date.day);
+  return localWallClockToInstant({ ...date, hour: 0, minute: 0 }, timeZone);
+}
+
+/**
+ * The UTC instant at which a given wall-clock time occurs in a zone.
+ *
+ * The generalisation of startOfLocalDate, extracted rather than copied because the DST correction is the
+ * entire difficulty here and a second copy is how a rule ends up fixed in one place and broken in the
+ * other. Exported for ingestion/temporal.util.ts, which needs to express "2:00 PM in America/Los_Angeles
+ * on this date" and previously had no way to ask for it — so it dropped the time.
+ *
+ * The offset is MEASURED at the instant in question and then re-measured, for the same reason as before: a
+ * zone offset is not a constant, and the first correction can land on the far side of a DST boundary. On a
+ * spring-forward morning the hour 02:00-03:00 does not exist at all; the second measurement resolves such
+ * a time forward into the hour that does, which is what consumer calendars do with it.
+ */
+export function localWallClockToInstant(
+  at: { year: number; month: number; day: number; hour: number; minute: number },
+  timeZone: string,
+): Date {
+  const wallClock = Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute);
   let instant = new Date(wallClock - zoneOffsetMs(new Date(wallClock), timeZone));
   // Re-measure at the corrected instant: across a DST boundary the first offset can be the wrong side's.
   instant = new Date(wallClock - zoneOffsetMs(instant, timeZone));

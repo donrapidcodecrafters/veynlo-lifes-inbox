@@ -1,4 +1,5 @@
 import { unknownTemporal, type TemporalValue } from "@veynlo/core";
+import { localWallClockToInstant } from "../../common/local-day";
 
 interface ExtractedDate {
   iso_date: string | null;
@@ -15,6 +16,51 @@ export function toTemporalValue(extracted: ExtractedDate | null, timezone: strin
     return { precision: "approximate", instantUtc: null, date: null, timezone, sourceText: extracted.approximate_text };
   }
   return unknownTemporal();
+}
+
+
+/**
+ * DEF-102 — the same conversion, with the time the model was asked for.
+ *
+ * `toTemporalValue` has no time parameter, so every caller that had one dropped it: four extraction
+ * schemas declare `startTime` ("HH:MM 24-hour, in the timezone below") and no code read any of them. A
+ * 2:00 PM appointment was stored as a bare date, and everything keyed off `startSort` — reminders,
+ * cross-source matching, reschedule reconciliation, within-day ordering — then worked from UTC midnight.
+ *
+ * Precision is only upgraded when there is real evidence for it: a date AND a time AND a zone. Anything
+ * missing and the value stays exactly as it was, because "date precision" is a true statement about what
+ * the email said and a fabricated instant would not be.
+ *
+ * A malformed time is treated as no time rather than as a parse error. The field is free text from a
+ * model, and the worst outcome here is dropping an event because the model wrote "2pm" — which is what
+ * the code already did with every time, and is not worth escalating to an exception.
+ */
+export function toTemporalValueWithTime(
+  extracted: ExtractedDate | null,
+  time: string | null,
+  timezone: string | null,
+): TemporalValue {
+  const base = toTemporalValue(extracted, timezone);
+  if (base.precision !== "date" || !base.date || !time || !timezone) return base;
+
+  const hhmm = /^(\d{1,2}):(\d{2})/.exec(time.trim());
+  if (!hhmm) return base;
+  const hour = Number(hhmm[1]);
+  const minute = Number(hhmm[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return base;
+
+  const [year, month, day] = base.date.split("-").map(Number);
+  if (!year || !month || !day) return base;
+
+  let instant: Date;
+  try {
+    instant = localWallClockToInstant({ year, month, day, hour, minute }, timezone);
+  } catch {
+    return base; // an unrecognised zone must not cost the whole extraction
+  }
+  if (Number.isNaN(instant.getTime())) return base;
+
+  return { precision: "instant", instantUtc: instant.toISOString(), date: base.date, timezone, sourceText: null };
 }
 
 export function temporalToSortDate(value: TemporalValue): Date | null {
