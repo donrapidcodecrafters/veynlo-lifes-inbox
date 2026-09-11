@@ -180,6 +180,45 @@ describe("DEF-102 — an extracted appointment keeps its time of day", () => {
     expect(start.instantUtc).toBeNull();
   });
 
+  it("a school event keeps its time — the field is called eventTime, and the defect was never about the name", async () => {
+    if (!dbAvailable) return;
+    fresh();
+    const date = dayFromNow(8);
+    ai.enqueue("domain_classifier_v1", fakeExtraction({ domains: ["school"] }));
+    ai.enqueue(
+      "school_extraction_v1",
+      fakeExtraction({
+        title: "Picture day",
+        schoolName: "Lincoln Elementary",
+        eventKind: "other" as const,
+        eventDate: { iso_date: date, approximate_text: null },
+        eventTime: "09:00",
+        timezone: "America/New_York",
+        isAllDay: false,
+        location: null,
+        arrivalNote: null,
+        matchedChildDisplayName: null,
+        formTitle: null,
+        formDueDate: null,
+        feeAmountMinorUnits: null,
+        prepInstructions: [],
+        confidenceNotes: "",
+      }),
+    );
+    await ingestion.ingestManualText({
+      ownerUserId,
+      householdId: null,
+      fromAddress: "office@school.example",
+      subject: "Picture day",
+      bodyText: `Picture day is on ${date} at 9:00 AM.`,
+    });
+
+    const rows = await db.select().from(schema.schoolEvents).where(eq(schema.schoolEvents.ownerUserId, ownerUserId));
+    const picture = rows.find((r) => r.title === "Picture day");
+    expect(picture).toBeDefined();
+    // 09:00 America/New_York in September is 13:00Z.
+    expect((picture!.start as { instantUtc?: string | null }).instantUtc).toBe(`${date}T13:00:00.000Z`);
+  });
   it("a health appointment keeps its time too — the rule is not calendar-only", async () => {
     if (!dbAvailable) return;
     fresh();

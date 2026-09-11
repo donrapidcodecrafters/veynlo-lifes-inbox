@@ -3293,10 +3293,13 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("school"));
-    // Same precision stance as extractCalendarEvent: never fabricate an "instant" from a date + separate
-    // HH:MM field the schema captures but the evidence didn't clearly anchor together — see
-    // temporal.util.ts's toTemporalValue, which this deliberately mirrors rather than reimplementing.
-    const start = toTemporalValue(result.data.eventDate, result.data.timezone);
+    // DEF-102: this used to drop `eventTime` and say so, on the grounds that combining a date with a
+    // separately-extracted HH:MM would be fabricating precision. It is the opposite — the model was asked
+    // for that time and answered; discarding it lost the 09:00 from picture day and the 07:15 from a field
+    // trip's departure, and left every school event sorting at UTC midnight with its reminder an evening
+    // early. toTemporalValueWithTime still refuses to invent anything: no time, or no zone, and the value
+    // stays exactly the date-precision it was.
+    const start = toTemporalValueWithTime(result.data.eventDate, result.data.eventTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)));
     const startSort = temporalToSortDate(start);
 
     let dependentId: string | null = null;
