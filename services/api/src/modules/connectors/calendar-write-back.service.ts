@@ -28,12 +28,23 @@ export class CalendarWriteBackService {
     @Inject(SearchIndexService) private readonly searchIndex?: SearchIndexService,
   ) {}
 
+  /**
+   * DEF-103: both adapters branch on `isAllDay` rather than on what is actually available, so an event
+   * marked timed but carrying only a DATE was pushed as `start: { dateTime: undefined }` (Google) or
+   * `dateTime: ""` (Outlook) — a malformed body, swallowed by pushEvent's catch, reported to the user as
+   * "couldn't sync yet" forever.
+   *
+   * An event with no time is pushed as all-day, because that is the truthful representation of what is
+   * known. Synthesising midnight would write a specific WRONG time into the user's real calendar, which
+   * is worse than a vaguer right one: they cannot tell it is wrong by looking at it.
+   */
   private toWriteBackInput(event: typeof schema.calendarEvents.$inferSelect): WriteBackEventInput {
+    const hasStartInstant = event.start.precision === "instant" && Boolean(event.start.instantUtc);
     return {
       title: event.title,
       location: event.location,
-      isAllDay: event.isAllDay,
-      startInstantUtc: event.start.precision === "instant" ? event.start.instantUtc : null,
+      isAllDay: event.isAllDay || !hasStartInstant,
+      startInstantUtc: hasStartInstant ? event.start.instantUtc : null,
       startDate: event.start.precision === "date" ? event.start.date : null,
       endInstantUtc: event.end && event.end.precision === "instant" ? event.end.instantUtc : null,
       endDate: event.end && event.end.precision === "date" ? event.end.date : null,
@@ -67,6 +78,15 @@ export class CalendarWriteBackService {
     }
 
     const input = this.toWriteBackInput(event);
+    // DEF-103: an approximate or unknown start leaves nothing truthful to send, and the adapters would
+    // build `"undefined T00:00:00"` out of it. Refuse with a code the caller can show, rather than
+    // letting the provider reject a malformed body and reporting it as a transient sync failure.
+    if (!input.startInstantUtc && !input.startDate) {
+      throw new BadRequestException({
+        code: "EVENT_HAS_NO_USABLE_START",
+        message: "This event doesn't have a specific enough date to add to a calendar yet.",
+      });
+    }
     const adapter = connection.provider === "google_calendar" ? this.googleCalendar : this.microsoftCalendar;
     try {
       if (event.writeBackConnectionId === connection.id && event.providerEventId) {
