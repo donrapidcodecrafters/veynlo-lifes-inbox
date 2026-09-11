@@ -46,10 +46,22 @@ export default function ShareExtension(props: InitialProps) {
         {sharedFilePath ? "1 file attached" : body || "Nothing to save."}
       </Text>
       <View style={styles.row}>
-        <Pressable style={[styles.button, styles.cancelButton]} onPress={() => close()}>
+        <Pressable accessibilityRole="button" style={[styles.button, styles.cancelButton]} onPress={() => close()}>
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
-        <Pressable style={[styles.button, styles.saveButton]} onPress={save} disabled={saving || (!body && !sharedFilePath)}>
+        {/* An explicit label here, unlike the chips elsewhere that correctly auto-derive from their own
+            text: while `saving` this renders ONLY an ActivityIndicator, so there is no child text to
+            derive a name from and the button was completely unnamed in exactly the state where a user
+            most needs to know what is happening. `busy` carries that, since a screen reader cannot see a
+            spinner. button.tsx:52 already models this pattern in this codebase. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Save"
+          accessibilityState={{ disabled: saving || (!body && !sharedFilePath), busy: saving }}
+          style={[styles.button, styles.saveButton]}
+          onPress={save}
+          disabled={saving || (!body && !sharedFilePath)}
+        >
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save</Text>}
         </Pressable>
       </View>

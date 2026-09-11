@@ -145,6 +145,11 @@ export default function MergeVehiclesScreen() {
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {group.vehicles.map((v) => (
                     <Pressable
+                      accessibilityRole="button"
+                      // The survivor pick is the highest-stakes control on this screen and announced
+                      // nothing about which candidate was selected. The chip's own text is its name,
+                      // so only the state was missing.
+                      accessibilityState={{ selected: survivorId === v.id }}
                       key={v.id}
                       onPress={() => setSurvivorByGroup((prev) => ({ ...prev, [i]: v.id }))}
                       style={{

@@ -433,7 +433,7 @@ function AddSegmentRow({ tripId, onAdded }: { tripId: string; onAdded: () => voi
       <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Kind</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {SEGMENT_KIND_OPTIONS.map((opt) => (
-          <Pressable accessibilityRole="button" key={opt.value} onPress={() => setKind(opt.value)} style={chipStyle(kind === opt.value)}>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: kind === opt.value }} key={opt.value} onPress={() => setKind(opt.value)} style={chipStyle(kind === opt.value)}>
             <Text style={chipTextStyle(kind === opt.value)}>{opt.label}</Text>
           </Pressable>
         ))}
@@ -599,13 +599,13 @@ function SegmentCard({ segment: seg, onChanged }: { segment: TripSegment; onChan
       )}
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 4 }}>
-        <Pressable accessibilityRole="button" onPress={toggleEvidence} style={chipStyle(evidence !== undefined)}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: evidence !== undefined }} onPress={toggleEvidence} style={chipStyle(evidence !== undefined)}>
           <Text style={chipTextStyle(evidence !== undefined)}>{evidence !== undefined ? "Hide confirmation" : "Open confirmation"}</Text>
         </Pressable>
         {calendarState === "done" ? (
           <Badge tone="positive">Added to calendar</Badge>
         ) : (
-          <Pressable accessibilityRole="button" onPress={addToCalendar} disabled={calendarState === "saving"} style={chipStyle(false)}>
+          <Pressable accessibilityRole="button" accessibilityState={{ disabled: calendarState === "saving", busy: calendarState === "saving" }} onPress={addToCalendar} disabled={calendarState === "saving"} style={chipStyle(false)}>
             <Text style={chipTextStyle(false)}>{calendarState === "saving" ? "Adding…" : "Add calendar"}</Text>
           </Pressable>
         )}
@@ -613,7 +613,7 @@ function SegmentCard({ segment: seg, onChanged }: { segment: TripSegment; onChan
       {calendarState !== "done" && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
           {REMINDER_OPTIONS.map((opt) => (
-            <Pressable accessibilityRole="button" key={opt.value} onPress={() => setCalendarReminder(opt.value)} style={chipStyle(calendarReminder === opt.value)}>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: calendarReminder === opt.value }} key={opt.value} onPress={() => setCalendarReminder(opt.value)} style={chipStyle(calendarReminder === opt.value)}>
               <Text style={chipTextStyle(calendarReminder === opt.value)}>{opt.label}</Text>
             </Pressable>
           ))}
@@ -625,11 +625,11 @@ function SegmentCard({ segment: seg, onChanged }: { segment: TripSegment; onChan
         <>
           <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, marginTop: 4 }}>CHECK-IN REMINDER</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-            <Pressable accessibilityRole="button" onPress={() => saveCheckInReminder(null)} disabled={checkInSaving} style={chipStyle(checkInReminder === null)}>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: checkInReminder === null, disabled: checkInSaving }} onPress={() => saveCheckInReminder(null)} disabled={checkInSaving} style={chipStyle(checkInReminder === null)}>
               <Text style={chipTextStyle(checkInReminder === null)}>Off</Text>
             </Pressable>
             {REMINDER_OPTIONS.map((opt) => (
-              <Pressable accessibilityRole="button" key={opt.value} onPress={() => saveCheckInReminder(opt.value)} disabled={checkInSaving} style={chipStyle(checkInReminder === opt.value)}>
+              <Pressable accessibilityRole="button" accessibilityState={{ selected: checkInReminder === opt.value, disabled: checkInSaving }} key={opt.value} onPress={() => saveCheckInReminder(opt.value)} disabled={checkInSaving} style={chipStyle(checkInReminder === opt.value)}>
                 <Text style={chipTextStyle(checkInReminder === opt.value)}>{opt.label}</Text>
               </Pressable>
             ))}
