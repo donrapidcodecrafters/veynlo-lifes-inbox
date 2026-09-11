@@ -160,6 +160,7 @@ export default function HouseholdSettingsPage() {
           {myHouseholds.map(({ household }) => (
             <button
               key={household.id}
+              aria-pressed={(selected?.household.id ?? myHouseholds[0]?.household.id) === household.id}
               onClick={() => setSelectedId(household.id)}
               className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
                 (selected?.household.id ?? myHouseholds[0]?.household.id) === household.id

@@ -237,7 +237,8 @@ export default function MerchantsPage() {
                     {!entry.unmergedAt && (
                       <button
                         disabled={busy}
-                        onClick={() => runUnmerge(entry.id)}
+                        aria-label={`Undo merge of ${entry.mergedMerchantSnapshot.displayName}`}
+                            onClick={() => runUnmerge(entry.id)}
                         className="rounded-lg border border-border-default px-2.5 py-1 text-xs font-medium text-secondary hover:bg-subtle disabled:opacity-50"
                       >
                         Undo

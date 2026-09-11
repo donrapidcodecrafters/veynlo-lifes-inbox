@@ -307,7 +307,8 @@ export default function LegacyReleasePage() {
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => toggleCategory(opt.value)}
+                      aria-pressed={categories.includes(opt.value)}
+                  onClick={() => toggleCategory(opt.value)}
                       className={`rounded-full border px-3 py-1 text-xs ${
                         categories.includes(opt.value) ? "border-brand-default bg-brand-subtle text-brand-subtle-text" : "border-border-default text-tertiary"
                       }`}

@@ -192,7 +192,8 @@ export default function AdminsPage() {
                       {!a.revokedAt && !isSelf && (
                         <button
                           disabled={busyId === a.id}
-                          onClick={() => onRevoke(a.id, a.displayName)}
+                          aria-label={`Revoke ${a.displayName}`}
+                        onClick={() => onRevoke(a.id, a.displayName)}
                           className="rounded-lg border border-border-default px-2.5 py-1 text-xs font-medium text-secondary hover:bg-subtle disabled:opacity-50"
                         >
                           Revoke

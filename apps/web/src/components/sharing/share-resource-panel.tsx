@@ -245,7 +245,7 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
                   </span>
                   {g.grant.message && <span className="block text-tertiary">Note: {g.grant.message}</span>}
                 </span>
-                <button onClick={() => revokeGrant(g.grant.id, g.granteeEmail)} className="shrink-0 text-critical hover:underline">
+                <button aria-label={`Remove access for ${g.granteeEmail}`} onClick={() => revokeGrant(g.grant.id, g.granteeEmail)} className="shrink-0 text-critical hover:underline">
                   Remove
                 </button>
               </li>
@@ -305,10 +305,10 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
         </p>
         {links && links.length > 0 && (
           <ul className="space-y-1">
-            {links.map((l) => (
+            {links.map((l, i) => (
               <li key={l.id} className="flex items-center justify-between text-xs">
                 <span className="text-tertiary">{l.hasPasscode ? "Passcode-protected link" : "Open link"}</span>
-                <button onClick={() => revokeLink(l.id)} className="text-critical hover:underline">
+                <button aria-label={`Revoke ${l.hasPasscode ? "passcode-protected" : "open"} link ${i + 1}`} onClick={() => revokeLink(l.id)} className="text-critical hover:underline">
                   Revoke
                 </button>
               </li>

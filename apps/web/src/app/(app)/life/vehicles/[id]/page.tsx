@@ -630,11 +630,11 @@ export default function VehicleDetailPage() {
               {r.status !== "closed_or_repaired" && (
                 <div className="flex gap-2 pt-1">
                   {r.status === "potential_match_verify_vin" && (
-                    <button onClick={() => confirmRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
+                    <button aria-label={`This affects my VIN: ${r.component ?? "Recall"}`} onClick={() => confirmRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
                       This affects my VIN
                     </button>
                   )}
-                  <button onClick={() => resolveRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
+                  <button aria-label={`Mark repaired / not applicable: ${r.component ?? "Recall"}`} onClick={() => resolveRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
                     Mark repaired / not applicable
                   </button>
                 </div>
@@ -738,10 +738,10 @@ export default function VehicleDetailPage() {
                   </div>
                   {t.status === "active" && (
                     <div className="flex shrink-0 gap-3">
-                      <button onClick={() => rotateTire(t.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                      <button aria-label={`Log rotation: ${label}`} onClick={() => rotateTire(t.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                         Log rotation
                       </button>
-                      <button onClick={() => replaceTire(t.id)} disabled={busy} className="text-xs font-medium text-critical hover:underline disabled:opacity-50">
+                      <button aria-label={`Replace ${label}`} onClick={() => replaceTire(t.id)} disabled={busy} className="text-xs font-medium text-critical hover:underline disabled:opacity-50">
                         Replace
                       </button>
                     </div>
@@ -896,10 +896,10 @@ export default function VehicleDetailPage() {
                     {r.source === "seeded_generic_guidance" && r.confidenceNote && <p className="text-xs text-tertiary italic">{r.confidenceNote}</p>}
                   </div>
                   <div className="flex shrink-0 gap-3">
-                    <button onClick={() => completeRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                    <button aria-label={`Mark done: ${r.label}`} onClick={() => completeRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                       Mark done
                     </button>
-                    <button onClick={() => deleteRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                    <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
                       Remove
                     </button>
                   </div>
@@ -999,10 +999,10 @@ export default function VehicleDetailPage() {
                 <div className="flex shrink-0 items-center gap-2">
                   {r.status === "expired" && <Badge tone="critical">Expired</Badge>}
                   {r.status === "active" && days != null && <Badge tone={days <= 14 ? "warning" : "neutral"}>{days}d left</Badge>}
-                  <button onClick={() => renewRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                  <button aria-label={`Renewed: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} onClick={() => renewRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                     Renewed
                   </button>
-                  <button onClick={() => deleteRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                  <button aria-label={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} onClick={() => deleteRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
                     Remove
                   </button>
                 </div>

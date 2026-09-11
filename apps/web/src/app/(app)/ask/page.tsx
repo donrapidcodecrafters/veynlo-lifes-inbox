@@ -253,6 +253,7 @@ export default function AskPage() {
         {(["ask", "search"] as const).map((m) => (
           <button
             key={m}
+            aria-pressed={mode === m}
             onClick={() => setMode(m)}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               mode === m ? "bg-surface text-primary shadow-sm" : "text-tertiary hover:text-secondary"
