@@ -3,6 +3,7 @@ export * from "./util/money";
 export * from "./util/time";
 export * from "./util/locale";
 export * from "./util/collapse-runs";
+export * from "./util/payment-method-hint";
 export * from "./util/group-nested";
 // util/token is deliberately NOT re-exported here (unlike every sibling util/* module) — it does a bare
 // `import ... from "node:crypto"`, a real server-only Node built-in with no browser equivalent, and this

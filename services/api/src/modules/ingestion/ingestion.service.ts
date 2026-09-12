@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { BadRequestException, Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { and, eq, gte, isNull, isNotNull, lte, ne, or } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
-import { generateId, confidenceToBand, type TemporalValue } from "@veynlo/core";
+import { confidenceToBand, formatPaymentMethodHint, generateId, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -1261,6 +1261,11 @@ export class IngestionService {
       ? await this.findExistingPurchase(ctx.ownerUserId, merchantId, result.data.orderNumber)
       : await this.findExistingPurchaseByAmountAndDate(ctx.ownerUserId, merchantId, result.data.totalAmountMinorUnits, temporalToSortDate(purchaseDate));
 
+    // Composed here, never taken as free text from the extraction — see formatPaymentMethodHint for why
+    // the brand and the last four digits are asked for separately. Null whenever the pair does not fit the
+    // contract, which includes an extraction that handed back more of the card number than four digits.
+    const paymentMethodHint = formatPaymentMethodHint(result.data.paymentMethodBrand, result.data.paymentMethodLast4);
+
     const purchaseId = existing?.id ?? generateId("purchase");
     if (existing) {
       await this.db
@@ -1270,6 +1275,9 @@ export class IngestionService {
           totalMinorUnits: existing.totalMinorUnits ?? result.data.totalAmountMinorUnits,
           taxMinorUnits: existing.taxMinorUnits ?? result.data.taxMinorUnits,
           shippingMinorUnits: existing.shippingMinorUnits ?? result.data.shippingMinorUnits,
+          // Same fill-a-gap rule as the amounts above: a later email about the same order should add the
+          // payment note if the first one did not have it, never replace one the user may have corrected.
+          paymentMethodHint: existing.paymentMethodHint ?? paymentMethodHint,
           updatedAt: new Date(),
         })
         .where(eq(schema.purchases.id, purchaseId));
@@ -1304,6 +1312,7 @@ export class IngestionService {
         totalCurrency: result.data.currency,
         taxMinorUnits: result.data.taxMinorUnits,
         shippingMinorUnits: result.data.shippingMinorUnits,
+        paymentMethodHint,
         state: "candidate",
         confidenceBand,
         sourceEventId: ctx.sourceEventId,

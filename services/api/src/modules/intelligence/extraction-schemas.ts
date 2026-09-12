@@ -53,6 +53,21 @@ export const ReceiptExtractionSchema = z.object({
     }),
   ),
   returnDeadline: ExtractedDateSchema,
+  /**
+   * How it was paid for — asked as two narrow fields rather than one free-text "payment method" string.
+   *
+   * That split is a safety decision, not a style one. A receipt email frequently contains a full card
+   * number, and a free-text field invites an extraction to hand it straight back for storage. A brand name
+   * and exactly four digits cannot carry one.
+   */
+  paymentMethodBrand: z
+    .string()
+    .nullable()
+    .describe("Card network or wallet only, e.g. Visa, Mastercard, Amex, PayPal, Apple Pay. Null if not stated."),
+  paymentMethodLast4: z
+    .string()
+    .nullable()
+    .describe("ONLY the last four digits of the card, as four characters. Never the full card number. Null if not stated."),
   confidenceNotes: z.string().describe("Anything ambiguous or uncertain about this extraction"),
 });
 export type ReceiptExtraction = z.infer<typeof ReceiptExtractionSchema>;
