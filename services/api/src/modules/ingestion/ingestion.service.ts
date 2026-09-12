@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { BadRequestException, Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { and, eq, gte, isNull, isNotNull, lte, ne, or } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
-import { confidenceToBand, formatPaymentMethodHint, generateId, type TemporalValue } from "@veynlo/core";
+import { confidenceToBand, formatPaymentMethodHint, generateId, looksLikeFullNumber, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -1767,6 +1767,12 @@ export class IngestionService {
     // bills" — a coarse, explicit-only-if-recognized heuristic (see biller-category.ts's own doc comment
     // for why an unrecognized name stays null rather than a guess).
     const billerCategory = categorizeBiller(result.data.billerName);
+    // A label, never a number. A bill email routinely prints the account in full alongside the friendly
+    // "Account ending 4321", and refusing anything with a long digit run is what keeps the stored value a
+    // reference rather than the thing it refers to. Trimming instead would manufacture a plausible label
+    // out of a real account number and hide that it happened.
+    const extractedAccountLabel = result.data.accountLabel?.trim() || null;
+    const accountLabel = looksLikeFullNumber(extractedAccountLabel) ? null : extractedAccountLabel;
     // UTIL-001 "equipment return obligations ... from source messages where available" — only ever set from
     // an explicit statement in the email (the system prompt above forbids inferring one); null on every
     // other bill, same as every other "never invent" field in this extractor.
@@ -1792,6 +1798,9 @@ export class IngestionService {
           // A biller's category doesn't change bill to bill — fill in only if this row never had one (e.g.
           // categorizeBiller's keyword list grew since the original bill was filed).
           billerCategory: existing.billerCategory ?? billerCategory,
+          // Fill a gap, never replace: a later reminder email about the same bill is usually less
+          // detailed than the original, and must not blank a label the first one captured.
+          accountLabel: existing.accountLabel ?? accountLabel,
           // Never stomp an equipment-return obligation a prior email already captured with a fresh `null`
           // from a later, less-detailed reminder email about the same bill.
           equipmentReturnDeadline: existing.equipmentReturnDeadline ?? equipmentReturnDeadline,
@@ -1807,6 +1816,7 @@ export class IngestionService {
         householdId: ctx.householdId,
         billerLabel: result.data.billerName,
         billerCategory,
+        accountLabel,
         amountDueMinorUnits: result.data.amountDueMinorUnits,
         amountDueCurrency: result.data.currency,
         confidenceBand,
@@ -2882,12 +2892,22 @@ export class IngestionService {
       });
     }
 
+    // eventType was extracted on every pet email and then dropped — asked of the model, paid for in
+    // tokens, and stored nowhere. It is the one thing that says what KIND of appointment this is, which
+    // is what a review line needs, so it goes where the user actually reads it. Skipped when the title
+    // already says it, so a summary never reads "Grooming — grooming appointment".
+    const kind = result.data.eventType?.trim();
+    const labelledTitle =
+      kind && !result.data.title.toLowerCase().includes(kind.toLowerCase())
+        ? `${kind} — ${result.data.title}`
+        : result.data.title;
+
     const petUnresolved = petId == null && pets.length > 1;
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "pet",
-      summary: existing ? `${result.data.title} updated` : `${result.data.title} discovered`,
+      summary: existing ? `${labelledTitle} updated` : `${labelledTitle} discovered`,
       linkedResourceType: "calendar_event",
       linkedResourceId: eventId,
       sourceEventId: ctx.sourceEventId,

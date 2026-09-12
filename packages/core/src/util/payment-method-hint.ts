@@ -95,6 +95,21 @@ export function formatPaymentMethodHint(
  * four, and a real PAN fragment contains more.
  */
 export function looksLikeCardNumber(value: string | null | undefined): boolean {
+  return looksLikeFullNumber(value);
+}
+
+/**
+ * True if a string carries a long enough run of digits to BE an account or card number, rather than a
+ * short reference to one.
+ *
+ * The same test serves a payment hint and a bill's account label, which is the point: both are short
+ * human-readable references to something whose full form must never be stored, and both arrive from an
+ * extraction reading an email that frequently contains the full form.
+ *
+ * Five or more consecutive digits — a reference carries at most four, a real identifier carries more.
+ * Separators are stripped first, so "4242-4242-4242-4242" cannot pass as four-digit groups.
+ */
+export function looksLikeFullNumber(value: string | null | undefined): boolean {
   if (!value) return false;
   return /\d{5,}/.test(value.replace(/[\s-]/g, ""));
 }

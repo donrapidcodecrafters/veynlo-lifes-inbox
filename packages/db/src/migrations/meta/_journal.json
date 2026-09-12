@@ -484,6 +484,13 @@
       "when": 1788860527484,
       "tag": "0068_useful_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1789245996461,
+      "tag": "0069_sweet_sally_floyd",
+      "breakpoints": true
     }
   ]
 }
