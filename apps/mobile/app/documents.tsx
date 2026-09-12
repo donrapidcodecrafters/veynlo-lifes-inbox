@@ -277,6 +277,9 @@ export default function DocumentsScreen() {
           return (
             <Text
               accessibilityRole="button"
+              // Reuses the same `active` that drives the fill below, so what is announced cannot drift from
+              // what is drawn — DEF-100, which closed this on 33 other controls and missed these two.
+              accessibilityState={{ selected: active }}
               key={f.value}
               onPress={() => setFilter(f.value)}
               style={{
@@ -302,6 +305,7 @@ export default function DocumentsScreen() {
             const active = documentType === t.value;
             return (
               <Text accessibilityRole="button"
+                accessibilityState={{ selected: active }}
                 key={t.value}
                 onPress={() => setDocumentType(t.value)}
                 style={{
