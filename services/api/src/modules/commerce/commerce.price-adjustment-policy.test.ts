@@ -6,6 +6,7 @@ import { CommerceService } from "./commerce.service";
 import { resolvePriceAdjustmentPolicy, priceAdjustmentDeadline, daysUntil, DEFAULT_PRICE_ADJUSTMENT_WINDOW_DAYS } from "./price-adjustment-policy";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * RET-004 "Policy engine stores sourced retailer terms with effective dates; deadline calculator" —
@@ -57,8 +58,7 @@ describe("RET-004 price-adjustment policy resolution and purchase-detail display
         { id: otherUserId, email: `padj-policy-${otherUserId}@example.com`, displayName: "Policy Test Other User" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping RET-004 policy resolution tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "RET-004 policy resolution tests");
     }
   });
 

@@ -1,4 +1,4 @@
-import { ScrollView, View, useWindowDimensions, type ScrollViewProps } from "react-native";
+import { FlatList, ScrollView, View, useWindowDimensions, type FlatListProps, type ScrollViewProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppTheme } from "@/lib/theme-context";
 
@@ -79,6 +79,43 @@ export function CenteredScreen({ children }: { children: React.ReactNode }) {
           {children}
         </View>
       </View>
+    </SafeAreaView>
+  );
+}
+
+/**
+ * The same screen container, but virtualised — for lists whose length is decided by the user's data.
+ *
+ * Zero of this app's 61 screens virtualised anything: the shared container above is a `ScrollView`, so
+ * every screen mounted every row of every list at once. That is fine for a vehicle's tyres or a
+ * household's members, which are bounded by what they are, and wrong for the Inbox, whose length is
+ * however many things the account has ever discovered — the seed's own idea of an ordinary connection is
+ * 214 items from a single year of one mailbox.
+ *
+ * Deliberately a SEPARATE component rather than a flag on `Screen`. A `FlatList` nested inside a
+ * `ScrollView` is not merely discouraged, it silently defeats the virtualisation it was added for (React
+ * Native warns about exactly this), so the two cannot be the same component with a prop. Screens that do
+ * not need this keep using `Screen` and are unaffected.
+ *
+ * Page furniture — headings, filters, a select-all row — goes in `ListHeaderComponent`, so it scrolls
+ * with the list as it did before rather than being pinned above it.
+ */
+export function ScreenList<ItemT>({ contentContainerStyle, ...props }: FlatListProps<ItemT>) {
+  const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= TABLET_MIN_WIDTH;
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgCanvas }} edges={["top"]}>
+      <FlatList
+        contentContainerStyle={[
+          { padding: 16, gap: 16 },
+          isTablet && { padding: 24, width: "100%", maxWidth: MAX_CONTENT_WIDTH, alignSelf: "center" },
+          contentContainerStyle,
+        ]}
+        keyboardShouldPersistTaps="handled"
+        {...props}
+      />
     </SafeAreaView>
   );
 }

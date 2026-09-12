@@ -22,6 +22,7 @@ import { CPSC_TIMEOUT_MS, RecallMonitorService } from "./recall-monitor.service"
  */
 const CPSC_TEST_TIMEOUT_MS = CPSC_TIMEOUT_MS + 10_000;
 import { SafeUrlFetcher } from "../ingestion/safe-url-fetcher";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * VEH-006/HOMEOS-008 — real integration test against real dev Postgres AND, deliberately, the real live
@@ -55,8 +56,7 @@ describe("RecallMonitorService — live NHTSA/CPSC integration", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `recall-monitor-test-${ownerUserId}@example.com`, displayName: "Recall Monitor Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping RecallMonitorService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "RecallMonitorService tests");
     }
   });
 

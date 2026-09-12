@@ -8,6 +8,7 @@ import type { HouseholdService } from "../household/household.service";
 import type { RecallMonitorService } from "./recall-monitor.service";
 import type { VinDecodeService } from "./vin-decode.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * SHARE-001 "Set view/edit/manage" — same adversarial goal as lists.rights-enforcement.test.ts, applied to
@@ -71,8 +72,7 @@ describe("AssetsService SHARE-001 right enforcement (view/edit/manage)", () => {
       await assets.createPropertyGrant(propertyId, ownerUserId, editorRow!.email!, undefined, "edit");
       await assets.createPropertyGrant(propertyId, ownerUserId, managerRow!.email!, undefined, "manage");
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping asset rights-enforcement tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "asset rights-enforcement tests");
     }
   });
 

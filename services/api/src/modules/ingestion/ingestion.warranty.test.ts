@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §15 PUR-004/HOMEOS-008 warranty extraction — real integration test, same shape as
@@ -44,8 +45,7 @@ describe("IngestionService extractWarranty", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `warranty-test-${ownerUserId}@example.com`, displayName: "Warranty Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping extractWarranty tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "extractWarranty tests");
     }
   });
 

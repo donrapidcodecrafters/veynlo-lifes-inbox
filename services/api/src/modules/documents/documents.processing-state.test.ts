@@ -11,6 +11,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MalwareScannerService } from "./malware-scanner.service";
 import type { HouseholdService } from "../household/household.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §40.3 "Representative state machines" (Document row): "uploaded → malware scan → OCR/parser →
@@ -56,8 +57,7 @@ describe("DocumentsService processing-state machine (§40.3)", () => {
         { id: otherUserId, email: `doc-state-test-${otherUserId}@example.com`, displayName: "State Test Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DocumentsService processing-state tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DocumentsService processing-state tests");
     }
   });
 

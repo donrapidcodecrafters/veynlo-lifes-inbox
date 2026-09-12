@@ -8,6 +8,7 @@ import { SharingService } from "../sharing/sharing.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §TIME-001 Phase 3 coverage — found live during a fresh adversarial pass: the household-visibility fix
@@ -231,8 +232,7 @@ describe("TimelineService — Phase 3 domain coverage (School/Trips/Pets/Health 
         nextRefillDateSort: now,
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping TimelineService Phase 3 coverage tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "TimelineService Phase 3 coverage tests");
     }
   });
 

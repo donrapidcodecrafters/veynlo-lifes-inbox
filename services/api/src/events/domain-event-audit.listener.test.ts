@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { EventBusService } from "./event-bus.service";
 import { DomainEventAuditListener } from "./domain-event-audit.listener";
+import { skipIfDatabaseUnreachable } from "../test-support/db-availability";
 
 /**
  * Real integration test against a real Postgres, same "requires the local dev Postgres... skips
@@ -31,8 +32,7 @@ describe("DomainEventAuditListener", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `event-audit-${ownerUserId}@example.com`, displayName: "Event Audit Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DomainEventAuditListener tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DomainEventAuditListener tests");
     }
   });
 

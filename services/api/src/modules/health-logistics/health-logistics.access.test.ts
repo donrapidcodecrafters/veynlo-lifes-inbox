@@ -16,6 +16,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { ObjectStorage } from "../documents/object-storage.interface";
 import type { ModelProvider } from "../intelligence/model-provider.interface";
 import type { MalwareScannerService } from "../documents/malware-scanner.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §27 "Health Logistics (Non-Diagnostic)" — the adversarial access-control matrix HealthLogisticsService's
@@ -166,8 +167,7 @@ describe("HealthLogisticsService — private-by-default access control", () => {
         sizeBytes: 1024,
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping HealthLogisticsService access-control tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "HealthLogisticsService access-control tests");
     }
   });
 

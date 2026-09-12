@@ -10,6 +10,7 @@ import { PetsService } from "../pets/pets.service";
 import type { HouseholdService } from "../household/household.service";
 import type { RecallMonitorService } from "./recall-monitor.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -56,8 +57,7 @@ describe("merged records name their survivor instead of reporting themselves mis
         { id: strangerUserId, email: `merge-redirect-stranger-${strangerUserId}@example.com`, displayName: "Stranger" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping merged-record redirect tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "merged-record redirect tests");
     }
   });
 

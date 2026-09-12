@@ -7,6 +7,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { PlaidAdapter } from "./plaid.adapter";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubQueue = { enqueueConnectorSync: async () => {}, enqueueConnectionDataDeletion: async () => {} } as unknown as QueueProducer;
 const stubIdentity = { verifyStepUpPassword: async () => {} } as unknown as IdentityService;
@@ -38,8 +39,7 @@ describe("ConnectorsService.disconnect — provider-side token revocation", () =
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `revoke-provider-token-${ownerUserId}@example.com`, displayName: "Revoke Provider Token Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping provider-side revocation tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "provider-side revocation tests");
     }
   });
 

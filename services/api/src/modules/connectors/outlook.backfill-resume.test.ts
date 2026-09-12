@@ -7,6 +7,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import type { IngestionService } from "../ingestion/ingestion.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §42.5 "Historical backfill: chunked, resumable" — proves the actual fix: `sync_runs` now persists
@@ -73,8 +74,7 @@ describe("OutlookAdapter.initialSync — resumable backfill via sync_runs", () =
       const credentialRef = await vault.store(connectionId, { access_token: "test-access-token", refresh_token: "test-refresh-token" }, null);
       await db.update(schema.connections).set({ credentialRef }).where(eq(schema.connections.id, connectionId));
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping OutlookAdapter backfill-resume tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "OutlookAdapter backfill-resume tests");
     }
   });
 

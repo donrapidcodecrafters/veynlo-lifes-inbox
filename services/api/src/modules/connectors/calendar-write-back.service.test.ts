@@ -10,6 +10,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { PlaidAdapter } from "./plaid.adapter";
 import type { CredentialVault } from "../../common/credential-vault";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubQueue = { enqueueConnectorSync: async () => {}, enqueueConnectionDataDeletion: async () => {} } as unknown as QueueProducer;
@@ -56,8 +57,7 @@ describe("CalendarWriteBackService — CAL-001 write-back push", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `writeback-${ownerUserId}@example.com`, displayName: "Write-back Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CalendarWriteBackService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CalendarWriteBackService tests");
     }
   });
 
@@ -172,8 +172,7 @@ describe("CalendarWriteBackService.deleteEvent", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `writeback-delete-${ownerUserId}@example.com`, displayName: "Write-back Delete Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CalendarWriteBackService.deleteEvent tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CalendarWriteBackService.deleteEvent tests");
     }
   });
 

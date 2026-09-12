@@ -9,6 +9,7 @@ import type { PlaidAdapter } from "./plaid.adapter";
 import type { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import type { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import type { CredentialVault } from "../../common/credential-vault";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * DEF-103 — what actually reaches the provider when an event has no time.
@@ -60,8 +61,7 @@ describe("DEF-103 — write-back never hands a provider an empty start", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `wb103-${ownerUserId}@example.com`, displayName: "WB 103" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DEF-103 tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DEF-103 tests");
     }
   });
 

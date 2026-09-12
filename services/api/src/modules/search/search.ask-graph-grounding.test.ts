@@ -12,6 +12,7 @@ import type { DocumentsService } from "../documents/documents.service";
 import type { HouseholdService } from "../household/household.service";
 import type { PreferencesService } from "../preferences/preferences.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -45,8 +46,7 @@ describe("SearchService.ask — §39.3 graph-connected grounding", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `ask-graph-${ownerUserId}@example.com`, displayName: "Ask Graph Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping Ask graph-grounding tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "Ask graph-grounding tests");
       return;
     }
 

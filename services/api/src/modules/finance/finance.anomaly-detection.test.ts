@@ -6,6 +6,7 @@ import { FinanceService } from "./finance.service";
 import { AttentionService } from "../attention/attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * FIN-004 "Surface possible duplicate or unexpectedly different charge assistance" — zero code existed for
@@ -119,8 +120,7 @@ describe("FinanceService.detectAnomalousTransactions", () => {
       await insertTxn({ daysAgoOffset: 2, amountMinorUnits: 30_000, name: "POP-UP MARKET", merchantName: "Pop-Up Market" });
 
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping FinanceService anomaly-detection tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "FinanceService anomaly-detection tests");
     }
   });
 

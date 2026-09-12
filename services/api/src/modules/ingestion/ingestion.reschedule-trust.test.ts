@@ -15,6 +15,7 @@ import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
 import type { HouseholdService } from "../household/household.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Every date below is relative to now, never pinned.
@@ -73,8 +74,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `reschedule-trust-${ownerUserId}@example.com`, displayName: "Reschedule Trust Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CAL-004 trust tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CAL-004 trust tests");
     }
   });
 

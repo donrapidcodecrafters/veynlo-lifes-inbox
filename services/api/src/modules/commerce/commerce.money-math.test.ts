@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Regression coverage for a currency-mismatch bug found during a money-math audit: `savingsSummary` and
@@ -36,8 +37,7 @@ describe("CommerceService money math — currency-mismatch guards", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `money-math-test-${ownerUserId}@example.com`, displayName: "Money Math Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping money-math tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "money-math tests");
     }
   });
 

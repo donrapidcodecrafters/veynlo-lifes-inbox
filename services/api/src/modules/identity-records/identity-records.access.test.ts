@@ -12,6 +12,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * "Identity & Legal Continuity" (ID-001..005). The adversarial access-control matrix
@@ -90,8 +91,7 @@ describe("IdentityRecordsService — private-by-default access control, reveal g
       });
       passportId = created.id;
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IdentityRecordsService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IdentityRecordsService tests");
     }
   });
 

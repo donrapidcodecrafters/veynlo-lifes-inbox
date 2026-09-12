@@ -10,6 +10,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MalwareScannerService } from "./malware-scanner.service";
 import type { HouseholdService } from "../household/household.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "object sharing" (spec SHARE-001/SHARE-002) — real DB test for the two sharing paths:
@@ -71,8 +72,7 @@ describe("DocumentsService object sharing", () => {
         { id: strangerUserId, email: `share-stranger-${strangerUserId}@example.com`, displayName: "Stranger" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping object sharing tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "object sharing tests");
     }
   });
 

@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { FinanceService } from "./finance.service";
 import type { AttentionService } from "../attention/attention.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * FIN-001 spec-conformance fix — `financial_accounts.name` is an `encryptedText` column (AES-256-GCM,
@@ -60,8 +61,7 @@ describe("FinanceService.accounts ordering", () => {
         });
       }
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping FinanceService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "FinanceService tests");
     }
   });
 
@@ -136,8 +136,7 @@ describe("FinanceService — FIN-001 per-account inclusion/exclusion", () => {
         },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping FinanceService inclusion tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "FinanceService inclusion tests");
     }
   });
 

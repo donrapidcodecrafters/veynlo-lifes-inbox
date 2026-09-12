@@ -15,6 +15,7 @@ import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
 import type { HouseholdService } from "../household/household.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Every date below is relative to now, never pinned.
@@ -64,8 +65,7 @@ describe("IngestionService email-vs-calendar date disagreement", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `date-disagreement-test-${ownerUserId}@example.com`, displayName: "Date Disagreement Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService date-disagreement tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService date-disagreement tests");
     }
   });
 

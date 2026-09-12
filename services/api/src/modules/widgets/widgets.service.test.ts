@@ -9,6 +9,7 @@ import { verifySignedDeepLink } from "../../common/signed-deep-link";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubOnboarding = { initializeForNewUser: async () => {} } as unknown as OnboardingService;
@@ -35,8 +36,7 @@ describe("WidgetsService", () => {
       const identity = new IdentityService(db, stubQueue, noopMailer, stubOnboarding);
       widgets = new WidgetsService(db, new PreferencesService(db, identity));
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping WidgetsService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "WidgetsService tests");
     }
   });
 

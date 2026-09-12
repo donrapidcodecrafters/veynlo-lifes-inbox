@@ -6,6 +6,7 @@ import { ListsService } from "./lists.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
 import type { MemoriesService } from "../memories/memories.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 // ListsService only calls MemoriesService.evaluateSmartQuery, and only for smart lists (smartListQuery
 // set) — none of this file's fixtures create one, so a stub that would throw if ever actually called is
@@ -53,8 +54,7 @@ describe("ListsService", () => {
       ]);
       await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerUserId });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ListsService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ListsService tests");
     }
   });
 

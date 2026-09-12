@@ -7,6 +7,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubMailer = { send: async () => {} } as unknown as MailerService;
@@ -49,8 +50,7 @@ describe("IdentityService — account deletion grace period", () => {
       // requestDeletion/cancelDeletion can be exercised here without constructing a real argon2 hash.
       await db.insert(schema.users).values({ id: ownerUserId, email: `deletion-grace-${ownerUserId}@example.com`, displayName: "Deletion Grace Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping deletion-grace-period test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "deletion-grace-period test");
     }
   });
 

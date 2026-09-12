@@ -6,6 +6,7 @@ import { DataExportService } from "./data-export.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { ObjectStorage } from "../documents/object-storage.interface";
 import type { IdentityService } from "../identity/identity.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -33,8 +34,7 @@ describe("DataExportService.downloadUrl — expiry enforcement", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `export-expiry-${ownerUserId}@example.com`, displayName: "Export Expiry Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DataExportService expiry test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DataExportService expiry test");
     }
   });
 

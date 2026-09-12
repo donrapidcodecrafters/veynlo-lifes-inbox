@@ -6,6 +6,7 @@ import { PlaidAdapter } from "./plaid.adapter";
 import { CredentialVault } from "../../common/credential-vault";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "financial aggregator" — the interesting, easy-to-get-wrong behavior here is the matching
@@ -88,8 +89,7 @@ describe("PlaidAdapter sync + matching", () => {
         valueAtStakeCurrency: "USD",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PlaidAdapter tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PlaidAdapter tests");
     }
   });
 

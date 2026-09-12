@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -37,8 +38,7 @@ describe("AttentionService.home — priority ranking", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `priority-rank-${ownerUserId}@example.com`, displayName: "Priority Rank Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService.home priority-ranking tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService.home priority-ranking tests");
     }
   });
 

@@ -13,6 +13,7 @@ import type { AssetsService } from "../assets/assets.service";
 import type { ConnectorsService } from "../connectors/connectors.service";
 import type { GoogleCalendarAdapter } from "../connectors/google-calendar.adapter";
 import type { MicrosoftCalendarAdapter } from "../connectors/microsoft-calendar.adapter";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * AUTO-006 "Undo / compensation" — real integration test, same shape as automation.service.test.ts.
@@ -56,8 +57,7 @@ describe("AutomationService.undoRun", () => {
         { id: otherUserId, email: `automation-undo-other-${otherUserId}@example.com`, displayName: "Undo Test Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AutomationService.undoRun tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AutomationService.undoRun tests");
     }
   });
 

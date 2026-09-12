@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * DEF-104 — Home must not hand the client a wall of one kind of thing.
@@ -34,8 +35,7 @@ describe("DEF-104 — Home collapses same-kind runs", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `home-${ownerUserId}@example.com`, displayName: "Home Collapse" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DEF-104 tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DEF-104 tests");
     }
     attention = new AttentionService(db, stubHouseholds, stubNotifications);
   });

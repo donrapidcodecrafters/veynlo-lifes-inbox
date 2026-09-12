@@ -17,6 +17,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { HouseholdService } from "../household/household.service";
 import type { SharingService } from "../sharing/sharing.service";
 import type { DocumentsService } from "../documents/documents.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §MSG-001 "Share-message extraction" real Postgres integration test — proves the share-sheet capture
@@ -57,8 +58,7 @@ describe("IngestionService MSG-001 share-message classification routing", () => 
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `share-msg-test-${ownerUserId}@example.com`, displayName: "Share Message Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping MSG-001 share-message tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "MSG-001 share-message tests");
     }
   });
 

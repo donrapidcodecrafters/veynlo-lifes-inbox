@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -47,8 +48,7 @@ describe("AttentionService.scanAndFileDeadlines — maintenance rules and regist
       await db.insert(schema.propertyProfiles).values({ id: propertyId, ownerUserId, label: "Maintenance scan test house", propertyType: "home" });
       await db.insert(schema.homeAssets).values({ id: homeAssetId, ownerUserId, propertyProfileId: propertyId, label: "Test HVAC" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService maintenance/registration tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService maintenance/registration tests");
     }
   });
 

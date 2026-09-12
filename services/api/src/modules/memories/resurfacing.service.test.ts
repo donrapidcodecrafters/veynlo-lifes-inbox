@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { ResurfacingService } from "./resurfacing.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §29.1 SAVE-004 "Contextual resurfacing" — real-DB test of the three live trigger types
@@ -29,8 +30,7 @@ describe("ResurfacingService", () => {
       await db.insert(schema.users).values({ id: ownerUserId, email: `resurface-owner-${ownerUserId}@example.com`, displayName: "Owner" });
       await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerUserId });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ResurfacingService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ResurfacingService tests");
     }
   });
 

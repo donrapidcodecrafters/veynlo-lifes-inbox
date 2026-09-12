@@ -6,6 +6,7 @@ import { ListsService } from "./lists.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
 import type { MemoriesService } from "../memories/memories.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * SHARE-001 "Set view/edit/manage" — adversarial proof that a grant's `right` is actually enforced on
@@ -64,8 +65,7 @@ describe("ListsService SHARE-001 right enforcement (view/edit/manage)", () => {
       await lists.createResourceGrant(listId, ownerUserId, editorRow!.email!, undefined, "edit");
       await lists.createResourceGrant(listId, ownerUserId, managerRow!.email!, undefined, "manage");
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping list rights-enforcement tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "list rights-enforcement tests");
     }
   });
 

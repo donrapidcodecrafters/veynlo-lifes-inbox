@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * RET-004 "Policy engine ... deadline calculator" — real-DB proof that extractReceipt's price-adjustment
@@ -62,8 +63,7 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `padj-policy-test-${ownerUserId}@example.com`, displayName: "Price Adjustment Policy Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService RET-004 policy tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService RET-004 policy tests");
     }
   });
 

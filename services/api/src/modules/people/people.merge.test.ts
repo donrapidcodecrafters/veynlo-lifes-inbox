@@ -8,6 +8,7 @@ import { SharingService } from "../sharing/sharing.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
@@ -47,8 +48,7 @@ describe("PeopleService — merge candidates and reversible merge/unmerge", () =
         { id: otherOwnerUserId, email: `peo-merge-other-${otherOwnerUserId}@example.com`, displayName: "Other Owner" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PeopleService merge tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PeopleService merge tests");
     }
   });
 

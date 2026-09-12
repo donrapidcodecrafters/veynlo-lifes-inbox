@@ -6,6 +6,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -50,8 +51,7 @@ describe("AttentionService — NOT_OWNER is a 403, not a 400", () => {
         confidenceBand: "high",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService NOT_OWNER status test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService NOT_OWNER status test");
     }
   });
 

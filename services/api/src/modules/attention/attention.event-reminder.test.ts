@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -35,8 +36,7 @@ describe("AttentionService.scanAndFileDeadlines — calendar event reminders", (
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `event-reminder-${ownerUserId}@example.com`, displayName: "Reminder Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService event-reminder tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService event-reminder tests");
     }
   });
 

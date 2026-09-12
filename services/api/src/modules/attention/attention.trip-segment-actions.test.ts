@@ -5,6 +5,7 @@ import { generateId, type TemporalValue } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -41,8 +42,7 @@ describe("AttentionService.scanAndFileDeadlines — trip-segment check-in remind
       tripId = generateId("trip");
       await db.insert(schema.trips).values({ id: tripId, ownerUserId, label: "Test trip", travelerUserIds: [ownerUserId] });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService trip-segment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService trip-segment tests");
     }
   });
 

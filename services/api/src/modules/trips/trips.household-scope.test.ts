@@ -11,6 +11,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { MemoriesService } from "../memories/memories.service";
 import type { ScheduleService } from "../schedule/schedule.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real HouseholdService against real dev Postgres, unlike trips.service.test.ts (which stubs
@@ -70,8 +71,7 @@ describe("TripsService — real household membership", () => {
         { id: generateId("membership"), householdId, userId: memberD, role: "adult_member", status: "active", joinedAt: new Date() },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping TripsService household-scope tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "TripsService household-scope tests");
     }
   });
 

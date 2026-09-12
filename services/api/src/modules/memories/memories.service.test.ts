@@ -12,6 +12,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { DocumentsService } from "../documents/documents.service";
 import { FakeModelProvider, fakeExtraction } from "../intelligence/fake-model-provider";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §29.1 "Saved Memory, Lists & Knowledge" (SAVE-001..007). Real-DB test covering the things most likely to
@@ -70,8 +71,7 @@ describe("MemoriesService", () => {
         guardianUserIds: [ownerUserId],
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping MemoriesService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "MemoriesService tests");
     }
   });
 

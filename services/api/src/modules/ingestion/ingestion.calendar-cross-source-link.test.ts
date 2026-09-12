@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Every date below is relative to now, never pinned.
@@ -72,8 +73,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `cal001-test-${ownerUserId}@example.com`, displayName: "CAL-001 Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CAL-001 cross-source-link tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CAL-001 cross-source-link tests");
     }
   });
 

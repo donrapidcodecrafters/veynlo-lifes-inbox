@@ -9,6 +9,7 @@ import type { SchoolIcsService } from "./school-ics.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { MailerService } from "../notifications/mailer.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §25 SCH-001/006 + the school-relevant transport-conflict slice of CAL-003 — real integration test
@@ -62,8 +63,7 @@ describe("SchoolService + ConflictService.schoolTransportConflicts", () => {
         { id: bobId, householdId, displayName: "Bob" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping SchoolService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "SchoolService tests");
     }
   });
 

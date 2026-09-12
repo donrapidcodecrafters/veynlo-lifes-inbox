@@ -3,6 +3,7 @@ import { groupResultSet } from "@veynlo/core";
 
 import { useState, type FormEvent } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { useTranslations } from "next-intl";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -150,6 +151,12 @@ const INBOX_CATEGORY_LABEL: Record<string, string> = {
   health: "Health",
 };
 
+/** One page of the Inbox: the items, and the cursor that asks for the next page (null at the end). */
+interface InboxPage {
+  items: InboxItem[];
+  nextCursor: string | null;
+}
+
 export default function InboxPage() {
   const t = useTranslations("inbox");
   const [filter, setFilter] = useState<"new" | "all">("new");
@@ -164,10 +171,35 @@ export default function InboxPage() {
   // "dismiss"]` suggestedActions — see InboxService.applyRescheduleChange).
   const [applyingRescheduleId, setApplyingRescheduleId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
-  const { data, error, isLoading, mutate } = useSWR<InboxItem[]>(
-    filter === "new" ? "/v1/inbox?reviewState=new" : "/v1/inbox",
+  // Pages, not the whole inbox. The list endpoint used to return every item the account had ever
+  // produced; it now returns a page and a cursor, and this walks them on demand.
+  const {
+    data: pages,
+    error,
+    isLoading,
+    mutate,
+    size,
+    setSize,
+    isValidating,
+  } = useSWRInfinite<InboxPage>(
+    (index, previous) => {
+      // Null ends the sequence — SWR stops asking once the last page reported no cursor.
+      if (previous && !previous.nextCursor) return null;
+      const params = new URLSearchParams();
+      if (filter === "new") params.set("reviewState", "new");
+      if (index > 0 && previous?.nextCursor) params.set("cursor", previous.nextCursor);
+      const query = params.toString();
+      return query ? `/v1/inbox?${query}` : "/v1/inbox";
+    },
     swrFetcher,
+    // Revalidating only the first page on focus would leave later pages stale while looking refreshed;
+    // revalidating all of them on every focus refetches the user's whole history. Neither is wanted here —
+    // the screen already revalidates explicitly after every action that changes an item.
+    { revalidateFirstPage: false },
   );
+
+  const data = pages ? pages.flatMap((page) => page.items) : undefined;
+  const hasMore = Boolean(pages && pages.length > 0 && pages[pages.length - 1]?.nextCursor);
   // CAL-002 "offers Add to calendar with chosen destination" — the destinations a discovered event can be
   // pushed to (write-back-enabled Google/Microsoft Calendar connections); fetched once for the whole page
   // rather than per-item, same as CORRECTION_FIELDS is a static lookup rather than a per-item fetch.
@@ -554,6 +586,20 @@ export default function InboxPage() {
                 )
               : visibleData.map((item) => <InboxItemCard key={item.id} item={item} />)}
           </ul>
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              {/* The count is part of the accessible name so the control is not a leap in the dark: on its
+                  own, "Load more" gives no way to tell a first page of 50 from an inbox holding exactly 50. */}
+              <Button
+                variant="secondary"
+                onClick={() => void setSize(size + 1)}
+                loading={isValidating}
+                aria-label={`Load more items — ${data?.length ?? 0} loaded so far`}
+              >
+                {isValidating ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>

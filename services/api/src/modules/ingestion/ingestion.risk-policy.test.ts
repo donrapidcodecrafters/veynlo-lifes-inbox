@@ -13,6 +13,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §AI-002 "Confidence and risk policy" — proves `RiskPolicyService` is genuinely wired into
@@ -47,8 +48,7 @@ describe("IngestionService §AI-002 risk-policy wiring", () => {
       await db.insert(schema.users).values({ id: ownerUserId, email: `riskpolicy-test-${ownerUserId}@example.com`, displayName: "Risk Policy Test" });
       riskPolicy = new RiskPolicyService(db);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService risk-policy tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService risk-policy tests");
     }
   });
 

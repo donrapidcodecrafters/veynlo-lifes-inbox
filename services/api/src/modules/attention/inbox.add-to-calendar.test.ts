@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { InboxService } from "./inbox.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
 import type { ConflictService } from "../schedule/conflict.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 // None of these tests exercise a reschedule/conflict path — addToCalendar never calls ConflictService —
@@ -29,8 +30,7 @@ describe("InboxService.addToCalendar", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `add-to-cal-${ownerUserId}@example.com`, displayName: "Add To Calendar Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping InboxService.addToCalendar tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "InboxService.addToCalendar tests");
     }
   });
 

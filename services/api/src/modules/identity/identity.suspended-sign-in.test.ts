@@ -8,6 +8,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubQueue = {} as unknown as QueueProducer;
@@ -39,8 +40,7 @@ describe("IdentityService.signIn — suspended account rejection", () => {
       const passwordHash = await argon2.hash(password);
       await db.insert(schema.users).values({ id: userId, email, displayName: "Suspended Sign-In Test User", passwordHash, status: "suspended" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IdentityService suspended sign-in tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IdentityService suspended sign-in tests");
     }
   });
 

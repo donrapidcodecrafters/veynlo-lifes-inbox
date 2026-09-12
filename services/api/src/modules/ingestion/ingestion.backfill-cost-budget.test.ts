@@ -14,6 +14,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §47.4 "Low-priority historical imports are batched and can pause under global/model/provider budget
@@ -108,8 +109,7 @@ describe("IngestionService §47.4 backfill-specific cost-budget pause", () => {
       await featureFlags.setEnabled(AI_EXTRACTION_PAUSED_FLAG_KEY, false, "test setup");
       await featureFlags.setEnabled(BACKFILL_COST_BUDGET_FLAG_KEY, true, "test setup — backfill cost-pressure pause", "5000"); // $50.00 threshold, already exceeded above
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping backfill cost-budget pause tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "backfill cost-budget pause tests");
     }
   });
 

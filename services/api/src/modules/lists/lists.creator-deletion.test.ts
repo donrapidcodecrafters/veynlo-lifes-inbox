@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * `saved_items.createdByUserId` used to `ON DELETE CASCADE` from `users.id`, unlike its sibling
@@ -31,8 +32,7 @@ describe("saved_items survive their creator's account deletion", () => {
       ]);
       await db.insert(schema.lists).values({ id: listId, ownerUserId: listOwnerUserId, name: "Shared Groceries", kind: "grocery" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping saved_items creator-deletion test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "saved_items creator-deletion test");
     }
   });
 

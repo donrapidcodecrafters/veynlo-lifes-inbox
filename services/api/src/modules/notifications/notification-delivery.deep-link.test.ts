@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { NotificationDeliveryService } from "./notification-delivery.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { EmailProvider, PushDeepLink, PushProvider } from "./notification-provider.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -85,8 +86,7 @@ describe("NotificationDeliveryService.deliver — push deep-link payload", () =>
         lastActiveAt: new Date(),
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping push deep-link tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "push deep-link tests");
     }
   });
 

@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * SUB-001 "Identify recurring services from financial transactions, email receipts, app-store receipts,
@@ -37,8 +38,7 @@ describe("CommerceService.createSubscription — SUB-001 manual add", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `create-subscription-test-${ownerUserId}@example.com`, displayName: "Create Subscription Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping createSubscription tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "createSubscription tests");
     }
   });
 

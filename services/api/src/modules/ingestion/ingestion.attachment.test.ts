@@ -18,6 +18,7 @@ import type { HouseholdService } from "../household/household.service";
 import type { ModelProvider } from "../intelligence/model-provider.interface";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { GraphMessage } from "./outlook-message-parser";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -83,8 +84,7 @@ describe("IngestionService — MAIL-004 attachment intelligence", () => {
         health: "healthy",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping MAIL-004 attachment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "MAIL-004 attachment tests");
     }
   });
 

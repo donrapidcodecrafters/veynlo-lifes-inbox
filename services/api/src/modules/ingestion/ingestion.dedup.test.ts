@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real integration test against a real Postgres (this repo's other services/api tests are all pure-function
@@ -46,8 +47,7 @@ describe("IngestionService bill/subscription dedup", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `dedup-test-${ownerUserId}@example.com`, displayName: "Dedup Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService dedup tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService dedup tests");
     }
   });
 

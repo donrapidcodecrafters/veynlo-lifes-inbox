@@ -8,6 +8,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubQueue = { enqueueConnectorSync: async () => {}, enqueueConnectionDataDeletion: async () => {}, getQueueHealth: async () => ({}) } as unknown as QueueProducer;
@@ -29,8 +30,7 @@ describe("AdminService — suspend/unsuspend/force-logout and merchant-merge lin
       actorAdminId = generateId("adminUser");
       await db.insert(schema.adminUsers).values({ id: actorAdminId, email: `admin-service-test-${actorAdminId}@example.com`, displayName: "Admin Service Test Admin", passwordHash: "unused-in-this-test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AdminService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AdminService tests");
     }
   });
 

@@ -8,6 +8,7 @@ import { SharingService } from "../sharing/sharing.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §TIME-001 "Household-shared timeline is assembled per viewer authorization" — bug found live during a
@@ -157,8 +158,7 @@ describe("TimelineService — household-shared visibility", () => {
         },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping TimelineService household-scope tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "TimelineService household-scope tests");
     }
   });
 

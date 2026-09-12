@@ -7,6 +7,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId, type PlanKey } from "@veynlo/core";
 import { BillingService } from "./billing.service";
 import type { BillingProvider, BillingWebhookEvent } from "./billing-provider.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -40,8 +41,7 @@ describe("BillingService", () => {
       userId = generateId("user");
       await db.insert(schema.users).values({ id: userId, email: `billing-test-${userId}@example.com`, displayName: "Billing Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping BillingService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "BillingService tests");
     }
   });
 

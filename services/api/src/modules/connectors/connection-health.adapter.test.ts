@@ -7,6 +7,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { recordConnectorSyncFailure } from "./connection-health.util";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §43.3 "Connection health model" — proves the actual fix against a real connector's real thrown errors
@@ -49,8 +50,7 @@ describe("§43.3 connection health classification — real provider errors from 
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `health-test-${ownerUserId}@example.com`, displayName: "Health Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping connection-health adapter tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "connection-health adapter tests");
     }
   });
 

@@ -15,6 +15,7 @@ import type { RecallMonitorService } from "../assets/recall-monitor.service";
 import type { VinDecodeService } from "../assets/vin-decode.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MemoriesService } from "../memories/memories.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Security audit of the generalized object-sharing refactor (Phase 2 §52.2 — see
@@ -93,8 +94,7 @@ describe("Object sharing refactor — cross-cutting access-control audit", () =>
         { id: generateId("membership"), householdId, userId: memberD, role: "adult_member", status: "active", joinedAt: new Date() },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping sharing-refactor audit tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "sharing-refactor audit tests");
     }
   });
 

@@ -8,6 +8,7 @@ import { ListsService } from "../lists/lists.service";
 import type { HouseholdService } from "../household/household.service";
 import type { MemoriesService } from "../memories/memories.service";
 import type { ScheduleService } from "../schedule/schedule.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Every date below is relative to now, never pinned.
@@ -91,8 +92,7 @@ describe("TripsService", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `trips-test-${ownerUserId}@example.com`, displayName: "Trips Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping TripsService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "TripsService tests");
     }
   });
 

@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /** Phase 2 §52.2 "store credits" — real integration test, same shape as ingestion.dedup.test.ts. */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
@@ -36,8 +37,7 @@ describe("IngestionService extractStoreCredit", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `store-credit-test-${ownerUserId}@example.com`, displayName: "Store Credit Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping extractStoreCredit tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "extractStoreCredit tests");
     }
   });
 

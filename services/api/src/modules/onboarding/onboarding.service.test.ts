@@ -5,6 +5,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { OnboardingService } from "./onboarding.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * ONB-001/ONB-002 real-Postgres regression coverage. Three things the onboarding brief specifically calls
@@ -34,8 +35,7 @@ describe("OnboardingService", () => {
     try {
       await db.select().from(schema.users).limit(1);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping OnboardingService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "OnboardingService tests");
     }
   });
 

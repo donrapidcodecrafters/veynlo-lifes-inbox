@@ -17,6 +17,7 @@ import type { HouseholdService } from "../household/household.service";
 import type { MemoriesService } from "../memories/memories.service";
 import type { ScheduleService } from "../schedule/schedule.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubMemories = { evaluateSmartQuery: async () => [] } as unknown as MemoriesService;
 const stubPreferences = { isCategoryEnabled: async () => true } as unknown as PreferencesService;
@@ -94,8 +95,7 @@ describe("IngestionService extractTripSegment", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `trip-extract-test-${ownerUserId}@example.com`, displayName: "Trip Extract Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService trip-segment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService trip-segment tests");
     }
   });
 

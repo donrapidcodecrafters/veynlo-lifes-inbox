@@ -6,6 +6,7 @@ import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
 import { merchantSupportsPause } from "./pause-capability";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Every date below is relative to now, never pinned.
@@ -48,8 +49,7 @@ describe("CommerceService §40.3 Subscription state machine", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `sub-lifecycle-${ownerUserId}@example.com`, displayName: "Subscription Lifecycle Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping Subscription state machine tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "Subscription state machine tests");
     }
   });
 

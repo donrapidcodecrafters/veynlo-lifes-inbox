@@ -7,6 +7,7 @@ import { ConflictService } from "./conflict.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 import type { AssetsService } from "../assets/assets.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * FAM-003 "Assignment has acceptance/decline/complete" — real gap found via a spec-conformance audit:
@@ -51,8 +52,7 @@ describe("ScheduleService assignment accept/decline", () => {
       ]);
       await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerUserId });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ScheduleService assignment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ScheduleService assignment tests");
     }
   });
 

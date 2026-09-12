@@ -11,6 +11,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
@@ -108,8 +109,7 @@ describe("EmergencyBinderService — household-scoped aggregation + step-up gati
         tags: [],
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping EmergencyBinderService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "EmergencyBinderService tests");
     }
   });
 

@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -39,8 +40,7 @@ describe("AttentionService.scanAndFileDeadlines — person important-date remind
       personId = generateId("person");
       await db.insert(schema.people).values({ id: personId, ownerUserId, displayName: "Grandma Rose", visibility: "private" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService person-important-date tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService person-important-date tests");
     }
   });
 

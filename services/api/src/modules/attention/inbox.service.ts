@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { clampLimit, decodeTimestampCursor, encodeCursor } from "../../common/keyset-cursor";
+import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { generateId, type TemporalValue } from "@veynlo/core";
@@ -25,7 +26,16 @@ function instantTemporal(iso: string): TemporalValue {
  * here is what promotes a machine-derived candidate to a user-verified fact
  * (§AI-001/§40.2: "users own corrections" outranks model inference).
  */
+/**
+ * Page sizes for the Inbox.
+ *
+ * 50 comfortably overfills a phone screen, so the first page is never visibly short. The maximum is
+ * the load-bearing one: without it `?limit=100000` restores the unbounded query this exists to close.
+ */
+const DEFAULT_INBOX_PAGE_SIZE = 50;
+const MAX_INBOX_PAGE_SIZE = 200;
 @Injectable()
+
 export class InboxService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
@@ -36,7 +46,15 @@ export class InboxService {
     @Inject(SearchIndexService) private readonly searchIndex?: SearchIndexService,
   ) {}
 
-  async list(userId: string, filter: { reviewState?: string; category?: string } = {}) {
+  /**
+   * One page of the Inbox, newest first.
+   *
+   * Returns `{ items, nextCursor }` rather than a bare array — a client cannot tell "that was everything"
+   * from "that was the first fifty" without being told, and an array gives it no way to ask.
+   */
+  async list(userId: string, filter: { reviewState?: string; category?: string; limit?: number; cursor?: string } = {}) {
+    const limit = clampLimit(filter.limit, DEFAULT_INBOX_PAGE_SIZE, MAX_INBOX_PAGE_SIZE);
+    const cursor = decodeTimestampCursor(filter.cursor);
     const conditions = [eq(schema.inboxItems.ownerUserId, userId)];
     if (filter.reviewState) conditions.push(eq(schema.inboxItems.reviewState, filter.reviewState));
     if (filter.category) conditions.push(eq(schema.inboxItems.category, filter.category));
@@ -46,11 +64,33 @@ export class InboxService {
     // of the user's own list — so the Inbox — the screen this app is named for would reorder under the user after every action they take on it.
     // The id tiebreaker matters as much as the column: seven of the nine seeded lists share one createdAt to
     // the microsecond, and a sort with ties falls straight back to the unordered order it was given.
-    const items = await this.db
+    // The cursor condition mirrors the ORDER BY exactly — createdAt DESC, then id ASC — so "everything
+    // after the last row I saw" means strictly older, or the same instant with a larger id. Getting this
+    // pair out of step is how a paginated list quietly skips rows or repeats them, and the id half is not
+    // optional here: seeded items share a createdAt to the microsecond, so a timestamp-only cursor would
+    // drop every tie but one.
+    if (cursor) {
+      conditions.push(
+        or(
+          lt(schema.inboxItems.createdAt, cursor.at),
+          and(eq(schema.inboxItems.createdAt, cursor.at), gt(schema.inboxItems.id, cursor.id)),
+        )!,
+      );
+    }
+
+    // One more than asked for: if it comes back, there is another page, and that is known without a second
+    // COUNT query over the same predicate.
+    const rows = await this.db
       .select()
       .from(schema.inboxItems)
       .where(and(...conditions))
-      .orderBy(desc(schema.inboxItems.createdAt), asc(schema.inboxItems.id));
+      .orderBy(desc(schema.inboxItems.createdAt), asc(schema.inboxItems.id))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const last = items[items.length - 1];
+    const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
 
     // RET-004 "Policy engine ... deadline calculator" — a price_adjustment inbox item's `summary` already
     // states the price drop, but never a deadline or the policy's own confidence (the exact gap the RET-004
@@ -71,7 +111,7 @@ export class InboxService {
     const voiceNoteInfoBySourceEventId =
       voiceNoteSourceEventIds.length > 0 ? await this.voiceNoteInfoBySourceEventId(voiceNoteSourceEventIds) : new Map();
 
-    return items.map((item) => {
+    const enrichedItems = items.map((item) => {
       let enriched: typeof item & { priceAdjustment?: unknown; voiceNote?: { transcript: string | null; pending: boolean } } = item;
       if (item.category === "price_adjustment" && item.linkedResourceId) {
         const priceAdjustment = deadlinesByPurchaseId.get(item.linkedResourceId);
@@ -83,6 +123,8 @@ export class InboxService {
       }
       return enriched;
     });
+
+    return { items: enrichedItems, nextCursor };
   }
 
   private async voiceNoteInfoBySourceEventId(sourceEventIds: string[]) {

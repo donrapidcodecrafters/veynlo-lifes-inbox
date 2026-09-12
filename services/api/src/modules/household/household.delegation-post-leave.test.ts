@@ -6,6 +6,7 @@ import { HouseholdService } from "./household.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
@@ -57,8 +58,7 @@ describe("HouseholdService.delegatedHouseholdIds — stale delegation after leav
         grantedByUserId: ownerUserId,
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping HouseholdService delegation-post-leave test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "HouseholdService delegation-post-leave test");
     }
   });
 

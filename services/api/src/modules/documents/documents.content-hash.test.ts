@@ -11,6 +11,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MalwareScannerService } from "./malware-scanner.service";
 import type { HouseholdService } from "../household/household.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 cloud-file connectors — `findByContentHash` is the dedup check every
@@ -45,8 +46,7 @@ describe("DocumentsService.findByContentHash", () => {
         { id: otherUserId, email: `content-hash-test-${otherUserId}@example.com`, displayName: "Content Hash Test Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping findByContentHash tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "findByContentHash tests");
     }
   });
 

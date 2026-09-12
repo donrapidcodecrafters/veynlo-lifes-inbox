@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * DEF-102 — the extracted appointment TIME must survive ingestion.
@@ -67,8 +68,7 @@ describe("DEF-102 — an extracted appointment keeps its time of day", () => {
         timezone: "America/New_York",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DEF-102 tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DEF-102 tests");
     }
   });
 

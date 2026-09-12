@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Every date below is relative to now, never pinned.
@@ -62,8 +63,7 @@ describe("IngestionService.extractHealthAppointment", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `hlth-ingest-${ownerUserId}@example.com`, displayName: "Health Ingest Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService.extractHealthAppointment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService.extractHealthAppointment tests");
     }
   });
 

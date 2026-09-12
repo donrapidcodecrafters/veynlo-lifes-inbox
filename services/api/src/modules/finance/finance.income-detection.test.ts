@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { FinanceService } from "./finance.service";
 import type { AttentionService } from "../attention/attention.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * FIN-003 "Model paycheck and recurring expenses as expected streams" — zero code existed for this before
@@ -98,8 +99,7 @@ describe("FinanceService.detectIncomeStreams", () => {
       await insertTxn(5, -60_000, "IRREGULAR CLIENT PMT", "Irregular Client");
       await insertTxn(40, -60_000, "IRREGULAR CLIENT PMT", "Irregular Client");
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping FinanceService income-detection tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "FinanceService income-detection tests");
     }
   });
 

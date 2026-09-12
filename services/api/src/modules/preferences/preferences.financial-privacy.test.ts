@@ -7,6 +7,7 @@ import { IdentityService } from "../identity/identity.service";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -40,8 +41,7 @@ describe("PreferencesService — FIN-007 financial privacy mode", () => {
       const passwordHash = await argon2.hash(OWNER_PASSWORD);
       await db.insert(schema.users).values({ id: ownerUserId, email: `fin-privacy-${ownerUserId}@example.com`, displayName: "Finance Privacy Test", passwordHash });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PreferencesService financial-privacy tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PreferencesService financial-privacy tests");
     }
   });
 

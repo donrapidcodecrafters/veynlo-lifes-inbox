@@ -10,6 +10,7 @@ import type { MailerService } from "./mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { EmailProvider, PushProvider } from "./notification-provider.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -52,8 +53,7 @@ describe("NotificationDispatchService — FIN-007 masks dollar amounts in brief 
         sensitivePreviewsEnabled: true,
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping NotificationDispatchService financial-privacy tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "NotificationDispatchService financial-privacy tests");
     }
   });
 
