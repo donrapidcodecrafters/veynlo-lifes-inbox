@@ -446,6 +446,83 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // Depth, so the Inbox fixture can actually exhibit what the Inbox does.
+  //
+  // The two items above were the entire Inbox fixture, which meant every sweep that "tested the Inbox"
+  // graded a two-row page: nothing to group, nothing to paginate, and the default view (reviewState "new")
+  // showing almost nothing. DEF-104 and DEF-105 both survived repeated passes because of it.
+  //
+  // Realistic content rather than "item 1" — layout defects hide behind short placeholder text, and
+  // several of these are deliberately long enough to wrap on a phone.
+  const inboxDepth: Array<[string, string[]]> = [
+    ["purchase", [
+      "Amazon order #114-2938471 — Dyson V15 Detect cordless vacuum, $749.99, arriving Thursday",
+      "REI order #RE-88213 — Patagonia Nano Puff jacket, $229.00",
+      "Best Buy order #BBY01-80429 — Sony WH-1000XM5 headphones, $399.99",
+      "Amazon order #114-3847192 — replacement HEPA filters, 2-pack, $39.98",
+      "Home Depot order #WM-77341 — gutter guards, 40ft, $184.50",
+      "Amazon order #114-9928374 — USB-C cables, 3-pack, $24.99",
+      "Target order #TGT-4482910 — winter boots, youth size 5, $64.99",
+      "Backcountry order #BC-338290 — trekking poles, $119.95",
+    ]],
+    ["bill", [
+      "ComEd electricity bill — $84.20 due September 17",
+      "Xfinity internet bill — $99.00 due September 19",
+      "State Farm auto insurance — $212.00 due September 22",
+      "Chicago Water Department — $61.40 due September 25",
+      "Nicor Gas — $38.75 due September 28",
+      "Lincoln Elementary lunch account top-up — $45.00 due October 1",
+    ]],
+    ["appointment", [
+      "Dr. Alvarez follow-up — October 3, 9:30 AM, Riverside Medical",
+      "Maya's parent-teacher conference — September 24, 4:15 PM, Lincoln Elementary",
+      "Biscuit's annual vet checkup — October 8, 11:00 AM, Oak Park Animal Hospital",
+      "Dental cleaning, both kids — October 15, 3:00 PM and 3:45 PM",
+      "Subaru 60,000 mile service — September 30, 8:00 AM",
+    ]],
+    ["document", [
+      "Homeowner's insurance policy renewal — State Farm, effective November 1",
+      "Maya's immunisation record — Lincoln Elementary, uploaded by the school nurse",
+      "2025 property tax assessment — Cook County",
+      "Passport renewal confirmation — application #PR-2938471",
+    ]],
+    ["travel", [
+      "United flight UA482 — Denver, October 14, departing 7:15 AM from ORD",
+      "Hyatt Place Denver Downtown — October 14 to 18, confirmation HY-88392",
+      "Hertz rental car — Denver Airport, October 14, confirmation HZ-44821",
+    ]],
+    ["warranty", [
+      "Dyson V15 warranty registration — 2-year coverage through August 2027",
+      "Sony WH-1000XM5 — 1-year manufacturer warranty registered",
+    ]],
+  ];
+
+  const depthRows = [];
+  let inboxN = 0;
+  for (const [category, summaries] of inboxDepth) {
+    for (const summary of summaries) {
+      depthRows.push({
+        id: `inb_demo_depth_${inboxN}`,
+        ownerUserId: userId,
+        householdId,
+        category,
+        summary,
+        // NOT NULL — every inbox item is traceable to the evidence it came from, which is the point of the
+        // column. Reusing a real seeded source event rather than inventing one keeps that true.
+        sourceEventId: "src_demo_vacuum_receipt",
+        suggestedActions: category === "bill" ? ["confirm", "dismiss"] : ["confirm"],
+        // Most are "new", because a real inbox is mostly unreviewed and "new" is the view users land on —
+        // the other two states are present so their badges and the "all" filter have something to show.
+        reviewState: inboxN % 5 === 3 ? ("needs_review" as const) : inboxN % 5 === 4 ? ("auto_filed" as const) : ("new" as const),
+        autoFiled: inboxN % 5 === 4,
+        confidenceBand: "verified",
+        createdAt: new Date(Date.now() - inboxN * 3_600_000),
+      });
+      inboxN++;
+    }
+  }
+  await db.insert(schema.inboxItems).values(depthRows as never).onConflictDoNothing();
+
   // --- Attention items (Home "Needs You") ------------------------------------
   await db
     .insert(schema.attentionItems)
