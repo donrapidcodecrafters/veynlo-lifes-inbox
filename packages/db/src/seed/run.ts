@@ -415,6 +415,44 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // --- Notifications that point at something -----------------------------------
+  // The rest of the fixture's notifications are briefs, which deliberately have no target. Without these
+  // two, nothing in the fixture could be tapped, and the deep-link routing, the in-app history rows and
+  // the openedAt they render all had nothing to act on.
+  await db
+    .insert(schema.notifications)
+    .values([
+      {
+        id: "ntf_demo_bill_due",
+        ownerUserId: userId,
+        dedupeKey: "bill-due:bil_demo_electric",
+        priority: "important",
+        channel: "push",
+        title: "Electricity bill due soon",
+        body: "City Light & Power — $184.20. Tap to review it.",
+        linkedResourceType: "bill",
+        linkedResourceId: "bil_demo_electric",
+        state: "sent",
+        scheduledFor: daysFromNow(-1),
+        sentAt: daysFromNow(-1),
+      },
+      {
+        id: "ntf_demo_price_drop",
+        ownerUserId: userId,
+        dedupeKey: "price-drop:pur_demo_vacuum",
+        priority: "useful",
+        channel: "push",
+        title: "The vacuum you bought dropped in price",
+        body: "You may be able to claim the difference. Tap to see the purchase.",
+        linkedResourceType: "purchase",
+        linkedResourceId: "pur_demo_vacuum",
+        state: "sent",
+        scheduledFor: daysFromNow(-2),
+        sentAt: daysFromNow(-2),
+      },
+    ])
+    .onConflictDoNothing();
+
   // --- Inbox items ------------------------------------------------------------
   await db
     .insert(schema.inboxItems)

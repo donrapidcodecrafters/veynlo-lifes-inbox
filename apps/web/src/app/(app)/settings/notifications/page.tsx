@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { swrFetcher, ApiError } from "@/lib/api-client";
+import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { resolveNotificationRoute } from "@/lib/notification-route";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -28,6 +29,9 @@ interface NotificationRecord {
   scheduledFor: string;
   sentAt: string | null;
   openedAt: string | null;
+  // Stored at enqueue time so a client never has to reverse-engineer a destination from the reason code.
+  linkedResourceType: string | null;
+  linkedResourceId: string | null;
 }
 
 const STATE_TONE: Record<NotificationRecord["state"], "positive" | "warning" | "neutral" | "critical"> = {
@@ -100,9 +104,10 @@ export default function NotificationHistoryPage() {
 
       {!isLoading && data && data.length > 0 && (
         <ul className="space-y-3">
-          {data.map((n) => (
-            <li key={n.id}>
-              <Card>
+          {data.map((n) => {
+            const href = resolveNotificationRoute(n.linkedResourceType, n.linkedResourceId);
+            const card = (
+              <Card className={href ? "transition-colors hover:bg-subtle" : undefined}>
                 <CardBody className="space-y-2">
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
@@ -121,8 +126,29 @@ export default function NotificationHistoryPage() {
                   </p>
                 </CardBody>
               </Card>
-            </li>
-          ))}
+            );
+            return (
+              <li key={n.id}>
+                {href ? (
+                  // A notification that names something opens it, and says so on the way. Fire-and-forget:
+                  // a failed write must not stand between the user and the thing they just asked to see —
+                  // the cost of losing one is a row that reads "not opened", which is what every row read
+                  // before this column was ever written to.
+                  <Link
+                    href={href}
+                    className="block rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]"
+                    onClick={() => {
+                      void api.post(`/v1/notifications/${encodeURIComponent(n.id)}/opened`, {}).catch(() => {});
+                    }}
+                  >
+                    {card}
+                  </Link>
+                ) : (
+                  card
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
+import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { PushDeepLinkData } from "@/lib/push-deep-link";
 import { createPushNavigator } from "@/lib/push-navigator";
@@ -27,6 +28,21 @@ import { createPushNavigator } from "@/lib/push-navigator";
  * token, and faking one would mean shipping test-only code into the app). The delivery half is recorded as
  * unverified in the audit ledger; keeping the logic out here means the half that CAN be proven is proven.
  */
+/**
+ * Tells the server a notification was opened.
+ *
+ * Fire-and-forget: this happens while the user is being taken somewhere, so it must not delay that or put
+ * an error over it. A lost write costs one "Opened" line — which is what every row showed before the
+ * column was ever written to.
+ */
+function reportOpened(data: PushDeepLinkData | undefined) {
+  const id = data?.notificationId;
+  if (!id) return;
+  void api.post(`/v1/notifications/${encodeURIComponent(id)}/opened`, {}).catch(() => {
+    // Deliberately silent — see above.
+  });
+}
+
 export function PushNavigation() {
   const { user } = useAuth();
   // Held in a ref so the push-vs-replace state and the replay guard survive re-renders and auth changes.
@@ -55,7 +71,9 @@ export function PushNavigation() {
         const id = launchResponse.notification.request.identifier;
         if (nav.alreadyHandled(id)) return;
         nav.markHandled(id);
-        nav.go(launchResponse.notification.request.content.data as PushDeepLinkData | undefined);
+        const data = launchResponse.notification.request.content.data as PushDeepLinkData | undefined;
+        reportOpened(data);
+        nav.go(data);
       } catch {
         // A failure to read the launch response must never block app start — the user still lands on Home,
         // which is exactly the behaviour this component improves on rather than depends on.
@@ -66,7 +84,9 @@ export function PushNavigation() {
       // Mark here too: a tap that arrives while the app is running is fully handled by this listener, and
       // must not then be replayed as a "cold start" by a later remount.
       nav.markHandled(response.notification.request.identifier);
-      nav.go(response.notification.request.content.data as PushDeepLinkData | undefined);
+      const data = response.notification.request.content.data as PushDeepLinkData | undefined;
+      reportOpened(data);
+      nav.go(data);
     });
 
     return () => {
