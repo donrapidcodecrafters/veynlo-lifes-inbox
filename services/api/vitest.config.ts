@@ -30,6 +30,22 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       DB_POOL_MAX: "5",
+      /**
+       * A database of their own.
+       *
+       * Every suite here defaults to `veynlo` — the same database the running app, the seed and every
+       * browser/emulator verification write to. So a test run and a person using the app could not be
+       * run at the same time without either corrupting the other, and one full-suite failure during this
+       * audit did not reproduce on two subsequent runs, which is exactly what that interference looks
+       * like: real, and unattributable.
+       *
+       * Set here rather than in 173 files because each one reads `process.env.DATABASE_URL ?? <default>`,
+       * so one variable moves all of them and no suite can be forgotten. `veynlo_audit` carries the
+       * identical schema — 133 tables and 1520 columns, diffed, nothing missing — and is seeded the same
+       * way, which data-export.completeness.test.ts needs because it deliberately asserts against the
+       * seeded demo account.
+       */
+      DATABASE_URL: process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo_audit",
     },
   },
 });
