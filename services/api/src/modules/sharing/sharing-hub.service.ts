@@ -18,6 +18,10 @@ const RESOURCE_TYPE_LABELS: Record<string, string> = {
   person: "Person",
   identity_record: "Identity record",
   health_appointment: "Health appointment",
+  // Grant-only like the three above, and the one that was missed: a shared saved place fell through to
+  // the raw resourceType, so the Sharing Hub showed the bare lowercase word "place" next to properly
+  // capitalised labels like "Document". Named to match the screen it comes from ("Saved places").
+  place: "Saved place",
 };
 
 /**

@@ -8,7 +8,7 @@ export const LIST_KINDS = ["grocery", "packing", "household_maintenance", "gift"
  * / MemoriesService.evaluateSmartQuery) instead of a manual-membership one — mutually exclusive with ever
  * calling `POST /v1/lists/:id/items` on it in practice, though nothing at the DB level forbids both. */
 export const CreateListDtoSchema = z.object({
-  name: z.string().min(1).max(120),
+  name: z.string().trim().min(1).max(120),
   kind: z.enum(LIST_KINDS).optional(),
   householdId: z.string().nullable().optional(),
   smartListQuery: SmartListQuerySchema.optional(),
@@ -16,14 +16,14 @@ export const CreateListDtoSchema = z.object({
 export type CreateListDto = z.infer<typeof CreateListDtoSchema>;
 
 export const UpdateListDtoSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
   archived: z.boolean().optional(),
   smartListQuery: SmartListQuerySchema.nullable().optional(),
 });
 export type UpdateListDto = z.infer<typeof UpdateListDtoSchema>;
 
 export const CreateSavedItemDtoSchema = z.object({
-  label: z.string().min(1).max(300),
+  label: z.string().trim().min(1).max(300),
   assignedToUserId: z.string().nullable().optional(),
   linkedResourceType: z.string().max(60).nullable().optional(),
   linkedResourceId: z.string().nullable().optional(),
@@ -32,7 +32,7 @@ export const CreateSavedItemDtoSchema = z.object({
 export type CreateSavedItemDto = z.infer<typeof CreateSavedItemDtoSchema>;
 
 export const UpdateSavedItemDtoSchema = z.object({
-  label: z.string().min(1).max(300).optional(),
+  label: z.string().trim().min(1).max(300).optional(),
   checked: z.boolean().optional(),
   assignedToUserId: z.string().nullable().optional(),
   isPrivate: z.boolean().optional(),

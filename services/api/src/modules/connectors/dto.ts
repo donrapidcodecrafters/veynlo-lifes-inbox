@@ -20,3 +20,30 @@ export const PlaidExchangeDtoSchema = z.object({
   historyDepthDays: z.number().int().min(0).max(3650).optional(),
 });
 export type PlaidExchangeDto = z.infer<typeof PlaidExchangeDtoSchema>;
+
+/**
+ * Five connector endpoints took a single field via @Body("...") and so never reached a pipe. The three
+ * booleans were coerced with Boolean(...) at the call site, which does not reject a wrong type so much as
+ * reinterpret it - Boolean("false") is true, so {"enabled":"false"} turned write-back ON.
+ */
+export const SetWriteBackDtoSchema = z.object({ enabled: z.boolean() });
+export type SetWriteBackDto = z.infer<typeof SetWriteBackDtoSchema>;
+
+export const DisconnectConnectionDtoSchema = z.object({
+  deleteDerivedData: z.boolean().optional(),
+  password: z.string().min(1).optional(),
+});
+export type DisconnectConnectionDto = z.infer<typeof DisconnectConnectionDtoSchema>;
+
+/** Null is meaningful here: it clears the per-connection override and falls back to the global setting. */
+export const SetAiProcessingDtoSchema = z.object({ enabled: z.boolean().nullable() });
+export type SetAiProcessingDto = z.infer<typeof SetAiProcessingDtoSchema>;
+
+export const SetPausedDtoSchema = z.object({ paused: z.boolean() });
+export type SetPausedDto = z.infer<typeof SetPausedDtoSchema>;
+
+export const AddExclusionDtoSchema = z.object({ excludedSenderDomain: z.string().min(1).max(255) });
+export type AddExclusionDto = z.infer<typeof AddExclusionDtoSchema>;
+
+export const PushCalendarEventDtoSchema = z.object({ connectionId: z.string().min(1) });
+export type PushCalendarEventDto = z.infer<typeof PushCalendarEventDtoSchema>;

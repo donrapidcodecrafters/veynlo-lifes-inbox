@@ -4,6 +4,7 @@ import { IngestionModule } from "../ingestion/ingestion.module";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { DocumentsModule } from "../documents/documents.module";
 import { ScheduleModule } from "../schedule/schedule.module";
+import { SearchIndexModule } from "../search/search-index.module";
 import { CredentialVault } from "../../common/credential-vault";
 import { ConnectorsController } from "./connectors.controller";
 import { CalendarActionsController } from "./calendar-actions.controller";
@@ -41,7 +42,7 @@ const ADAPTERS = [
 ];
 
 @Module({
-  imports: [IdentityModule, IngestionModule, EntitlementsModule, DocumentsModule, ScheduleModule],
+  imports: [IdentityModule, IngestionModule, EntitlementsModule, DocumentsModule, ScheduleModule, SearchIndexModule],
   controllers: [ConnectorsController, CalendarActionsController, WebhooksController],
   providers: [ConnectorsService, CalendarWriteBackService, ...ADAPTERS, CredentialVault],
   // CalendarWriteBackService is exported so AttentionModule (InboxService's "add to calendar" destination

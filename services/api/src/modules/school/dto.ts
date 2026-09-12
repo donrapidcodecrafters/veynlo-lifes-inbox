@@ -5,7 +5,7 @@ import { z } from "zod";
  * discovered event/form at a different school, not creating one). */
 export const CreateSchoolDtoSchema = z.object({
   householdId: z.string().min(1),
-  name: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
   address: z.string().max(400).nullable().optional(),
 });
 export type CreateSchoolDto = z.infer<typeof CreateSchoolDtoSchema>;
@@ -19,7 +19,7 @@ export const CreateSchoolSourceDtoSchema = z
   .object({
     householdId: z.string().min(1),
     schoolId: z.string().nullable().optional(),
-    label: z.string().min(1).max(200),
+    label: z.string().trim().min(1).max(200),
     kind: z.enum(["ics", "forwarding_email"]).default("ics"),
     icsUrl: z.string().url().max(2000).nullable().optional(),
   })
@@ -46,7 +46,7 @@ export type AdvanceFormStateDto = z.infer<typeof AdvanceFormStateDtoSchema>;
 /** Manual permission-form add — for a form the user knows about before any email ever mentions it (e.g. a paper form sent home). */
 export const CreatePermissionFormDtoSchema = z.object({
   householdId: z.string().min(1),
-  title: z.string().min(1).max(300),
+  title: z.string().trim().min(1).max(300),
   dependentId: z.string().nullable().optional(),
   schoolId: z.string().nullable().optional(),
   dueIso: z.string().nullable().optional(),

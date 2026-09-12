@@ -156,7 +156,14 @@ export const darkSemanticColors = {
   textTertiary: neutral[400],
   textDisabled: neutral[600],
   textInverse: neutral[900],
-  textOnBrand: neutral[0],
+  /* Dark mode's brand is brand[400] (#7c86f0), a deliberately lighter indigo so it reads as brand against a
+     near-black canvas. White on it measures 3.21:1 — under WCAG AA's 4.5:1 — which axe-core caught on the
+     web app's every primary button and selected tab pill, and this shared palette feeds mobile's Button
+     (primary and critical), SectionTabs and RecurrencePicker with the identical pair. Light mode is
+     unaffected: it uses brand[500], where white measures a passing 4.84:1. Flipping the foreground keeps
+     the lightness that was deliberate and the numbers improve on interaction rather than degrade: 5.50:1
+     at rest, 8.09:1 on hover (brand[300]), 10.92:1 while active (brand[200]). */
+  textOnBrand: neutral[900],
 
   brandDefault: brand[400],
   brandHover: brand[300],
@@ -164,9 +171,14 @@ export const darkSemanticColors = {
   brandSubtleBg: "rgba(91, 99, 227, 0.16)",
   brandSubtleText: brand[300],
 
-  // #e9807f (with white button text) measured ~2.67:1 — badly fails WCAG AA's 4.5:1, worse than the
-  // light-mode equivalent. Darkened to clear 4.5:1 with margin (~5.3:1); matches tokens.css's fix.
-  critical: "#b84443",
+  // This colour serves two roles: `critical` text on a surface, and the critical Button's background. An
+  // earlier fix tuned it for the button alone — #e9807f gave white button text ~2.67:1, so it was darkened
+  // to #b84443 for ~5.3:1 — and that broke the other role: #b84443 measures 3.32:1 as TEXT on the dark
+  // surface. Measured across the range, no single red satisfies both while the button keeps a WHITE
+  // foreground; as the red lightens enough to read on near-black, white stops reading on it. With
+  // textOnBrand now near-black in dark (see above), #d65b5a gives 4.64:1 in both roles. Mirrors the same
+  // fix in tokens.css for web.
+  critical: "#d65b5a",
   criticalSubtleBg: "rgba(214, 69, 69, 0.16)",
   criticalSubtleText: "#f4b3b2",
   warning: "#e8b463",

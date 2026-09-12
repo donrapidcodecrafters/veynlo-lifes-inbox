@@ -396,7 +396,14 @@ describe("IngestionService bill/subscription dedup", () => {
     ingestion = new IngestionService(db, ai, stubNotifications, stubStorage, stubMalwareScanner, stubEntitlements, stubAutomation, stubConflicts, stubTrips, stubPreferences);
     await db.insert(schema.calendarRescheduleTrustedRules).values({ id: generateId("calendarRescheduleTrustedRule"), ownerUserId, senderDomain: "clinicportal.example" });
 
-    const dates = ["2026-09-10", "2026-09-17"];
+    // Relative to today, never pinned. The reschedule reconciliation this test exercises only considers
+    // events less than a day old (findExistingDiscoveredCalendarEvent: startSort >= now - 24h), and a
+    // discovered event's startSort lands at UTC MIDNIGHT of its date because toTemporalValue ignores the
+    // model's separate startTime field. So a hardcoded date stops testing the in-place merge and starts
+    // testing the window, silently, the morning after it was written: this was pinned to 2026-09-10 and
+    // began failing on 2026-09-11 against a commit that touched nothing near it.
+    const dayFromNow = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const dates = [dayFromNow(3), dayFromNow(10)];
     for (const iso_date of dates) {
       ai.enqueue("domain_classifier_v1", fakeExtraction({ domains: ["calendar_event"] }));
       ai.enqueue(
@@ -422,7 +429,7 @@ describe("IngestionService bill/subscription dedup", () => {
     const events = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.ownerUserId, ownerUserId));
     const matching = events.filter((e) => e.title === "Dr. Alvarez follow-up");
     expect(matching).toHaveLength(1);
-    expect((matching[0]?.start as { date?: string } | null)?.date).toBe("2026-09-17");
+    expect((matching[0]?.start as { date?: string } | null)?.date).toBe(dates[1]);
   });
 
   it("does not silently merge a same-titled email once two genuinely distinct events already share that title", async () => {

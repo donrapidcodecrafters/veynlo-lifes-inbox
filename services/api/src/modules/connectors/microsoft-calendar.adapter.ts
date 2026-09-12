@@ -9,6 +9,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
+import { SearchIndexService } from "../search/search-index.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 import type { OAuthConnectorAdapter } from "./connector.interface";
 import { oauthTokenRequestError } from "./connection-health.util";
@@ -82,6 +83,7 @@ export class MicrosoftCalendarAdapter implements OAuthConnectorAdapter {
     @Inject(IngestionService) private readonly ingestion: IngestionService,
     @Inject(QUEUE_PRODUCER) private readonly queue: QueueProducer,
     @Inject(EntitlementsService) private readonly entitlements: EntitlementsService,
+    @Inject(SearchIndexService) private readonly searchIndex?: SearchIndexService,
   ) {}
 
   isConfigured(): boolean {
@@ -162,9 +164,14 @@ export class MicrosoftCalendarAdapter implements OAuthConnectorAdapter {
       // Scoped by ownerUserId, not just providerEventId — see google-calendar.adapter.ts's identical fix
       // for the full trace: a shared/invited event can carry the same provider event id in more than one
       // Veynlo user's calendar, and this delete used to remove every matching row regardless of owner.
-      await this.db
+      // `.returning()` because the search document is keyed by the LOCAL row id, which this delete
+      // (scoped by provider event id + owner) never otherwise learns. Without retiring them, a
+      // provider-side cancellation leaves orphan rows that keep consuming ranked result slots.
+      const removed = await this.db
         .delete(schema.calendarEvents)
-        .where(and(eq(schema.calendarEvents.providerEventId, event.id), eq(schema.calendarEvents.ownerUserId, connection.ownerUserId)));
+        .where(and(eq(schema.calendarEvents.providerEventId, event.id), eq(schema.calendarEvents.ownerUserId, connection.ownerUserId)))
+        .returning({ id: schema.calendarEvents.id });
+      for (const row of removed) await this.searchIndex?.markDeleted("calendar_event", row.id);
       return false; // a removal isn't a new item to count/file — nothing to review
     }
     const isAllDay = Boolean(event.isAllDay);

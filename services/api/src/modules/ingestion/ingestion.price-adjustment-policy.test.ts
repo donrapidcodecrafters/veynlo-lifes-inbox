@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { IngestionService } from "./ingestion.service";
@@ -22,6 +22,23 @@ import type { PreferencesService } from "../preferences/preferences.service";
  * this file is the "actually merchant-specific now" half).
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
+
+/**
+ * Fixtures pin `effectiveFrom` to a fixed past instant rather than letting the column default to the
+ * database's `now()`. That default is why CI failed intermittently on
+ * "a merchant with a specific commonly_known policy resolves to that window" with `expected 30 to be 14`:
+ *
+ *   effective_from is `timestamp with time zone` at datetime_precision 6 (MICROseconds), defaulting to
+ *   now(). resolvePriceAdjustmentPolicy filters `lte(effectiveFrom, now)` where `now` is a JavaScript
+ *   `new Date()` — MILLIsecond precision. A row written at ...123456 is therefore NOT <= a `now` of
+ *   ...123000, so the policy is skipped and the flat 30-day default returned instead.
+ *
+ * The window is sub-millisecond, which is why it failed roughly one run in ten rather than every time. The
+ * product behaviour is fine — a policy that becomes effective in the future genuinely should not apply —
+ * so the fix belongs in the fixtures, which have no reason to depend on the clock at all.
+ */
+const FIXTURE_EFFECTIVE_FROM = new Date("2020-01-01T00:00:00.000Z");
+
 
 const stubNotifications = { createAndEnqueue: async () => ({ notificationId: "ntf_test_stub" }) } as unknown as NotificationDeliveryService;
 const stubStorage = {} as unknown as ObjectStorage;
@@ -109,16 +126,21 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
       windowDays: 10,
       confidence: "commonly_known",
       sourceNote: "Test fixture: a real 10-day policy.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     // 20 days apart — inside the flat 30-day default, but OUTSIDE this merchant's real 10-day policy.
     await buyTwice(merchantName, "Policy Test Short-Window Widget", "PADJ-SHORT-001", "2026-01-01", 9_000, "PADJ-SHORT-002", "2026-01-21", 6_000);
 
     const lines = await db
-      .select({ line: schema.purchaseLines })
+      .select({ line: schema.purchaseLines, orderNumber: schema.purchases.orderNumber })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
-      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+      .where(eq(schema.purchases.ownerUserId, ownerUserId))
+      // Ordered, because the assertions below index into this. Without it the row order is whatever
+      // Postgres happens to return, and the long-window test looked up the wrong line roughly one run in
+      // three — the observation attaches to the FIRST purchase's line.
+      .orderBy(asc(schema.purchases.orderNumber), asc(schema.purchaseLines.id));
     const matching = lines.filter((l) => l.line.productLabel === "Policy Test Short-Window Widget");
     expect(matching).toHaveLength(2);
     const observations = await db.select().from(schema.priceObservations).where(eq(schema.priceObservations.subjectEntityId, matching[0]!.line.id));
@@ -141,16 +163,21 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
       windowDays: 45,
       confidence: "commonly_known",
       sourceNote: "Test fixture: a real 45-day policy.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     // 35 days apart — outside the flat 30-day default, but INSIDE this merchant's real 45-day policy.
     await buyTwice(merchantName, "Policy Test Long-Window Widget", "PADJ-LONG-001", "2026-01-01", 9_000, "PADJ-LONG-002", "2026-02-05", 6_000);
 
     const lines = await db
-      .select({ line: schema.purchaseLines })
+      .select({ line: schema.purchaseLines, orderNumber: schema.purchases.orderNumber })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
-      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+      .where(eq(schema.purchases.ownerUserId, ownerUserId))
+      // Ordered, because the assertions below index into this. Without it the row order is whatever
+      // Postgres happens to return, and the long-window test looked up the wrong line roughly one run in
+      // three — the observation attaches to the FIRST purchase's line.
+      .orderBy(asc(schema.purchases.orderNumber), asc(schema.purchaseLines.id));
     const matching = lines.filter((l) => l.line.productLabel === "Policy Test Long-Window Widget");
     expect(matching).toHaveLength(2);
     const observations = await db.select().from(schema.priceObservations).where(eq(schema.priceObservations.subjectEntityId, matching[0]!.line.id));
@@ -176,10 +203,14 @@ describe("IngestionService RET-004 per-merchant price-adjustment policy", () => 
     await buyTwice(merchantName, "Policy Test No-Policy Widget", "PADJ-NONE-001", "2026-01-01", 9_000, "PADJ-NONE-002", "2026-01-30", 6_000);
 
     const lines = await db
-      .select({ line: schema.purchaseLines })
+      .select({ line: schema.purchaseLines, orderNumber: schema.purchases.orderNumber })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
-      .where(eq(schema.purchases.ownerUserId, ownerUserId));
+      .where(eq(schema.purchases.ownerUserId, ownerUserId))
+      // Ordered, because the assertions below index into this. Without it the row order is whatever
+      // Postgres happens to return, and the long-window test looked up the wrong line roughly one run in
+      // three — the observation attaches to the FIRST purchase's line.
+      .orderBy(asc(schema.purchases.orderNumber), asc(schema.purchaseLines.id));
     const matching = lines.filter((l) => l.line.productLabel === "Policy Test No-Policy Widget");
     expect(matching).toHaveLength(2);
     const observations = await db.select().from(schema.priceObservations).where(eq(schema.priceObservations.subjectEntityId, matching[0]!.line.id));

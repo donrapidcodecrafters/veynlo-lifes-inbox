@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { LoggerModule } from "nestjs-pino";
+import { stdSerializers } from "pino-http";
 import { loadEnv } from "../config/env";
+import { redactUrlSecrets } from "./redact-url-secrets";
 
 /**
  * §Observability — replaces Nest's default console logger with structured JSON (pino), which is what
@@ -23,6 +25,16 @@ import { loadEnv } from "../config/env";
         // added later, not currently live redaction of a real leak — §28.11 "Error reporting/tracing/
         // logging SDKs must apply server-side redaction for Authorization, Cookie, Set-Cookie, tokens,
         // document text, financial details, and other sensitive fields" calls for exactly this posture.
+        // Wraps pino-http's own request serializer rather than replacing it, so every field it normally
+        // emits is untouched — only `url` is rewritten. `redact` below cannot do this job: it matches
+        // object paths, and a URL is one opaque string, so a token in the PATH is invisible to it. Three
+        // public endpoints put their token there, and it was landing in the logs verbatim.
+        serializers: {
+          req(request: Parameters<typeof stdSerializers.req>[0]) {
+            const serialized = stdSerializers.req(request);
+            return { ...serialized, url: redactUrlSecrets(serialized.url) };
+          },
+        },
         redact: {
           paths: [
             "req.headers.authorization",

@@ -186,13 +186,14 @@ export default function AdminsPage() {
                     <td className="py-2 text-tertiary">{a.role}</td>
                     <td className="py-2 text-tertiary">{a.lastLoginAt ? new Date(a.lastLoginAt).toLocaleString() : "never"}</td>
                     <td className="py-2">
-                      {a.revokedAt ? <span className="text-critical">revoked</span> : <span className="text-positive">active</span>}
+                      {a.revokedAt ? <span className="text-critical-subtle-text">revoked</span> : <span className="text-positive-subtle-text">active</span>}
                     </td>
                     <td className="py-2">
                       {!a.revokedAt && !isSelf && (
                         <button
                           disabled={busyId === a.id}
-                          onClick={() => onRevoke(a.id, a.displayName)}
+                          aria-label={`Revoke ${a.displayName}`}
+                        onClick={() => onRevoke(a.id, a.displayName)}
                           className="rounded-lg border border-border-default px-2.5 py-1 text-xs font-medium text-secondary hover:bg-subtle disabled:opacity-50"
                         >
                           Revoke

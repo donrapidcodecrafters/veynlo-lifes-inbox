@@ -49,11 +49,17 @@ function FinancialPrivacySection() {
   const [password, setPassword] = useState("");
   const [revealBusy, setRevealBusy] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   async function toggleEnabled(enabled: boolean) {
     setUpdating(true);
+    setToggleError(null);
     try {
       await update({ financialPrivacyModeEnabled: enabled });
+    } catch {
+      // `update` has already rolled the switch back, so the switch and the server agree again; this says
+      // why it moved back, instead of leaving it looking like the tap was ignored.
+      setToggleError("Couldn't change that setting. Please try again.");
     } finally {
       setUpdating(false);
     }
@@ -98,6 +104,7 @@ function FinancialPrivacySection() {
           {...({ activeThumbColor: theme.colors.textOnBrand } as Record<string, string>)}
         />
       </Card>
+      {toggleError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{toggleError}</Text>}
       {data.financialPrivacyModeEnabled && (
         <Card style={{ gap: 8 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>

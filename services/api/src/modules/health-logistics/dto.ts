@@ -68,3 +68,14 @@ export const ExportHealthPacketDtoSchema = z.object({
   appointmentId: z.string().nullable().optional(),
 });
 export type ExportHealthPacketDto = z.infer<typeof ExportHealthPacketDtoSchema>;
+
+/**
+ * The visibility enum has four values (private, household, selected_people, shared_link) and this
+ * endpoint only ever meant to accept two. That mattered more than a mismatched type usually would:
+ * listAppointments grants delegate access with `ne(visibility, "private")`, a negative check, so any
+ * other value reads as shared while failing the `visibility === "household"` comparisons elsewhere.
+ */
+export const SetAppointmentVisibilityDtoSchema = z.object({
+  visibility: z.enum(["private", "household"]),
+});
+export type SetAppointmentVisibilityDto = z.infer<typeof SetAppointmentVisibilityDtoSchema>;

@@ -36,6 +36,9 @@
     "onlyBuiltDependencies": [
       "ffmpeg-static",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "fastify": "5.12.1"
+    }
   }
 }

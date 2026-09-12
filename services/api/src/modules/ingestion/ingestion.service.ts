@@ -44,7 +44,7 @@ import {
 import { evaluateRelevance, matchKnownSender, normalizeSenderDomain, extractEmailAddress, KNOWN_SENDER_PARSER_VERSION } from "../intelligence/deterministic-prefilter";
 import { parseGmailMessage, type ParsedEmail, type EmailAttachmentInput } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
-import { toTemporalValue, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
+import { toTemporalValue, toTemporalValueWithTime, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
 import { resolvePriceAdjustmentPolicy } from "../commerce/price-adjustment-policy";
 import { categorizeBiller } from "../commerce/biller-category";
 
@@ -2161,7 +2161,8 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("calendar_event"));
-    const start = toTemporalValue(result.data.startDate, result.data.timezone);
+    const zone = result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId));
+    const start = toTemporalValueWithTime(result.data.startDate, result.data.startTime, zone, { isAllDay: result.data.isAllDay });
     const startSort = temporalToSortDate(start);
 
     // CAL-004 reschedule reconciliation: a second email about the same appointment (a reminder, or a
@@ -2533,9 +2534,10 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("travel"));
-    const startAt = toTemporalValue(result.data.startDate, result.data.timezone);
+    const zone = result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId));
+    const startAt = toTemporalValueWithTime(result.data.startDate, result.data.startTime, zone);
     const startAtSort = temporalToSortDate(startAt);
-    const endAt = toTemporalValue(result.data.endDate, result.data.timezone);
+    const endAt = toTemporalValueWithTime(result.data.endDate, result.data.endTime, zone);
     const endAtSort = temporalToSortDate(endAt);
     const cancellationDeadline = toTemporalValue(result.data.cancellationDeadlineDate);
     const cancellationDeadlineSort = temporalToSortDate(cancellationDeadline);
@@ -2649,7 +2651,7 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("health_appointment"));
-    const dateTime = toTemporalValue(result.data.startDate, result.data.timezone);
+    const dateTime = toTemporalValueWithTime(result.data.startDate, result.data.startTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)));
     const dateTimeSort = temporalToSortDate(dateTime);
     const label = result.data.providerName ?? result.data.appointmentType ?? "Health appointment";
 
@@ -2746,13 +2748,34 @@ export class IngestionService {
    * against `petNameHint`, and anything else (no hint, no match, more than one candidate) is left
    * unassigned for the user to resolve (see PetsService.assignEvent/assignVaccination).
    */
+  /**
+   * DEF-102 — the zone to read an extracted wall-clock time in when the email did not name one.
+   *
+   * Not a guess of the same kind as inventing a date would be. The message arrived in THIS user's life,
+   * and `users.timezone` is already populated and already trusted for quiet hours, data export and the
+   * Today window. Reading "2:00 PM" as 2:00 PM where the user is, is what the sender meant and what every
+   * calendar client does with it.
+   *
+   * Null when the column is empty, which keeps the value at date precision rather than silently treating
+   * the time as UTC — that would be wrong by up to half a day and would LOOK precise while being so.
+   */
+  private async ownerTimezone(ownerUserId: string): Promise<string | null> {
+    const [owner] = await this.db.select({ timezone: schema.users.timezone }).from(schema.users).where(eq(schema.users.id, ownerUserId)).limit(1);
+    return owner?.timezone ?? null;
+  }
+
   private async resolvePetId(householdId: string | null, ownerUserId: string, petNameHint: string | null): Promise<string | null> {
+    // mergedIntoPetId excluded too — a merged-away duplicate is never hard-deleted (see
+    // assets.service.ts's mergeVehicles doc comment). Without this, a household with one real pet plus one
+    // merged-away duplicate would see pets.length === 2 here, breaking the unambiguous-single-match
+    // auto-assign shortcut below, and the duplicate's name could shadow the real pet's in a hint match.
     const pets = await this.db
       .select({ id: schema.petProfiles.id, label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           householdId ? eq(schema.petProfiles.householdId, householdId) : eq(schema.petProfiles.ownerUserId, ownerUserId),
         ),
       );
@@ -2778,12 +2801,15 @@ export class IngestionService {
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<boolean> {
     if (!this.ai.isConfigured()) return false;
+    // mergedIntoPetId excluded too — see resolvePetId's own doc comment above; a merged-away duplicate
+    // would otherwise shadow the real pet's name in this disambiguation list handed to the model.
     const pets = await this.db
       .select({ label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           ctx.householdId ? eq(schema.petProfiles.householdId, ctx.householdId) : eq(schema.petProfiles.ownerUserId, ctx.ownerUserId),
         ),
       );
@@ -2810,7 +2836,7 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("pet"));
-    const start = toTemporalValue(result.data.startDate, result.data.timezone);
+    const start = toTemporalValueWithTime(result.data.startDate, result.data.startTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)));
     const startSort = temporalToSortDate(start);
     const petId = await this.resolvePetId(ctx.householdId, ctx.ownerUserId, result.data.petNameHint);
 
@@ -2891,12 +2917,14 @@ export class IngestionService {
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<boolean> {
     if (!this.ai.isConfigured()) return false;
+    // mergedIntoPetId excluded too — see resolvePetId's own doc comment above.
     const pets = await this.db
       .select({ label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           ctx.householdId ? eq(schema.petProfiles.householdId, ctx.householdId) : eq(schema.petProfiles.ownerUserId, ctx.ownerUserId),
         ),
       );
@@ -3265,10 +3293,15 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("school"));
-    // Same precision stance as extractCalendarEvent: never fabricate an "instant" from a date + separate
-    // HH:MM field the schema captures but the evidence didn't clearly anchor together — see
-    // temporal.util.ts's toTemporalValue, which this deliberately mirrors rather than reimplementing.
-    const start = toTemporalValue(result.data.eventDate, result.data.timezone);
+    // DEF-102: this used to drop `eventTime` and say so, on the grounds that combining a date with a
+    // separately-extracted HH:MM would be fabricating precision. It is the opposite — the model was asked
+    // for that time and answered; discarding it lost the 09:00 from picture day and the 07:15 from a field
+    // trip's departure, and left every school event sorting at UTC midnight with its reminder an evening
+    // early. toTemporalValueWithTime still refuses to invent anything: no time, or no zone, and the value
+    // stays exactly the date-precision it was.
+    const start = toTemporalValueWithTime(result.data.eventDate, result.data.eventTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)), {
+      isAllDay: result.data.isAllDay,
+    });
     const startSort = temporalToSortDate(start);
 
     let dependentId: string | null = null;
@@ -3862,6 +3895,8 @@ export class IngestionService {
       await this.notifications.createAndEnqueue({
         ownerUserId: params.ownerUserId,
         dedupeKey: `inbox-item:${inboxItemId}`,
+        linkedResourceType: "inbox_item",
+        linkedResourceId: inboxItemId,
         priority: "useful",
         title: "Veynlo found something new",
         body: prefs?.sensitivePreviewsEnabled === false ? "Open Veynlo to review it." : params.summary,

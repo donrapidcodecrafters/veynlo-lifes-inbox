@@ -32,6 +32,7 @@ interface LegacyReleaseConfig {
   waitingPeriodDays: number;
   status: Status;
   releaseEligibleAt: string | null;
+  releaseExpiresAt: string | null;
   inactivityThresholdDays: number | null;
   inactivityWarningSentAt: string | null;
 }
@@ -82,6 +83,7 @@ export default function LegacyReleasePage() {
   const [confirmTyped, setConfirmTyped] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
   function toggleCategory(c: Category) {
@@ -129,15 +131,42 @@ export default function LegacyReleasePage() {
     }
   }
 
-  async function revoke(id: string) {
-    if (!window.confirm("Revoke this legacy release configuration? Your trusted contact will never receive anything from it.")) return;
-    await api.delete(`/v1/legacy-release/${id}`);
-    mutate();
+  async function revoke(id: string, status: Status) {
+    const question =
+      status === "released"
+        ? "End this release now? Your trusted contact's link stops working immediately and they lose access to everything it shared."
+        : "Revoke this legacy release configuration? Your trusted contact will never receive anything from it.";
+    if (!window.confirm(question)) return;
+    setRevokeError(null);
+    try {
+      await api.delete(`/v1/legacy-release/${id}`);
+    } catch (err) {
+      setRevokeError(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't revoke that configuration. It is still active — please try again.",
+      );
+    } finally {
+      mutate();
+    }
   }
 
   async function cancelPending(id: string) {
-    await api.post(`/v1/legacy-release/${id}/cancel-pending-release`);
-    mutate();
+    // The highest-stakes handler in this family and the only one with neither a confirmation nor error
+    // handling: it stops a pending release of the user's data to their trusted contact. A silent failure
+    // means the release goes ahead after the user believes they stopped it.
+    setRevokeError(null);
+    try {
+      await api.post(`/v1/legacy-release/${id}/cancel-pending-release`);
+    } catch (err) {
+      setRevokeError(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't cancel the pending release. It is STILL SCHEDULED — please try again.",
+      );
+    } finally {
+      mutate();
+    }
   }
 
   return (
@@ -225,6 +254,11 @@ export default function LegacyReleasePage() {
                   <Input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
                 </div>
                 {confirmError && <p className="text-sm text-critical">{confirmError}</p>}
+                {revokeError && (
+                  <p role="alert" className="text-sm text-critical">
+                    {revokeError}
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <Button size="sm" loading={confirmBusy} disabled={confirmTyped !== "CONFIRM" || !confirmPassword} onClick={() => confirmConfig(c.id)}>
                     Activate
@@ -236,9 +270,16 @@ export default function LegacyReleasePage() {
               </div>
             )}
 
-            {c.status !== "released" && (
-              <Button variant="secondary" size="sm" onClick={() => revoke(c.id)}>
-                Revoke
+            {c.status === "released" && c.releaseExpiresAt && (
+              <p className="text-xs text-tertiary">
+                Your trusted contact&apos;s link works until {new Date(c.releaseExpiresAt).toLocaleDateString()}. You can end it now if this
+                was released in error.
+              </p>
+            )}
+
+            {c.status !== "revoked" && (
+              <Button variant="secondary" size="sm" onClick={() => revoke(c.id, c.status)}>
+                {c.status === "released" ? "End access now" : "Revoke"}
               </Button>
             )}
           </CardBody>
@@ -266,7 +307,8 @@ export default function LegacyReleasePage() {
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => toggleCategory(opt.value)}
+                      aria-pressed={categories.includes(opt.value)}
+                  onClick={() => toggleCategory(opt.value)}
                       className={`rounded-full border px-3 py-1 text-xs ${
                         categories.includes(opt.value) ? "border-brand-default bg-brand-subtle text-brand-subtle-text" : "border-border-default text-tertiary"
                       }`}

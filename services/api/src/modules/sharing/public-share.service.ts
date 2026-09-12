@@ -7,6 +7,7 @@ import { AssetsService } from "../assets/assets.service";
 import { PetsService } from "../pets/pets.service";
 import { TripsService } from "../trips/trips.service";
 import { MemoriesService } from "../memories/memories.service";
+import { LocationService } from "../location/location.service";
 
 /**
  * Phase 2 §52.2 "object sharing" (spec SHARE-002) — dispatches a validated share-link token to whichever
@@ -27,6 +28,7 @@ export class PublicShareService {
     @Inject(PetsService) private readonly pets: PetsService,
     @Inject(TripsService) private readonly trips: TripsService,
     @Inject(MemoriesService) private readonly memories: MemoriesService,
+    @Inject(LocationService) private readonly location: LocationService,
   ) {}
 
   async access(token: string, passcode: string | undefined) {
@@ -86,6 +88,19 @@ export class PublicShareService {
    * failing to load the whole list over one stale row.
    */
   async labelFor(resourceType: string, resourceId: string): Promise<string | null> {
+    // Resource types shared by direct grant only have no `publicShareContent` method by design, so they
+    // cannot go through `contentFor` — that dispatch also backs unauthenticated share-link redemption,
+    // and giving it a case here would widen what a public token can resolve in order to fix a display
+    // label. Handled with a label-only lookup instead. "place" was silently falling through to the
+    // generic label; found in the Sharing Hub, which showed the bare word "place" for a shared saved
+    // place while every other row showed its real name.
+    if (resourceType === "place") {
+      try {
+        return await this.location.shareDisplayLabel(resourceId);
+      } catch {
+        return null;
+      }
+    }
     try {
       const content = await this.contentFor(resourceType, resourceId);
       const label = content.title ?? content.name ?? content.label ?? content.destinationLabel;

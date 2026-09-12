@@ -107,8 +107,16 @@ export default function OnboardingScreen() {
   }, [rootNavigationState?.key, params.connectionId, params.error]);
 
   async function skip() {
-    await api.post("/v1/onboarding/skip");
-    router.replace("/(tabs)");
+    setConnectError(null);
+    try {
+      await api.post("/v1/onboarding/skip");
+      router.replace("/(tabs)");
+    } catch (err) {
+      // Uncaught, this left "Skip for now" looking like a dead button — no navigation, no message — in the
+      // very first flow a new account sees. `connectError` is this screen's existing message slot and is
+      // rendered above the step, so it is visible wherever skip was pressed from.
+      setConnectError(err instanceof ApiError ? err.message : "Couldn't skip just now. Please try again.");
+    }
   }
 
   if (!loaded || !state || !state.needsOnboarding) {
@@ -176,11 +184,16 @@ function GoalStep({ onPicked, onSkip }: { onPicked: () => void; onSkip: () => vo
   const { theme } = useAppTheme();
   const [busy, setBusy] = useState(false);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function pick(goal: OnboardingGoal) {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/onboarding/goal", { goal });
       onPicked();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't save that choice. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -188,6 +201,7 @@ function GoalStep({ onPicked, onSkip }: { onPicked: () => void; onSkip: () => vo
 
   return (
     <Card style={{ gap: 12 }}>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <View style={{ gap: 4 }}>
         <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary }}>What do you most want help with?</Text>
         <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>We'll set up one thing based on your answer.</Text>
@@ -225,11 +239,16 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
     api.get<ConsentPreview>(`/v1/onboarding/consent-preview?connector=${connector}`).then(setPreview);
   }, [isOAuthConnector, connector]);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function continueToDepth() {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/onboarding/advance", { step: "historical_depth" });
       onAdvance();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't continue. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -237,10 +256,13 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
 
   async function createHousehold() {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/households", { name: householdName || "My Household" });
       await api.post("/v1/onboarding/advance", { step: "household_invite" });
       onAdvance();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't create that household. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -248,9 +270,12 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
 
   async function toThingsIOwn() {
     setBusy(true);
+    setActionError(null);
     try {
       await api.post("/v1/onboarding/advance", { step: "household_invite" });
       onAdvance();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't continue. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -285,6 +310,7 @@ function PrePermissionStep({ state, onAdvance, onSkip }: { state: OnboardingStat
 
   return (
     <Card style={{ gap: 12 }}>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <Text style={{ fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary }}>
         {preview?.title ?? `Connect ${connector ? CONNECTOR_LABEL[connector] : "a source"}`}
       </Text>
@@ -468,28 +494,51 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
   const { theme } = useAppTheme();
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [continueError, setContinueError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  // The failure path matters more here than almost anywhere else in the app: this is the first-run
+  // experience, and `items` starting as null means the render below shows "Loading…". Unguarded, a failed
+  // fetch left that on screen permanently — no error, no retry, nothing to press — while the rejection went
+  // nowhere. Same shape as DEF-037 on web, which apps/web now catches at the shell; mobile has no such
+  // shell handler, so each call site has to carry its own.
   const load = useCallback(async () => {
-    setItems(await api.get<InboxItem[]>("/v1/inbox?reviewState=new"));
+    setLoadError(null);
+    try {
+      setItems(await api.get<InboxItem[]>("/v1/inbox?reviewState=new"));
+    } catch (err) {
+      setItems([]);
+      setLoadError(err instanceof ApiError ? err.message : "We couldn't load what we found. Please try again.");
+    }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   async function act(id: string, action: "confirm" | "dismiss") {
     setBusy(id);
+    setLoadError(null);
+    // try/finally with no catch cleared the spinner and showed nothing else, so a failed confirm was
+    // indistinguishable from a button that does nothing — and threw out of the press handler on the way.
     try {
       await api.post(`/v1/inbox/${id}/${action}`);
       await load();
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "That didn't go through. Please try again.");
     } finally {
       setBusy(null);
     }
   }
 
   async function continueOn() {
-    await api.post("/v1/onboarding/advance", { step: "household_invite" });
-    onAdvance();
+    setContinueError(null);
+    try {
+      await api.post("/v1/onboarding/advance", { step: "household_invite" });
+      onAdvance();
+    } catch (err) {
+      setContinueError(err instanceof ApiError ? err.message : "Couldn't continue. Please try again.");
+    }
   }
 
   const hasItems = (items?.length ?? 0) > 0;
@@ -532,13 +581,22 @@ function DiscoveryReviewStep({ state, onAdvance, onSkip }: { state: OnboardingSt
           }
         />
       )}
+      {loadError && (
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.critical }}>{loadError}</Text>
+          <Button variant="secondary" onPress={() => void load()}>
+            Try again
+          </Button>
+        </View>
+      )}
+      {continueError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{continueError}</Text>}
       <Button onPress={continueOn}>Continue</Button>
       <SkipLink onSkip={onSkip} />
     </Card>
   );
 }
 
-function HouseholdInviteStep({ onAdvance, onSkip }: { onAdvance: () => void; onSkip: () => void }) {
+function HouseholdInviteStep({ onAdvance, onSkip: _onSkip }: { onAdvance: () => void; onSkip: () => void }) {
   const { theme } = useAppTheme();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -549,12 +607,18 @@ function HouseholdInviteStep({ onAdvance, onSkip }: { onAdvance: () => void; onS
     api.get<{ id: string; name: string }[]>("/v1/households").then(setHouseholds);
   }, []);
 
+  // This step already had error/setError state for the invite path (sendInvite below) and never used it
+  // for finish() - the same within-file inconsistency this audit keeps finding. Reuses that state
+  // rather than adding a second one, so the step has one place errors appear.
   async function finish(offered: boolean) {
     setBusy(true);
+    setError(null);
     try {
       await api.post("/v1/onboarding/household-invite-offered", { offered });
       await api.post("/v1/onboarding/complete");
       onAdvance();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't finish setting up. Please try again.");
     } finally {
       setBusy(false);
     }

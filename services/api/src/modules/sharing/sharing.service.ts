@@ -1,16 +1,23 @@
 import { createHash, randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
+import { CACHE, type Cache } from "../../cache/cache.interface";
 import type { CreateShareLinkDto, ResourceGrantRight } from "./dto";
 
 /** SHARE-001 "Set view/edit/manage" — strength ordering used by hasGrantAtLeast, so "does this grant meet
  * the bar" is a single numeric comparison rather than a chain of `===` checks at every call site. */
 const RIGHT_RANK: Record<ResourceGrantRight, number> = { view: 0, edit: 1, manage: 2 };
+
+/** Ten consecutive wrong passcodes for one link in fifteen minutes. Matched to sign-in's limit rather
+ * than step-up's five: a passcode is typed by someone who may have been handed it verbally or in another
+ * message, so a few more fumbles are ordinary, while ten still bounds a guessing run hard. */
+const PASSCODE_FAILURE_LIMIT = 10;
+const PASSCODE_FAILURE_WINDOW_SECONDS = 15 * 60;
 
 /**
  * Phase 2 §52.2 "object sharing" (spec SHARE-001/SHARE-002). Extracted from what used to be
@@ -44,7 +51,49 @@ export class SharingService {
     return this.dummyPasscodeHashCache;
   }
 
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    // Optional for the same reason IdentityService's is: CacheModule is @Global() so it is present
+    // wherever the app actually runs, and a unit test constructing this service directly gets undefined
+    // rather than a DI failure. Absent cache means no counting - the per-IP @Throttle on the controllers
+    // still applies.
+    @Inject(CACHE) private readonly cache?: Cache,
+  ) {}
+
+  /**
+   * A share-link or day-pass passcode is user-chosen and may be as short as four characters
+   * (dto.ts: z.string().min(4)) - roughly ten thousand possibilities for a four-digit one. The public
+   * redemption endpoints carry a per-IP @Throttle of 10/minute, which is not the same guarantee: rotate
+   * addresses and a four-digit passcode falls in hours.
+   *
+   * This codebase already settled that question three times - sign-in, admin sign-in and the step-up
+   * password each gained a per-ACCOUNT counter on top of their per-IP limit, on the reasoning that per-IP
+   * alone does not bound an attacker who can change IP. A link passcode is the same shape of secret with
+   * the same exposure, so it gets the same treatment, keyed by the thing being attacked.
+   *
+   * Keyed on the row id rather than the submitted token: an id only exists for a link that was really
+   * found, so an attacker cannot mint unbounded counter keys by posting random tokens, and an unknown
+   * token still takes the dummy-verify path untouched, preserving the timing equalisation the callers
+   * document.
+   */
+  async assertPasscodeAttemptAllowed(scope: "share_link" | "day_pass", id: string): Promise<void> {
+    if (!this.cache) return;
+    const key = `passcode-fail:${scope}:${id}`;
+    const attempts = await this.cache.incr(key);
+    if (attempts === 1) await this.cache.expire(key, PASSCODE_FAILURE_WINDOW_SECONDS);
+    if (attempts > PASSCODE_FAILURE_LIMIT) {
+      throw new HttpException(
+        { code: "TOO_MANY_REQUESTS", message: "Too many passcode attempts for this link. Please wait a bit and try again." },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /** Cleared on a correct passcode, so the counter measures consecutive failures rather than accumulating
+   * across a caregiver's ordinary repeated use of a pass they hold legitimately. */
+  async clearPasscodeAttempts(scope: "share_link" | "day_pass", id: string): Promise<void> {
+    await this.cache?.del(`passcode-fail:${scope}:${id}`);
+  }
 
   /** Resource ids of a given type actively (not revoked/expired) granted to `userId`, regardless of
    * resource ownership/household. Used by each resource's own list()-shaped method to OR grant-based
@@ -250,7 +299,10 @@ export class SharingService {
       .select({ grant: schema.resourceGrants, granteeEmail: schema.users.email })
       .from(schema.resourceGrants)
       .innerJoin(schema.users, eq(schema.users.id, schema.resourceGrants.granteeUserId))
-      .where(and(eq(schema.resourceGrants.resourceType, resourceType), eq(schema.resourceGrants.resourceId, resourceId), isNull(schema.resourceGrants.revokedAt)));
+      .where(and(eq(schema.resourceGrants.resourceType, resourceType), eq(schema.resourceGrants.resourceId, resourceId), isNull(schema.resourceGrants.revokedAt)))
+      // Same reasoning as the session list: this is a revoke-one control, and a list that reorders itself
+      // is one someone revokes the wrong row from.
+      .orderBy(desc(schema.resourceGrants.grantedAt), asc(schema.resourceGrants.id));
   }
 
   /**
@@ -346,9 +398,11 @@ export class SharingService {
       throw new NotFoundException({ code: "SHARE_LINK_NOT_FOUND", message: "This link is invalid or has expired." });
     }
     if (link.passcodeHash) {
+      await this.assertPasscodeAttemptAllowed("share_link", link.id);
       if (!passcode || !(await argon2.verify(link.passcodeHash, passcode))) {
         throw new ForbiddenException({ code: "PASSCODE_REQUIRED", message: "This link needs a passcode." });
       }
+      await this.clearPasscodeAttempts("share_link", link.id);
     }
     // §35 SHARE-004/007 "access_audit" — accessedByUserId is deliberately always null here: a share link's
     // whole point is that the recipient need not be signed in at all (see this method's own doc comment),

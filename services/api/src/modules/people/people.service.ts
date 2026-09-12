@@ -17,6 +17,7 @@ import type {
   AddPersonRelationshipDto,
   CreateOrganizationDto,
 } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 /** Suggestion-only, deliberately tiny inference table (PEO-003 "avoid sensitive identity inference beyond
  * product need" / "inferred labels stay candidate unless high-confidence benign context") — maps a
@@ -123,11 +124,12 @@ export class PeopleService {
 
   async list(userId: string) {
     const access = await this.accessCondition(userId);
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.people)
-      .where(and(access, isNull(schema.people.deletedAt), isNull(schema.people.mergedIntoPersonId)))
-      .orderBy(asc(schema.people.displayName));
+      .where(and(access, isNull(schema.people.deletedAt), isNull(schema.people.mergedIntoPersonId)));
+    // `displayName` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.displayName, (r) => r.id));
   }
 
   async create(userId: string, dto: CreatePersonDto): Promise<{ id: string }> {
@@ -338,7 +340,12 @@ export class PeopleService {
   // ---------------------------------------------------------------------------------------------------
 
   async listOrganizations(userId: string) {
-    return this.db.select().from(schema.organizations).where(and(eq(schema.organizations.ownerUserId, userId), isNull(schema.organizations.deletedAt))).orderBy(asc(schema.organizations.name));
+    const rows = await this.db
+      .select()
+      .from(schema.organizations)
+      .where(and(eq(schema.organizations.ownerUserId, userId), isNull(schema.organizations.deletedAt)));
+    // `name` is encrypted at rest, so ORDER BY sorted ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.name, (r) => r.id));
   }
 
   async createOrganization(userId: string, dto: CreateOrganizationDto): Promise<{ id: string }> {

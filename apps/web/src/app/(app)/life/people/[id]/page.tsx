@@ -315,7 +315,7 @@ function AliasesSection({ personId, aliases, onChanged }: { personId: string; al
               <Badge tone="neutral">{a.kind === "name_variant" ? "name" : a.kind}</Badge>
               <span className="text-primary">{a.value}</span>
             </div>
-            <button onClick={() => remove(a.id)} className="text-xs text-critical hover:underline">
+            <button aria-label={`Remove ${a.value}`} onClick={() => remove(a.id)} className="text-xs text-critical hover:underline">
               Remove
             </button>
           </div>
@@ -376,7 +376,7 @@ function NotesSection({ personId, notes, onChanged }: { personId: string; notes:
           <div key={n.id} className="border-t border-border-subtle py-2 text-sm first:border-t-0">
             <div className="flex items-start justify-between gap-2">
               <p className="min-w-0 whitespace-pre-wrap text-primary">{n.body}</p>
-              <button onClick={() => remove(n.id)} className="shrink-0 text-xs text-critical hover:underline">
+              <button aria-label={`Remove note: ${n.body.length > 60 ? `${n.body.slice(0, 60)}…` : n.body}`} onClick={() => remove(n.id)} className="shrink-0 text-xs text-critical hover:underline">
                 Remove
               </button>
             </div>
@@ -472,7 +472,7 @@ function ImportantDatesSection({
                   </p>
                 )}
               </div>
-              <button onClick={() => remove(d.id)} className="text-xs text-critical hover:underline">
+              <button aria-label={`Remove date: ${d.label}`} onClick={() => remove(d.id)} className="text-xs text-critical hover:underline">
                 Remove
               </button>
             </div>
@@ -578,7 +578,7 @@ function RelationshipsSection({
             <p className="text-primary">
               {relationshipLabelText(r.label)} of <span className="font-medium">{describeOther(r, false)}</span>
             </p>
-            <button onClick={() => remove(r.id)} className="text-xs text-critical hover:underline">
+            <button aria-label={`Remove relationship: ${relationshipLabelText(r.label)} of ${describeOther(r, false)}`} onClick={() => remove(r.id)} className="text-xs text-critical hover:underline">
               Remove
             </button>
           </div>
@@ -588,7 +588,7 @@ function RelationshipsSection({
             <p className="text-primary">
               <span className="font-medium">{describeOther(r, true)}</span>&apos;s {relationshipLabelText(r.label)}
             </p>
-            <button onClick={() => remove(r.id)} className="text-xs text-critical hover:underline">
+            <button aria-label={`Remove relationship: ${describeOther(r, true)}'s ${relationshipLabelText(r.label)}`} onClick={() => remove(r.id)} className="text-xs text-critical hover:underline">
               Remove
             </button>
           </div>
@@ -727,7 +727,7 @@ function LinkedHistorySection({ personId, linkedHistory, onChanged }: { personId
                     {item.secondary && <span className="text-tertiary"> — {item.secondary}</span>}
                   </span>
                 )}
-                <button onClick={() => unlink(item.id)} className="shrink-0 text-xs text-critical hover:underline">
+                <button aria-label={`Unlink ${item.primary}`} onClick={() => unlink(item.id)} className="shrink-0 text-xs text-critical hover:underline">
                   Unlink
                 </button>
               </div>
@@ -811,7 +811,12 @@ export default function PersonDetailPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-primary">{person.displayName}</h1>
           {organization && <p className="mt-1 text-sm text-tertiary">{organization.name}</p>}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" onClick={() => setEditingDetails((s) => !s)}>
             Edit
           </Button>

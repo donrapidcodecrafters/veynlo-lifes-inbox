@@ -2,6 +2,8 @@ export * from "./util/ids";
 export * from "./util/money";
 export * from "./util/time";
 export * from "./util/locale";
+export * from "./util/collapse-runs";
+export * from "./util/group-nested";
 // util/token is deliberately NOT re-exported here (unlike every sibling util/* module) — it does a bare
 // `import ... from "node:crypto"`, a real server-only Node built-in with no browser equivalent, and this
 // barrel is imported by client-side app code (e.g. apps/web's Next.js client components) alongside every

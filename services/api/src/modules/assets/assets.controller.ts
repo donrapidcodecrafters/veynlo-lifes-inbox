@@ -47,6 +47,8 @@ import {
   type CreateRegistrationRecordDto,
   type UpdateRegistrationRecordDto,
   type RenewRegistrationRecordDto,
+  DecodeVehicleVinDtoSchema,
+  type DecodeVehicleVinDto,
 } from "./dto";
 import { CreateResourceGrantDtoSchema, type CreateResourceGrantDto, CreateShareLinkDtoSchema, type CreateShareLinkDto } from "../sharing/dto";
 
@@ -226,8 +228,9 @@ export class AssetsController {
   /** Applies a decode to an existing vehicle — fills empty make/model/year, always stores the raw decoded
    * attributes. `vin` in the body is optional; omitted, this decodes whatever VIN is already on file. */
   @Post("vehicles/:id/vin-decode")
-  decodeVinForVehicle(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() body: { vin?: string }) {
-    return this.assets.applyVinDecode(id, user.userId, body?.vin);
+  @UsePipes(new ZodValidationPipe(DecodeVehicleVinDtoSchema))
+  decodeVinForVehicle(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: DecodeVehicleVinDto) {
+    return this.assets.applyVinDecode(id, user.userId, dto.vin);
   }
 
   @Post("vehicles/:id/grants")

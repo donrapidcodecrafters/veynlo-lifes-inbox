@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { FinanceService } from "./finance.service";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { SetAccountIncludedDtoSchema, type SetAccountIncludedDto } from "./dto";
 
 @Controller("v1/finance")
 @UseGuards(AuthGuard)
@@ -16,8 +18,9 @@ export class FinanceController {
 
   /** FIN-001 "account list allows per-account inclusion/exclusion" toggle. */
   @Patch("accounts/:id")
-  setAccountIncluded(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("isIncluded") isIncluded: boolean) {
-    return this.finance.setAccountIncluded(id, user.userId, Boolean(isIncluded));
+  @UsePipes(new ZodValidationPipe(SetAccountIncludedDtoSchema))
+  setAccountIncluded(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetAccountIncludedDto) {
+    return this.finance.setAccountIncluded(id, user.userId, dto.isIncluded);
   }
 
   @Get("accounts/:id")

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { generateId, type TemporalValue } from "@veynlo/core";
@@ -8,7 +8,7 @@ import { temporalToSortDate } from "../ingestion/temporal.util";
 import { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
 import { ConflictService } from "../schedule/conflict.service";
 import { normalizeSenderDomain, extractEmailAddress } from "../intelligence/deterministic-prefilter";
-import { resolvePriceAdjustmentPolicy, priceAdjustmentDeadline, daysUntil } from "../commerce/price-adjustment-policy";
+import { resolvePriceAdjustmentPoliciesForMerchants, priceAdjustmentDeadline, daysUntil, DEFAULT_PRICE_ADJUSTMENT_POLICY } from "../commerce/price-adjustment-policy";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CorrectInboxItemDto, AddToCalendarDto, ApplyRescheduleDto, AddSenderRuleDto, SenderRuleAction } from "./dto";
 
@@ -40,7 +40,17 @@ export class InboxService {
     const conditions = [eq(schema.inboxItems.ownerUserId, userId)];
     if (filter.reviewState) conditions.push(eq(schema.inboxItems.reviewState, filter.reviewState));
     if (filter.category) conditions.push(eq(schema.inboxItems.category, filter.category));
-    const items = await this.db.select().from(schema.inboxItems).where(and(...conditions));
+    // ORDER BY with a unique tiebreaker. Postgres guarantees no order without one, and the order it does
+    // give is not stable: an UPDATE rewrites the row to a new heap position, so a later scan returns it
+    // somewhere else. Measured through the ordinary API — renaming a list moved it from index 4 to index 8
+    // of the user's own list — so the Inbox — the screen this app is named for would reorder under the user after every action they take on it.
+    // The id tiebreaker matters as much as the column: seven of the nine seeded lists share one createdAt to
+    // the microsecond, and a sort with ties falls straight back to the unordered order it was given.
+    const items = await this.db
+      .select()
+      .from(schema.inboxItems)
+      .where(and(...conditions))
+      .orderBy(desc(schema.inboxItems.createdAt), asc(schema.inboxItems.id));
 
     // RET-004 "Policy engine ... deadline calculator" — a price_adjustment inbox item's `summary` already
     // states the price drop, but never a deadline or the policy's own confidence (the exact gap the RET-004
@@ -99,9 +109,20 @@ export class InboxService {
       string,
       { deadline: string; daysLeft: number; windowDays: number; policyConfidence: string; policySourceNote: string | null }
     >();
+    // One policy query for every merchant on the page, rather than one per purchase inside the loop.
+    // This runs on a request path and the loop is bounded only by however many purchase items the inbox
+    // returns, so the previous shape was N round trips for an answer that is per-merchant, not per-purchase.
+    const policies = await resolvePriceAdjustmentPoliciesForMerchants(
+      this.db,
+      purchases.map((p) => p.merchantId).filter((id): id is string => Boolean(id)),
+      userId,
+    );
+
     for (const p of purchases) {
       if (!p.purchaseDateSort) continue;
-      const policy = await resolvePriceAdjustmentPolicy(this.db, p.merchantId, userId);
+      // A merchant with no policy row is absent from the map and takes the same flat default the
+      // single-merchant resolver falls back to.
+      const policy = (p.merchantId ? policies.get(p.merchantId) : undefined) ?? DEFAULT_PRICE_ADJUSTMENT_POLICY;
       const deadline = priceAdjustmentDeadline(p.purchaseDateSort, policy.windowDays);
       map.set(p.id, {
         deadline: deadline.toISOString(),

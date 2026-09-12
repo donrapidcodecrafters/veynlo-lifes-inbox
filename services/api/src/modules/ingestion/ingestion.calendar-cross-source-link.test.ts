@@ -14,6 +14,21 @@ import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
 
 /**
+ * Every date below is relative to now, never pinned.
+ *
+ * The paths these tests exercise compare an event's date against the clock — reschedule reconciliation
+ * only looks at still-upcoming events, the subscription state machine advances anything whose date has
+ * passed — so a hardcoded date stops testing the behaviour and starts testing the window, silently, on a
+ * date nobody chose. ingestion.dedup.test.ts did exactly that: pinned to 2026-09-10, green for months,
+ * then failing on 2026-09-11 against a commit that touched nothing near it.
+ *
+ * A month out, so every scenario here is comfortably upcoming, and offsets preserve the relative spacing
+ * each scenario depends on.
+ */
+const DATE_ANCHOR = Date.now() + 30 * 86_400_000;
+const day = (offsetDays: number) => new Date(DATE_ANCHOR + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+/**
  * CAL-001 "duplicate copies visually collapse while preserving original records" — real integration tests
  * against a real Postgres (same pattern as ingestion.dedup.test.ts), proving the cross-source identity-
  * resolution piece: a real-world appointment that arrives BOTH as a provider-synced calendar event
@@ -23,15 +38,13 @@ import type { PreferencesService } from "../preferences/preferences.service";
  * merge, never a silent field overwrite of the other row — see IngestionService.findCrossSourceCalendarEventMatch's
  * own doc comment for the exact precision discipline this exercises end to end.
  *
- * `extractCalendarEvent`'s own temporal conversion (`toTemporalValue`, ingestion/temporal.util.ts) only ever
- * produces DATE precision for a discovered event — the model's separately-extracted `startTime` field is a
- * pre-existing, distinct gap this pass didn't touch (see docs/PHASE2_PENDING_CREDENTIALS.md's CAL-001 entry
- * for why) — so a discovered event's `startSort` always lands at UTC midnight of its date. These tests
- * therefore choose provider-synced instants close to UTC midnight (a perfectly ordinary real occurrence —
- * e.g. a late-evening US-Pacific appointment or an early-morning Central-European one) to fall inside the
- * ±3h window on the provider side of a genuine same-day match, and deliberately far outside it (or on a
- * different calendar day) for the negative cases — this exercises the real window-comparison logic against
- * real Postgres rows, not a contrived shortcut around it.
+ * These once had to work around DEF-102: `extractCalendarEvent` discarded the model's separately-extracted
+ * `startTime`, so a discovered event's `startSort` always landed at UTC midnight of its date and the only
+ * way to be inside the ±3h window was to contrive provider instants near UTC midnight too. That is fixed —
+ * a discovered 9:00 AM Pacific appointment now sorts at 16:00Z — so each provider instant here is where a
+ * real provider copy of that same appointment would actually be, and the window being exercised is a
+ * genuine small-precision-difference window between two copies of one real appointment rather than an
+ * artefact of both rows sitting near midnight.
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -89,7 +102,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       "calendar_event_extraction_v1",
       fakeExtraction({
         title: "Riverside Dental Cleaning",
-        startDate: { iso_date: "2026-10-12", approximate_text: null },
+        startDate: { iso_date: day(0), approximate_text: null },
         startTime: "09:00",
         timezone: "America/Los_Angeles",
         location: "Confirmation email — no address given",
@@ -100,7 +113,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       ownerUserId,
       householdId: null,
       subject: "Your dental cleaning is confirmed",
-      bodyText: "Riverside Dental Cleaning on 2026-10-12 at 9:00 AM.",
+      bodyText: `Riverside Dental Cleaning on ${day(0)} at 9:00 AM.`,
     });
 
     // 2. The SAME real appointment then syncs in from the user's connected Google Calendar — a completely
@@ -113,7 +126,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       connectionId: null,
       uid: "gcal-evt-riverside-dental",
       title: "Riverside Dental Cleaning",
-      start: instantTemporal("2026-10-12T01:30:00.000Z", "America/Los_Angeles"), // within ±3h of the discovered copy's UTC-midnight startSort
+      start: instantTemporal(`${day(0)}T15:30:00.000Z`, "America/Los_Angeles"), // 09:00 PDT is 16:00Z; 30 min out, so the ±3h window is what admits it
       end: null,
       isAllDay: false,
       location: "456 Oak St, Suite 2",
@@ -153,7 +166,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       connectionId: null,
       uid: "outlook-evt-standup-offsite",
       title: "Morning Standup Offsite",
-      start: instantTemporal("2026-11-03T01:00:00.000Z", "America/Chicago"),
+      start: instantTemporal(`${day(22)}T12:45:00.000Z`, "America/Chicago"), // 07:00 CST is 13:00Z; 15 min out, inside the window
       end: null,
       isAllDay: false,
       location: "12 Harbor View Way",
@@ -165,7 +178,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       "calendar_event_extraction_v1",
       fakeExtraction({
         title: "Morning Standup Offsite",
-        startDate: { iso_date: "2026-11-03", approximate_text: null },
+        startDate: { iso_date: day(22), approximate_text: null },
         startTime: "07:00",
         timezone: "America/Chicago",
         location: null,
@@ -176,7 +189,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       ownerUserId,
       householdId: null,
       subject: "Offsite reminder",
-      bodyText: "Morning Standup Offsite on 2026-11-03 at 7:00 AM.",
+      bodyText: `Morning Standup Offsite on ${day(22)} at 7:00 AM.`,
     });
 
     const events = await eventsByTitle("Morning Standup Offsite");
@@ -192,6 +205,8 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
   });
 
   it("does NOT link two genuinely different real events that happen to share an exact title, more than 3 hours apart", async () => {
+    // Same calendar day, deliberately: a different-day pair would be rejected by a window of ANY size, so it
+    // would pass whether or not the ±3h comparison still ran at all.
     if (!dbAvailable) return;
     ai = new FakeModelProvider();
     ingestion = new IngestionService(db, ai, stubNotifications, stubStorage, stubMalwareScanner, stubEntitlements, stubAutomation, stubConflicts, stubTrips, stubPreferences);
@@ -203,7 +218,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       connectionId: null,
       uid: "ics-evt-weekly-sync-1",
       title: "Weekly Sync",
-      start: instantTemporal("2026-11-10T01:00:00.000Z", "UTC"),
+      start: instantTemporal(`${day(30)}T05:00:00.000Z`, "UTC"), // same day, 4h before the discovered 09:00Z — just outside ±3h
       end: null,
       isAllDay: false,
       location: null,
@@ -217,7 +232,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       "calendar_event_extraction_v1",
       fakeExtraction({
         title: "Weekly Sync",
-        startDate: { iso_date: "2026-11-11", approximate_text: null },
+        startDate: { iso_date: day(30), approximate_text: null },
         startTime: "09:00",
         timezone: "UTC",
         location: null,
@@ -228,7 +243,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       ownerUserId,
       householdId: null,
       subject: "Weekly Sync agenda",
-      bodyText: "Weekly Sync on 2026-11-11 at 9:00 AM.",
+      bodyText: `Weekly Sync on ${day(30)} at 9:00 AM.`,
     });
 
     const events = await eventsByTitle("Weekly Sync");
@@ -254,7 +269,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
         connectionId: null,
         uid,
         title: "Parent-Teacher Conference",
-        start: instantTemporal("2026-12-01T01:00:00.000Z", "America/New_York"),
+        start: instantTemporal(`${day(50)}T13:00:00.000Z`, "America/New_York"), // 08:00 EST is 13:00Z — both copies inside the window, so the case IS ambiguous
         end: null,
         isAllDay: false,
         location: null,
@@ -266,7 +281,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       "calendar_event_extraction_v1",
       fakeExtraction({
         title: "Parent-Teacher Conference",
-        startDate: { iso_date: "2026-12-01", approximate_text: null },
+        startDate: { iso_date: day(50), approximate_text: null },
         startTime: "08:00",
         timezone: "America/New_York",
         location: null,
@@ -277,7 +292,7 @@ describe("IngestionService CAL-001 cross-source calendar-event linking", () => {
       ownerUserId,
       householdId: null,
       subject: "Conference confirmed",
-      bodyText: "Parent-Teacher Conference on 2026-12-01 at 8:00 AM.",
+      bodyText: `Parent-Teacher Conference on ${day(50)} at 8:00 AM.`,
     });
 
     const events = await eventsByTitle("Parent-Teacher Conference");

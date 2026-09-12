@@ -30,6 +30,31 @@ export default tseslint.config(
     },
   },
   /**
+   * The two type-aware promise rules, and only those two.
+   *
+   * The config above is `recommended`, not `recommendedTypeChecked`, so nothing here needed type
+   * information — which also meant no-floating-promises was never running anywhere in this repo. An
+   * un-awaited `db.insert(...)` is exactly the kind of defect this audit keeps turning up: silent,
+   * invisible to any test that does not assert on the write, and indistinguishable from working code by
+   * reading it.
+   *
+   * A one-off type-aware pass over services/api found ZERO floating promises in service code. The only
+   * four findings were entry-point bootstrap calls and two async signal handlers (a rejecting
+   * `worker.close()` would have skipped `process.exit(0)` and left the worker hanging until it was
+   * SIGKILLed). Those are fixed, and these rules are added at that clean point so the state is kept
+   * rather than rediscovered later. The rest of `recommendedTypeChecked` is deliberately left out: its
+   * other 44 findings here were unnecessary type assertions, which is a style argument, not a correctness
+   * one, and this config is a correctness gate.
+   */
+  {
+    files: ["services/**/*.ts", "packages/**/*.ts"],
+    languageOptions: { parserOptions: { projectService: true } },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+    },
+  },
+  /**
    * React hooks rules, scoped to the three React surfaces (web, admin, mobile).
    *
    * Registered because the code already depends on it: five files carry
@@ -48,5 +73,14 @@ export default tseslint.config(
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
     },
+  },
+  /**
+   * Build/config files that are CommonJS by contract, not by choice. Metro's config and Expo's config
+   * plugins are loaded by tooling that `require()`s them before any bundler or transpiler is involved, so
+   * they cannot use ESM `import` — flagging `require()` in them is a false positive, not a finding.
+   */
+  {
+    files: ["**/metro.config.js", "**/*.config.js", "apps/mobile/plugins/**/*.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   },
 );

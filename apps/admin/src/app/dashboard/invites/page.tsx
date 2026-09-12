@@ -25,10 +25,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function inviteStatus(invite: SignupInvite): { label: string; className: string } {
-  if (invite.revokedAt) return { label: "revoked", className: "text-critical" };
+  if (invite.revokedAt) return { label: "revoked", className: "text-critical-subtle-text" };
   if (invite.redeemedAt) return { label: "redeemed", className: "text-tertiary" };
-  if (invite.expiresAt && new Date(invite.expiresAt) <= new Date()) return { label: "expired", className: "text-critical" };
-  return { label: "active", className: "text-positive" };
+  if (invite.expiresAt && new Date(invite.expiresAt) <= new Date()) return { label: "expired", className: "text-critical-subtle-text" };
+  return { label: "active", className: "text-positive-subtle-text" };
 }
 
 export default function InvitesPage() {
@@ -190,7 +190,8 @@ export default function InvitesPage() {
                       {revocable && (
                         <button
                           disabled={busyId === invite.id}
-                          onClick={() => onRevoke(invite.id, invite.email)}
+                          aria-label={`Revoke invite for ${invite.email ?? "any email"}`}
+                        onClick={() => onRevoke(invite.id, invite.email)}
                           className="rounded-lg border border-border-default px-2.5 py-1 text-xs font-medium text-secondary hover:bg-subtle disabled:opacity-50"
                         >
                           Revoke

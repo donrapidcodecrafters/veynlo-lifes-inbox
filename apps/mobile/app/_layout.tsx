@@ -10,6 +10,7 @@ import { FinancialPrivacyProvider } from "@/lib/financial-privacy-context";
 import { LockGate } from "@/components/lock-gate";
 import { DeletionPendingGate } from "@/components/deletion-pending-gate";
 import { PushRegistration } from "@/components/push-registration";
+import { PushNavigation } from "@/components/push-navigation";
 import { NotificationCaptureDrain } from "@/components/notification-capture-drain";
 import { AndroidShareIntentDrain } from "@/components/android-share-intent-drain";
 import { OfflineMutationQueueDrain } from "@/components/offline-mutation-queue-drain";
@@ -25,6 +26,7 @@ function ThemedStack() {
     <>
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
       <PushRegistration />
+      <PushNavigation />
       <NotificationCaptureDrain />
       <AndroidShareIntentDrain />
       <OfflineMutationQueueDrain />

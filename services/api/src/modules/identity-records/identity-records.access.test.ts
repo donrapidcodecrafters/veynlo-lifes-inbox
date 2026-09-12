@@ -24,7 +24,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubOnboarding = { initializeForNewUser: async () => {} } as unknown as OnboardingService;
 const stubQueue = { enqueueDocumentOcr: async () => {} } as unknown as QueueProducer;

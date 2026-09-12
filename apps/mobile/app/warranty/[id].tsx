@@ -111,7 +111,7 @@ function LinkAssetPanel({ warranty, onLinked }: { warranty: WarrantyDetail["warr
           <Text style={{ fontSize: 13, color: theme.colors.textTertiary, flexShrink: 1 }}>
             Currently linked to <Text style={{ color: theme.colors.textPrimary }}>{currentlyLinkedLabel}</Text>.
           </Text>
-          <Pressable accessibilityRole="button" onPress={clearLink} disabled={submitting}>
+          <Pressable accessibilityRole="button" accessibilityState={{ disabled: submitting, busy: submitting }} onPress={clearLink} disabled={submitting}>
             <Text style={{ fontSize: 13, color: theme.colors.critical }}>{submitting ? "Clearing…" : "Clear"}</Text>
           </Pressable>
         </View>
@@ -191,7 +191,7 @@ export default function WarrantyDetailScreen() {
           case for this exact purchase line resolves. */}
       {warranty.voidedAt && (
         <Card style={{ backgroundColor: theme.colors.warningSubtleBg, borderColor: theme.colors.warning }}>
-          <Text style={{ fontSize: 13, color: theme.colors.warning }}>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>
             This product was returned on {new Date(warranty.voidedAt).toLocaleDateString()} — this warranty may no longer apply.
           </Text>
         </Card>

@@ -160,6 +160,7 @@ export default function HouseholdSettingsPage() {
           {myHouseholds.map(({ household }) => (
             <button
               key={household.id}
+              aria-pressed={(selected?.household.id ?? myHouseholds[0]?.household.id) === household.id}
               onClick={() => setSelectedId(household.id)}
               className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
                 (selected?.household.id ?? myHouseholds[0]?.household.id) === household.id
@@ -309,7 +310,7 @@ function HouseholdDetail({
                         us show the normal "You" convention on the viewer's own row, and the second condition
                         below catches the same placeholder leaking into anyone else's view of that row by
                         falling back to the role label instead of trusting it as a real relationship label. */}
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{displayLabel}</p>
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={displayLabel ?? undefined}>{displayLabel}</p>
                     <p className="text-sm text-tertiary">{ROLE_LABEL[m.role]}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -417,7 +418,9 @@ function EmergencyBinderSection({ householdId, canManage }: { householdId: strin
 
       <p className="mb-3 mt-4 text-sm text-tertiary">
         Documents anyone in this household can find in an emergency. Share a document from the{" "}
-        <Link href="/documents" className="text-brand hover:underline">
+        {/* Inside a paragraph, so colour alone is not enough to tell it is a link (axe:
+            link-in-text-block). Underlined always, not only on hover. */}
+        <Link href="/documents" className="text-brand underline">
           Documents
         </Link>{" "}
         page and add it here.
@@ -678,23 +681,41 @@ function TransferOwnershipButton({
   onTransferred: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The try/finally here had no catch, so a rejected transfer was completely silent: the spinner stopped
+   * and nothing else happened. The user could not distinguish a refused transfer from a successful one —
+   * on an action that hands over control of the household. That failure path is reachable rather than
+   * theoretical (a stale target membership, or a permissions change since the page loaded), and this is
+   * the same defect class as the preferred-name Save.
+   */
   async function onTransfer() {
     if (!membership.userId) return;
     if (!window.confirm(`Make ${membership.relationshipLabel || "this member"} the household owner? You'll become an adult member.`)) return;
     setLoading(true);
+    setError(null);
     try {
       await api.post(`/v1/households/${householdId}/transfer-ownership`, { targetUserId: membership.userId });
       onTransferred();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't transfer ownership. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <Button variant="ghost" size="sm" loading={loading} onClick={onTransfer}>
-      Make owner
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="ghost" size="sm" loading={loading} onClick={onTransfer}>
+        Make owner
+      </Button>
+      {error && (
+        <p aria-live="polite" className="text-xs text-critical">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -17,6 +17,21 @@ import type { HouseholdService } from "../household/household.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
 
 /**
+ * Every date below is relative to now, never pinned.
+ *
+ * The paths these tests exercise compare an event's date against the clock — reschedule reconciliation
+ * only looks at still-upcoming events, the subscription state machine advances anything whose date has
+ * passed — so a hardcoded date stops testing the behaviour and starts testing the window, silently, on a
+ * date nobody chose. ingestion.dedup.test.ts did exactly that: pinned to 2026-09-10, green for months,
+ * then failing on 2026-09-11 against a commit that touched nothing near it.
+ *
+ * A month out, so every scenario here is comfortably upcoming, and offsets preserve the relative spacing
+ * each scenario depends on.
+ */
+const DATE_ANCHOR = Date.now() + 30 * 86_400_000;
+const day = (offsetDays: number) => new Date(DATE_ANCHOR + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+/**
  * CAL-004 "Offer update or auto-update only when user has an explicit trusted rule" — a follow-up audit
  * found `extractCalendarEvent`'s reschedule-reconciliation update branch (ingestion.dedup.test.ts's own
  * CAL-004 dedup fix) always silently overwrote the existing event's date/time/location the instant a
@@ -90,7 +105,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
 
   it("files an offered change (never auto-applies) when no trusted rule covers the sender's domain", async () => {
     if (!dbAvailable) return;
-    const eventId = await seedDiscoveredEvent("United flight 482", "2026-11-01");
+    const eventId = await seedDiscoveredEvent("United flight 482", day(0));
     ai = new FakeModelProvider();
     ingestion = new IngestionService(db, ai, stubNotifications, stubStorage, stubMalwareScanner, stubEntitlements, stubAutomation, new ConflictService(db, stubHouseholds), stubTrips, stubPreferences);
 
@@ -99,7 +114,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
       "calendar_event_extraction_v1",
       fakeExtraction({
         title: "United flight 482",
-        startDate: { iso_date: "2026-11-03", approximate_text: null },
+        startDate: { iso_date: day(2), approximate_text: null },
         startTime: "09:00",
         timezone: "America/Denver",
         location: "Gate B12",
@@ -111,12 +126,12 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
       householdId: null,
       fromAddress: "notifications@united.com",
       subject: "Your flight has been rescheduled",
-      bodyText: "United flight 482 has moved to 2026-11-03 at 9:00 AM, Gate B12.",
+      bodyText: `United flight 482 has moved to ${day(2)} at 9:00 AM, Gate B12.`,
     });
 
     // The existing row must be completely untouched — still the ORIGINAL date.
     const [event] = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId));
-    expect((event?.start as { date?: string } | null)?.date).toBe("2026-11-01");
+    expect((event?.start as { date?: string } | null)?.date).toBe(day(0));
     expect(event?.location).toBeNull();
 
     // No sibling row was created either — this is still a "match found", just not auto-applied.
@@ -132,7 +147,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
 
     const [proposal] = await db.select().from(schema.calendarRescheduleProposals).where(eq(schema.calendarRescheduleProposals.calendarEventId, eventId));
     expect(proposal).toBeTruthy();
-    expect((proposal?.proposedStart as { date?: string } | null)?.date).toBe("2026-11-03");
+    expect((proposal?.proposedStart as { date?: string } | null)?.date).toBe(day(2));
     expect(proposal?.proposedLocation).toBe("Gate B12");
     expect(proposal?.senderDomain).toBe("united.com");
 
@@ -142,7 +157,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
     expect(result.trustedSenderAdded).toBe(true);
 
     const [updatedEvent] = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId));
-    expect((updatedEvent?.start as { date?: string } | null)?.date).toBe("2026-11-03");
+    expect((updatedEvent?.start as { date?: string } | null)?.date).toBe(day(2));
     expect(updatedEvent?.location).toBe("Gate B12");
 
     const [confirmedItem] = await db.select().from(schema.inboxItems).where(eq(schema.inboxItems.id, inboxItem!.id));
@@ -160,7 +175,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
     // Depends on the previous test having created a "united.com" trusted rule for this owner — real
     // end-to-end proof that trusting a sender actually changes behavior on a SUBSEQUENT email, not just a
     // one-off flag nothing reads.
-    const eventId = await seedDiscoveredEvent("United flight 900", "2026-12-01");
+    const eventId = await seedDiscoveredEvent("United flight 900", day(30));
     ai = new FakeModelProvider();
     ingestion = new IngestionService(db, ai, stubNotifications, stubStorage, stubMalwareScanner, stubEntitlements, stubAutomation, new ConflictService(db, stubHouseholds), stubTrips, stubPreferences);
 
@@ -169,7 +184,7 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
       "calendar_event_extraction_v1",
       fakeExtraction({
         title: "United flight 900",
-        startDate: { iso_date: "2026-12-02", approximate_text: null },
+        startDate: { iso_date: day(31), approximate_text: null },
         startTime: "07:00",
         timezone: "America/Denver",
         location: "Gate A1",
@@ -181,11 +196,11 @@ describe("CAL-004 reschedule reconciliation — offer, don't auto-apply without 
       householdId: null,
       fromAddress: "notifications@united.com",
       subject: "Your flight has been rescheduled",
-      bodyText: "United flight 900 has moved to 2026-12-02 at 7:00 AM, Gate A1.",
+      bodyText: `United flight 900 has moved to ${day(31)} at 7:00 AM, Gate A1.`,
     });
 
     const [event] = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId));
-    expect((event?.start as { date?: string } | null)?.date).toBe("2026-12-02"); // auto-applied
+    expect((event?.start as { date?: string } | null)?.date).toBe(day(31)); // auto-applied
 
     const [inboxItem] = await db.select().from(schema.inboxItems).where(eq(schema.inboxItems.linkedResourceId, eventId));
     expect(inboxItem?.suggestedActions).toEqual(["confirm", "dismiss"]); // not an offer this time

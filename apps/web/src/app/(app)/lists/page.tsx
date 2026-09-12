@@ -202,7 +202,7 @@ export default function ListsPage() {
               <Card className="transition-colors hover:bg-subtle">
                 <CardBody className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{list.name}</p>
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={list.name}>{list.name}</p>
                     <div className="mt-1 flex items-center gap-2">
                       {list.smartListQuery ? <Badge tone="brand">Smart</Badge> : <Badge tone="neutral">{kindLabel(list.kind)}</Badge>}
                       {list.householdId && <Badge tone="neutral">Shared</Badge>}

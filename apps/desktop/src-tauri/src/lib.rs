@@ -53,8 +53,25 @@ const SESSION_COOKIE_NAME: &str = "veynlo_session";
 /// deliberately the same "document/image types" DSK-003 names, not an open-ended "any file" acceptance.
 const ALLOWED_DROP_EXTENSIONS: [&str; 8] = ["pdf", "png", "jpg", "jpeg", "heic", "doc", "docx", "txt"];
 
+/// Host AND scheme. Checking the host alone was scheme-blind, which two probes showed concretely:
+/// `http://app.veynlo.com/home` passed, and so did `ftp://localhost/x`. The first is the one that
+/// matters — in a release build that is a plaintext downgrade into the window holding the user's real
+/// session cookie jar, so anyone able to tamper with the network could render their own page inside the
+/// app shell. The existing tests covered `file:///`, `data:` and `about:blank`, but all three carry no
+/// host and were already rejected for that reason rather than for their scheme, so none of them caught
+/// this.
+///
+/// `http` stays allowed for `localhost` alone, because that is what `tauri dev` actually loads.
 fn is_allowed_navigation(url: &tauri::Url) -> bool {
-    url.host_str().is_some_and(|host| ALLOWED_HOSTS.contains(&host))
+    let Some(host) = url.host_str() else { return false };
+    if !ALLOWED_HOSTS.contains(&host) {
+        return false;
+    }
+    match url.scheme() {
+        "https" => true,
+        "http" => host == "localhost",
+        _ => false,
+    }
 }
 
 /// Debug builds (`tauri dev`) point at the local web dev server; release builds point at the real
@@ -511,4 +528,95 @@ pub fn run() {
             #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
             let _ = (app, event);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `is_allowed_navigation` is the desktop app's §28.7 navigation boundary — the one thing standing
+    /// between the shell and loading an arbitrary page with the user's real session cookie in the jar.
+    /// It had NO tests, and `cargo test` in this crate ran zero of anything.
+    fn allowed(u: &str) -> bool {
+        is_allowed_navigation(&u.parse().expect("test URL should parse"))
+    }
+
+    #[test]
+    fn allows_exactly_the_four_hosts_it_names() {
+        assert!(allowed("http://localhost:3000/home"));
+        assert!(allowed("https://app.veynlo.com/home"));
+        assert!(allowed("https://api.veynlo.com/v1/auth/me"));
+        assert!(allowed("https://auth.veynlo.com/oauth/callback"));
+    }
+
+    #[test]
+    fn rejects_a_lookalike_subdomain() {
+        // The check is whole-host equality, not a suffix match. A suffix match would accept every one of
+        // these, and each is a host an attacker can obtain.
+        assert!(!allowed("https://evil.app.veynlo.com/"));
+        assert!(!allowed("https://app.veynlo.com.evil.test/"));
+        assert!(!allowed("https://notapp.veynlo.com/"));
+        assert!(!allowed("https://veynlo.com/"));
+    }
+
+    #[test]
+    fn rejects_schemes_that_carry_no_host() {
+        // `host_str()` is None for these, so `is_some_and` short-circuits to false. Worth pinning: a
+        // file:// or data: page loaded in the main window would run with the session cookie available.
+        assert!(!allowed("file:///C:/Windows/System32/drivers/etc/hosts"));
+        assert!(!allowed("data:text/html,<script>fetch('/v1/auth/me')</script>"));
+        assert!(!allowed("about:blank"));
+    }
+
+    #[test]
+    fn rejects_a_plaintext_downgrade_of_a_deployed_host() {
+        // The check used to look at the host and nothing else, so every one of these passed. The first is
+        // the real one: in a release build it is a plaintext navigation into the window holding the
+        // session cookie jar, which anyone able to tamper with the network could answer themselves.
+        assert!(!allowed("http://app.veynlo.com/home"));
+        assert!(!allowed("http://api.veynlo.com/v1/auth/me"));
+        assert!(!allowed("http://auth.veynlo.com/oauth/callback"));
+    }
+
+    #[test]
+    fn rejects_other_schemes_even_on_an_allowed_host() {
+        assert!(!allowed("ftp://localhost/x"));
+        assert!(!allowed("ws://localhost:3000/socket"));
+    }
+
+    #[test]
+    fn still_allows_plain_http_for_localhost_because_tauri_dev_uses_it() {
+        assert!(allowed("http://localhost:3000/"));
+        assert!(allowed("https://localhost:3000/"));
+    }
+
+    #[test]
+    fn rejects_an_ordinary_external_site() {
+        assert!(!allowed("https://example.com/"));
+        assert!(!allowed("http://127.0.0.1:3000/"));
+    }
+
+    /// Every extension the drop handler accepts must map to a real MIME type — an unmapped one silently
+    /// becomes application/octet-stream, which the upload endpoint would then have to guess at.
+    #[test]
+    fn every_accepted_drop_extension_has_a_real_mime_type() {
+        for ext in ALLOWED_DROP_EXTENSIONS {
+            assert_ne!(
+                guess_mime_type(ext),
+                "application/octet-stream",
+                "accepted extension {ext} falls through to the generic type",
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_extensions_fall_back_rather_than_panicking() {
+        assert_eq!(guess_mime_type("exe"), "application/octet-stream");
+        assert_eq!(guess_mime_type(""), "application/octet-stream");
+    }
+
+    #[test]
+    fn jpg_and_jpeg_agree() {
+        assert_eq!(guess_mime_type("jpg"), guess_mime_type("jpeg"));
+    }
 }

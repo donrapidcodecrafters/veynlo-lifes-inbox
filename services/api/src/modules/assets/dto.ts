@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const CreatePropertyProfileDtoSchema = z.object({
-  label: z.string().min(1).max(120),
+  label: z.string().trim().min(1).max(120),
   propertyType: z.enum(["home", "rental", "vacation", "other"]).default("home"),
   address: z.string().max(500).nullable().optional(),
   moveInDateIso: z.string().nullable().optional(),
@@ -10,7 +10,7 @@ export const CreatePropertyProfileDtoSchema = z.object({
 export type CreatePropertyProfileDto = z.infer<typeof CreatePropertyProfileDtoSchema>;
 
 export const CreateVehicleProfileDtoSchema = z.object({
-  label: z.string().min(1).max(120),
+  label: z.string().trim().min(1).max(120),
   make: z.string().max(60).nullable().optional(),
   model: z.string().max(60).nullable().optional(),
   year: z.number().int().min(1900).max(2100).nullable().optional(),
@@ -31,7 +31,7 @@ export type CreateVehicleProfileDto = z.infer<typeof CreateVehicleProfileDtoSche
  * entirely (which leaves the existing household association untouched).
  */
 export const UpdatePropertyProfileDtoSchema = z.object({
-  label: z.string().min(1).max(120).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
   propertyType: z.enum(["home", "rental", "vacation", "other"]).optional(),
   address: z.string().max(500).nullable().optional(),
   moveInDateIso: z.string().nullable().optional(),
@@ -41,7 +41,7 @@ export type UpdatePropertyProfileDto = z.infer<typeof UpdatePropertyProfileDtoSc
 
 /** See UpdatePropertyProfileDtoSchema's own doc comment — the vehicle-profile counterpart of the same gap. */
 export const UpdateVehicleProfileDtoSchema = z.object({
-  label: z.string().min(1).max(120).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
   make: z.string().max(60).nullable().optional(),
   model: z.string().max(60).nullable().optional(),
   year: z.number().int().min(1900).max(2100).nullable().optional(),
@@ -108,7 +108,7 @@ export type ReplaceTireDto = z.infer<typeof ReplaceTireDtoSchema>;
 // asset only ever exists in the context of a property — see assets.ts's own schema doc comment).
 export const CreateHomeAssetDtoSchema = z.object({
   propertyProfileId: z.string(),
-  label: z.string().min(1).max(120),
+  label: z.string().trim().min(1).max(120),
   category: z.enum(["appliance", "hvac", "plumbing", "electrical", "other"]).nullable().optional(),
   // HOMEOS-002 "Add rooms as needed... must be editable" — free-text so a user can type "Kitchen"/"Garage"
   // without first creating any kind of room object. See homeAssets.room's own schema doc comment.
@@ -128,7 +128,7 @@ export type DecodeVinDto = z.infer<typeof DecodeVinDtoSchema>;
 // HOMEOS-002 — room/area label on a home asset. A separate schema (rather than folding into
 // CreateHomeAssetDtoSchema) so PATCH-style edit endpoints can reuse it without needing every other field.
 export const UpdateHomeAssetDtoSchema = z.object({
-  label: z.string().min(1).max(120).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
   category: z.enum(["appliance", "hvac", "plumbing", "electrical", "other"]).nullable().optional(),
   room: z.string().max(80).nullable().optional(),
   make: z.string().max(60).nullable().optional(),
@@ -146,7 +146,7 @@ export const CreateMaintenanceRuleDtoSchema = z
   .object({
     vehicleProfileId: z.string().nullable().optional(),
     homeAssetId: z.string().nullable().optional(),
-    label: z.string().min(1).max(120),
+    label: z.string().trim().min(1).max(120),
     intervalType: z.enum(["calendar", "mileage", "calendar_or_mileage"]),
     intervalDays: z.number().int().min(1).max(3650).nullable().optional(),
     intervalMiles: z.number().int().min(1).max(200_000).nullable().optional(),
@@ -168,7 +168,7 @@ export const CreateMaintenanceRuleDtoSchema = z
 export type CreateMaintenanceRuleDto = z.infer<typeof CreateMaintenanceRuleDtoSchema>;
 
 export const UpdateMaintenanceRuleDtoSchema = z.object({
-  label: z.string().min(1).max(120).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
   intervalType: z.enum(["calendar", "mileage", "calendar_or_mileage"]).optional(),
   intervalDays: z.number().int().min(1).max(3650).nullable().optional(),
   intervalMiles: z.number().int().min(1).max(200_000).nullable().optional(),
@@ -239,3 +239,11 @@ export const MergePropertiesDtoSchema = z.object({
   mergedPropertyId: z.string().min(1),
 });
 export type MergePropertiesDto = z.infer<typeof MergePropertiesDtoSchema>;
+
+/**
+ * Distinct from DecodeVinDtoSchema above, which requires a vin because its endpoint decodes a VIN the
+ * caller supplies. This one is for decoding a VEHICLE's VIN: omitted, applyVinDecode uses whatever is
+ * already on file, so vin is an optional override. Same bounds as the required one.
+ */
+export const DecodeVehicleVinDtoSchema = z.object({ vin: z.string().min(5).max(32).optional() });
+export type DecodeVehicleVinDto = z.infer<typeof DecodeVehicleVinDtoSchema>;

@@ -130,7 +130,14 @@
     --text-tertiary: #9a9dad;
     --text-disabled: #585b6d;
     --text-inverse: #17181f;
-    --text-on-brand: #ffffff;
+    /* Dark mode's brand is --color-brand-400 (#7c86f0), a deliberately LIGHTER indigo so it reads as brand
+       against a near-black canvas. White on it measures 3.22:1 — under WCAG AA's 4.5:1 — which axe-core
+       caught on every primary button and every selected tab pill in the app (10 failing nodes on /home
+       alone). Light mode is unaffected: it uses --color-brand-500, where white measures 4.84:1.
+       Flipping the foreground rather than darkening the brand keeps that deliberate lightness, and the
+       numbers get BETTER on interaction rather than worse: 5.50:1 at rest, 8.09:1 on hover
+       (--color-brand-300), 10.92:1 while active (--color-brand-200). */
+    --text-on-brand: #17181f;
 
     --brand-default: var(--color-brand-400);
     --brand-hover: var(--color-brand-300);
@@ -138,10 +145,17 @@
     --brand-subtle-bg: rgba(91, 99, 227, 0.16);
     --brand-subtle-text: var(--color-brand-300);
 
-    /* #e9807f (white button text on this bg) measured ~2.67:1 — badly fails WCAG AA's 4.5:1, worse
-     than the light-mode equivalent, just never caught since the E2E a11y suite only runs in light
-     mode. Darkened to clear 4.5:1 with margin (~5.3:1) while staying visually a clear dark-mode red. */
-  --semantic-critical: #b84443;
+    /* This token fills BOTH roles: `text-critical` as error text on a surface, and `bg-critical` behind
+     a button label. An earlier fix tuned it for the button alone — #e9807f gave white button text
+     ~2.67:1, so it was darkened to #b84443 for ~5.3:1 — and that darkening broke the other role:
+     #b84443 measures 3.32:1 as TEXT on --bg-surface, which axe-core caught on a real data-export error
+     message once the sweep covered every route in dark rather than three routes in light.
+     Measured across the range, no single red satisfies both roles while the button keeps WHITE text: as
+     the red lightens enough to read on near-black, white stops reading on it (#d65b5a is 4.64:1 as text
+     but only 3.82:1 under white). So the red is lightened here and Button's critical variant switches
+     from hard-coded white to --text-on-brand, which is already near-black in dark and white in light.
+     Both roles now pass in both themes: 4.64:1 dark, 4.91:1 light. */
+  --semantic-critical: #d65b5a;
     --semantic-critical-subtle-bg: rgba(214, 69, 69, 0.16);
     --semantic-critical-subtle-text: #f4b3b2;
     --semantic-warning: #e8b463;
@@ -177,7 +191,14 @@
   --text-tertiary: #9a9dad;
   --text-disabled: #585b6d;
   --text-inverse: #17181f;
-  --text-on-brand: #ffffff;
+  /* Dark mode's brand is --color-brand-400 (#7c86f0), a deliberately LIGHTER indigo so it reads as brand
+     against a near-black canvas. White on it measures 3.22:1 — under WCAG AA's 4.5:1 — which axe-core
+     caught on every primary button and every selected tab pill in the app (10 failing nodes on /home
+     alone). Light mode is unaffected: it uses --color-brand-500, where white measures 4.84:1.
+     Flipping the foreground rather than darkening the brand keeps that deliberate lightness, and the
+     numbers get BETTER on interaction rather than worse: 5.50:1 at rest, 8.09:1 on hover
+     (--color-brand-300), 10.92:1 while active (--color-brand-200). */
+  --text-on-brand: #17181f;
 
   --brand-default: var(--color-brand-400);
   --brand-hover: var(--color-brand-300);
@@ -188,7 +209,8 @@
   /* #e9807f (white button text on this bg) measured ~2.67:1 — badly fails WCAG AA's 4.5:1, worse
      than the light-mode equivalent, just never caught since the E2E a11y suite only runs in light
      mode. Darkened to clear 4.5:1 with margin (~5.3:1) while staying visually a clear dark-mode red. */
-  --semantic-critical: #b84443;
+  /* See the note on the same token in the prefers-color-scheme block above. */
+  --semantic-critical: #d65b5a;
   --semantic-critical-subtle-bg: rgba(214, 69, 69, 0.16);
   --semantic-critical-subtle-text: #f4b3b2;
   --semantic-warning: #e8b463;

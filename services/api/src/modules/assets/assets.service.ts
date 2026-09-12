@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { canCreateShareLink, generateId, type SensitivityTier, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -33,6 +33,7 @@ import type {
   UpdateRegistrationRecordDto,
   RenewRegistrationRecordDto,
 } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 function dateOnly(iso: string | null | undefined): TemporalValue | null {
   if (!iso) return null;
@@ -95,13 +96,14 @@ export class AssetsService {
     const grantedIds = await this.sharing.grantedResourceIds("property", userId);
     const baseCondition = await this.ownerOrDelegatedHousehold(userId, schema.propertyProfiles.ownerUserId, schema.propertyProfiles.householdId);
     const accessCondition = grantedIds.length > 0 ? or(baseCondition, inArray(schema.propertyProfiles.id, grantedIds))! : baseCondition;
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.propertyProfiles)
       // §40.2 — a merged-away property (mergedIntoPropertyId set) is excluded from ordinary list queries,
       // same as deletedAt, but never hard-deleted — see mergeProperties' own doc comment.
-      .where(and(isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId), accessCondition))
-      .orderBy(asc(schema.propertyProfiles.label));
+      .where(and(isNull(schema.propertyProfiles.deletedAt), isNull(schema.propertyProfiles.mergedIntoPropertyId), accessCondition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async createProperty(userId: string, dto: CreatePropertyProfileDto) {
@@ -137,11 +139,13 @@ export class AssetsService {
     // per asset) rather than a join: this app's per-household asset counts are small (see AssetsService's
     // own doc comment on scale elsewhere), and a join would need an awkward LEFT JOIN + in-app grouping for
     // what's otherwise a one-line loop.
-    const homeAssetRows = await this.db
-      .select()
-      .from(schema.homeAssets)
-      .where(and(eq(schema.homeAssets.propertyProfileId, propertyId), isNull(schema.homeAssets.deletedAt)))
-      .orderBy(asc(schema.homeAssets.label));
+    const homeAssetRows = (
+      await this.db
+        .select()
+        .from(schema.homeAssets)
+        .where(and(eq(schema.homeAssets.propertyProfileId, propertyId), isNull(schema.homeAssets.deletedAt)))
+      // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    ).sort(byDecryptedText((r) => r.label, (r) => r.id));
     const homeAssets = await Promise.all(
       homeAssetRows.map(async (asset) => ({
         ...asset,
@@ -199,13 +203,14 @@ export class AssetsService {
     const grantedIds = await this.sharing.grantedResourceIds("vehicle", userId);
     const baseCondition = await this.ownerOrDelegatedHousehold(userId, schema.vehicleProfiles.ownerUserId, schema.vehicleProfiles.householdId);
     const accessCondition = grantedIds.length > 0 ? or(baseCondition, inArray(schema.vehicleProfiles.id, grantedIds))! : baseCondition;
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.vehicleProfiles)
       // §40.2 — a merged-away vehicle (mergedIntoVehicleId set) is excluded from ordinary list queries,
       // same as deletedAt, but never hard-deleted — see mergeVehicles' own doc comment.
-      .where(and(isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId), accessCondition))
-      .orderBy(asc(schema.vehicleProfiles.label));
+      .where(and(isNull(schema.vehicleProfiles.deletedAt), isNull(schema.vehicleProfiles.mergedIntoVehicleId), accessCondition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async createVehicle(userId: string, dto: CreateVehicleProfileDto) {
@@ -1201,11 +1206,15 @@ export class AssetsService {
   }
 
   private assertPublicLinkAllowed(sensitivity: string, resourceLabel: "property" | "vehicle"): void {
-    // HH-002 Permissions: "High-sensitivity categories can disallow public links." Same gate as
-    // DocumentsService.createShareLink — a home address or a VIN at "highly_sensitive"/"secret" shouldn't
-    // get an unauthenticated, internet-reachable link; a direct grant (unrestricted by sensitivity, since
-    // it targets one named Veynlo account) is still available for that case.
-    if (sensitivity === "highly_sensitive" || sensitivity === "secret") {
+    // HH-002 Permissions: "High-sensitivity categories can disallow public links." A home address or a VIN
+    // at "highly_sensitive"/"secret" shouldn't get an unauthenticated, internet-reachable link; a direct
+    // grant (unrestricted by sensitivity, since it targets one named Veynlo account) is still available.
+    //
+    // Asks the shared rule rather than restating it. The tier list used to be hardcoded here — correct,
+    // and therefore invisible: if a tier were added or the rule changed, DocumentsService would follow it
+    // and this would not. canCreateShareLink is Appendix C's own statement of the rule and the single
+    // place it lives.
+    if (!canCreateShareLink(sensitivity as SensitivityTier)) {
       throw new ForbiddenException({
         code: "SENSITIVITY_BLOCKS_PUBLIC_LINK",
         message: `This ${resourceLabel}'s sensitivity level doesn't allow public share links. Share it directly with someone's Veynlo account instead.`,

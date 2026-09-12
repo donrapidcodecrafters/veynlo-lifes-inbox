@@ -19,8 +19,16 @@ export const CreatePersonDtoSchema = z.object({
   relationshipLabel: z.string().max(60).nullable().optional(),
   isImportant: z.boolean().optional(),
   householdId: z.string().nullable().optional(),
-  emails: z.array(z.string().max(200)).max(20).optional(),
-  phones: z.array(z.string().max(60)).max(20).optional(),
+  /* Contact emails and phones are deliberately NOT format-validated. These arrive from a real address
+     book (`source: "apple_local"`) as well as from typing, and rejecting an unusual-but-real address on
+     import loses the user's data to satisfy a regex — a worse outcome than storing what they actually
+     have. `NormalizedEmailSchema` exists for the other kind of email, the kind that identifies an ACCOUNT,
+     where a strict format and lower-casing are load-bearing.
+     What is fixed here is the part with no upside: without `.trim().min(1)` the array accepted "" and
+     "   ", so a blank entry could be stored in someone's contact list. The clients already refuse empty
+     input; the API did not. */
+  emails: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+  phones: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   source: z.enum(["manual", "apple_local"]).optional(),
 });
 export type CreatePersonDto = z.infer<typeof CreatePersonDtoSchema>;
@@ -65,7 +73,7 @@ export type AddPersonNoteDto = z.infer<typeof AddPersonNoteDtoSchema>;
  * itself is shared household-wide (see personImportantDates' own schema doc comment).
  */
 export const AddImportantDateDtoSchema = z.object({
-  label: z.string().min(1).max(80),
+  label: z.string().trim().min(1).max(80),
   dateIso: z.string().min(1),
   isSensitive: z.boolean().optional(),
   reminderDaysBefore: z.number().int().min(0).max(90).optional(),
@@ -78,7 +86,7 @@ export const AddPersonRelationshipDtoSchema = z
   .object({
     toPersonId: z.string().nullable().optional(),
     toDependentProfileId: z.string().nullable().optional(),
-    label: z.string().min(1).max(80),
+    label: z.string().trim().min(1).max(80),
   })
   .refine((v) => Boolean(v.toPersonId) !== Boolean(v.toDependentProfileId), {
     message: "Provide exactly one of toPersonId or toDependentProfileId.",
@@ -86,7 +94,7 @@ export const AddPersonRelationshipDtoSchema = z
 export type AddPersonRelationshipDto = z.infer<typeof AddPersonRelationshipDtoSchema>;
 
 export const CreateOrganizationDtoSchema = z.object({
-  name: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
   organizationType: z.string().max(60).nullable().optional(),
   householdId: z.string().nullable().optional(),
 });

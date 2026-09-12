@@ -462,7 +462,7 @@ export default function SavedItemDetailScreen() {
             {memory.highlights.map((highlight, i) => (
               <View key={i} style={{ backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 10, gap: 4 }}>
                 <Text style={{ fontSize: 14, color: theme.colors.textPrimary }}>{highlight}</Text>
-                <Pressable accessibilityRole="button" onPress={() => removeHighlight(i)}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Remove highlight: ${highlight.length > 60 ? `${highlight.slice(0, 60)}…` : highlight}`} onPress={() => removeHighlight(i)}>
                   <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Remove</Text>
                 </Pressable>
               </View>
@@ -508,7 +508,7 @@ export default function SavedItemDetailScreen() {
                   {ruleDetail(r)}
                   {!r.active ? " (done)" : ""}
                 </Text>
-                <Pressable accessibilityRole="button" onPress={() => removeRule(r.id)}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Remove reminder: ${ruleDetail(r)}`} onPress={() => removeRule(r.id)}>
                   <Text style={{ fontSize: 12, color: theme.colors.critical }}>Remove</Text>
                 </Pressable>
               </View>

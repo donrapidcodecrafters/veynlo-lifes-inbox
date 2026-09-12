@@ -676,7 +676,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
             </Text>
           </Pressable>
           {recordingUri && !recorderState.isRecording && (
-            <Text style={{ fontSize: 13, color: theme.colors.positive }}>Recorded — ready to submit.</Text>
+            <Text style={{ fontSize: 13, color: theme.colors.positiveSubtleText }}>Recorded — ready to submit.</Text>
           )}
         </>
       )}

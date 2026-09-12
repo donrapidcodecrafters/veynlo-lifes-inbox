@@ -197,6 +197,7 @@ function ReminderCard({ event, onSaved }: { event: EventDetail["event"]; onSaved
         {REMINDER_OPTIONS.map((opt) => (
           <Pressable accessibilityRole="button"
             key={opt.value}
+            accessibilityState={{ selected: value === opt.value, disabled: saving }}
             onPress={() => save(opt.value)}
             disabled={saving}
             style={{
@@ -284,6 +285,7 @@ function WriteBackCard({ event, targets, onPushed }: { event: EventDetail["event
         {targets.map((t) => (
           <Pressable accessibilityRole="button"
             key={t.id}
+            accessibilityState={{ selected: connectionId === t.id }}
             onPress={() => setConnectionId(t.id)}
             style={{
               paddingHorizontal: 10,

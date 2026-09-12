@@ -1,6 +1,6 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
-import { randomBytes } from "node:crypto";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { createHash, randomBytes } from "node:crypto";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import * as argon2 from "argon2";
 import { SignJWT, createRemoteJWKSet, jwtVerify, importPKCS8 } from "jose";
 import { google } from "googleapis";
@@ -14,6 +14,7 @@ import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { loadEnv, isConnectorConfigured, isAppleSignInConfigured, isInboundEmailConfigured } from "../../config/env";
 import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
+import { CACHE, type Cache } from "../../cache/cache.interface";
 import { MailerService } from "../notifications/mailer.service";
 import { OnboardingService } from "../onboarding/onboarding.service";
 import { AnalyticsService, toAnalyticsPlatform } from "../analytics/analytics.service";
@@ -64,6 +65,22 @@ function generateInboundAlias(): string {
   return `u-${randomBytes(8).toString("hex")}`;
 }
 
+/**
+ * Ten failed attempts against ONE account in fifteen minutes. Generous enough that a person mistyping a
+ * password never meets it, tight enough that a distributed list-attack gets ten guesses per account per
+ * window no matter how many IPs it comes from.
+ */
+const SIGN_IN_FAILURE_LIMIT = 10;
+const SIGN_IN_FAILURE_WINDOW_SECONDS = 15 * 60;
+
+/**
+ * Tighter than sign-in's ten, because the situations are not the same. Step-up is re-entered by someone
+ * already signed in, deliberately, for one sensitive action — five wrong attempts in fifteen minutes is
+ * generous for a person and a hard ceiling for someone working through a stolen session.
+ */
+const STEP_UP_FAILURE_LIMIT = 5;
+const STEP_UP_FAILURE_WINDOW_SECONDS = 15 * 60;
+
 export interface SessionIssued {
   token: string;
   expiresAt: Date;
@@ -86,7 +103,80 @@ export class IdentityService {
     // notifications, widgets — not just this module's own tests) don't all need updating for an
     // analytics-only concern. `this.analytics?.track(...)` below is simply a no-op when undefined.
     @Inject(AnalyticsService) private readonly analytics?: AnalyticsService,
+    // Trailing/optional for the same reason as `analytics` above — the many tests across other modules
+    // that construct this service positionally would otherwise all need updating. Wired for real by the
+    // @Global() CacheModule, so it is present everywhere the app actually runs; when it is absent (unit
+    // tests) the per-account throttle below simply does not engage, which is what a test wants.
+    @Inject(CACHE) private readonly cache?: Cache,
   ) {}
+
+  /**
+   * Per-ACCOUNT sign-in throttling, on top of the per-IP `@Throttle` on the route.
+   *
+   * THREAT_MODEL.md states the abuse case as "attacker with a large credential-stuffing list hits
+   * /sign-in — mitigated by rate limiting", and SECURITY_CONTROLS.md V2.2 cites the route's `@Throttle`
+   * as that mitigation. It is not one. Credential stuffing is distributed by definition, and the route
+   * limit is keyed by IP — a list spread across a botnet never trips it. It is also `ThrottlerModule`'s
+   * default in-memory storage, so its counters are per-process and reset on deploy.
+   *
+   * This is keyed by the account instead, in Redis, which is what `Cache`'s own doc comment says the
+   * interface exists for (§16 "Distributed rate-limit counters"). Nothing counted failures before —
+   * they were written to the audit log and never read.
+   *
+   * Deliberate details:
+   *  - Checked BEFORE the user lookup and before argon2 verification, so a throttled request costs
+   *    nothing and behaves identically for an address that exists and one that does not.
+   *  - The key is a hash of the email, not the email: this is a shared Redis, and a key namespace full of
+   *    plaintext addresses is an inventory of who has an account.
+   *  - The response is the generic "too much" message the route throttler already returns. Saying
+   *    "account locked" would confirm the address is registered.
+   *  - It expires. This slows an attacker without giving anyone a way to lock a known address out
+   *    indefinitely by failing sign-ins against it on purpose.
+   */
+  private signInFailureKey(email: string): string {
+    // Normalised here as well as at the DTO boundary (SignInDtoSchema uses NormalizedEmailSchema). Belt
+    // and braces, and free: if this ever ran on an un-normalised address, "Foo@x.com" and "foo@x.com"
+    // would keep separate counters and an attacker would get a fresh allowance per casing variant.
+    const normalized = email.trim().toLowerCase();
+    return `signin-fail:${createHash("sha256").update(normalized).digest("hex").slice(0, 32)}`;
+  }
+
+  /**
+   * A real argon2 verify against a throwaway hash, so an address with no account costs the same time as
+   * one with an account whose password was wrong.
+   *
+   * forgotPassword below states the rule this restores, citing the spec: the response "(and timing/shape)
+   * must not let a caller distinguish 'sent' from 'no such account'" (§28.8, "return generic
+   * authorization errors where detail would help enumerate accounts"). Sign-in — far more commonly probed
+   * than password reset — returned early for an unknown address without ever reaching argon2, and so
+   * answered measurably sooner. Measured against the running API before this, four samples each:
+   *
+   *   real account, wrong password:  0.255  0.256  0.255  0.254
+   *   no such account:               0.223  0.215  0.217  0.233
+   *
+   * Every sample separated — the slowest unknown still beat the fastest real one — which makes it a
+   * reliable test for "does this address have a Veynlo account", not a statistical lean. Same fix, and
+   * the same cached-dummy-hash shape, as CaregiverDayPassService.dummyPasscodeHash.
+   */
+  private dummySignInHashCache: Promise<string> | null = null;
+  private dummySignInHash(): Promise<string> {
+    if (!this.dummySignInHashCache) this.dummySignInHashCache = argon2.hash(randomBytes(16).toString("hex"));
+    return this.dummySignInHashCache;
+  }
+
+  private async assertNotSignInThrottled(email: string): Promise<void> {
+    if (!this.cache) return;
+    const current = await this.cache.incr(this.signInFailureKey(email));
+    // The counter is incremented on every ATTEMPT and cleared on success, so it also bounds an attacker
+    // who never guesses right — not just one who is close.
+    if (current === 1) await this.cache.expire(this.signInFailureKey(email), SIGN_IN_FAILURE_WINDOW_SECONDS);
+    if (current > SIGN_IN_FAILURE_LIMIT) {
+      throw new HttpException(
+        { code: "TOO_MANY_REQUESTS", message: "You're doing that too much. Please wait a bit and try again." },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
 
   async signUp(dto: SignUpDto, deviceInfo: { platform: string; displayName?: string }): Promise<SessionIssued> {
     const [existing] = await this.db.select().from(schema.users).where(eq(schema.users.email, dto.email)).limit(1);
@@ -168,8 +258,12 @@ export class IdentityService {
   }
 
   async signIn(dto: SignInDto, deviceInfo: { platform: string; displayName?: string }): Promise<SessionIssued> {
+    await this.assertNotSignInThrottled(dto.email);
     const [user] = await this.db.select().from(schema.users).where(eq(schema.users.email, dto.email)).limit(1);
     if (!user || !user.passwordHash) {
+      // Spend the same argon2 time a real account would, so the response does not answer "is this an
+      // account" on its own — see dummySignInHash above for the measurements this removes.
+      await argon2.verify(await this.dummySignInHash(), dto.password).catch(() => false);
       await this.recordAuditEvent("system", null, "user.sign_in", "user", dto.email, "failure");
       throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect email or password." });
     }
@@ -199,6 +293,10 @@ export class IdentityService {
       throw new UnauthorizedException({ code: "ACCOUNT_SUSPENDED", message: "This account has been suspended." });
     }
     await this.recordAuditEvent("user", user.id, "user.sign_in", "user", user.id, "success");
+    // Cleared only on a sign-in that actually succeeded — not on `deleted`/`suspended`, which are
+    // rejections, and not merely on a correct password. A few typos followed by getting it right should
+    // not leave the account part-way to its limit for the rest of the window.
+    await this.cache?.del(this.signInFailureKey(dto.email));
     return this.issueSession(user.id, deviceInfo);
   }
 
@@ -528,7 +626,17 @@ export class IdentityService {
    */
   private async generateAppleClientSecret(): Promise<string> {
     const env = loadEnv();
-    const privateKey = await importPKCS8(env.APPLE_PRIVATE_KEY!, "ES256");
+    // A key that passes isAppleSignInConfigured()'s shape check can still be cryptographically invalid —
+    // right PEM envelope, wrong or corrupt contents. importPKCS8 throws on that, and an unhandled throw
+    // here becomes 500 INTERNAL_ERROR with retryable:true, telling the caller to retry a configuration
+    // fault that no retry can fix. Degrade to the same honest "not configured" answer every other
+    // unconfigured provider gives.
+    let privateKey: Awaited<ReturnType<typeof importPKCS8>>;
+    try {
+      privateKey = await importPKCS8(env.APPLE_PRIVATE_KEY!, "ES256");
+    } catch {
+      throw new OAuthNotConfiguredError("apple");
+    }
     return new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid: env.APPLE_KEY_ID })
       .setIssuer(env.APPLE_TEAM_ID!)
@@ -666,11 +774,21 @@ export class IdentityService {
    * account can never revoke another's session by guessing/enumerating an ID. Silently no-ops if the id
    * doesn't belong to this user or is already revoked, same "idempotent, no information leak" posture as
    * revokeAllSessions above. */
-  async revokeSessionById(sessionId: string, requestingUserId: string): Promise<void> {
-    await this.db
+  /**
+   * Returns whether a session was actually revoked.
+   *
+   * The scoping here is what makes this safe — `userId = requestingUserId` means one user physically
+   * cannot revoke another's session, verified live. But the caller used to discard that outcome and
+   * always report success, so a request that matched NOTHING looked identical to one that killed a
+   * device. That matters for this endpoint specifically: it is the "sign my lost phone out" control, and
+   * a false "done" on a stale or wrong id tells someone their lost phone is signed out when it is not.
+   */
+  async revokeSessionById(sessionId: string, requestingUserId: string): Promise<boolean> {
+    const result = await this.db
       .update(schema.sessions)
       .set({ revokedAt: new Date() })
       .where(and(eq(schema.sessions.id, sessionId), eq(schema.sessions.userId, requestingUserId), isNull(schema.sessions.revokedAt)));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async revokeAllSessions(userId: string): Promise<void> {
@@ -740,7 +858,10 @@ export class IdentityService {
       })
       .from(schema.sessions)
       .leftJoin(schema.devices, eq(schema.devices.id, schema.sessions.deviceId))
-      .where(eq(schema.sessions.userId, userId));
+      .where(eq(schema.sessions.userId, userId))
+      // Newest session first, with a stable tiebreaker: this list is how someone finds the device they mean
+      // to revoke, and a row that moves between renders is a row someone revokes by mistake.
+      .orderBy(desc(schema.sessions.createdAt), asc(schema.sessions.id));
     return rows.map((row) => ({ ...row, isCurrent: row.id === currentSessionId }));
   }
 
@@ -757,12 +878,38 @@ export class IdentityService {
     const [user] = await this.db.select({ passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     if (!user?.passwordHash) return;
     if (!password) {
+      // Deliberately NOT counted. This is the normal first half of the flow — the client calls without a
+      // password precisely to be told one is needed, and the emergency binder's unlock does exactly that
+      // on every open. Counting it would burn a legitimate user's allowance before they typed anything.
       throw new UnauthorizedException({ code: "PASSWORD_REQUIRED", message: "Re-enter your password to continue." });
     }
+
+    // Throttled HERE rather than at each caller, so a new step-up-protected action cannot be added without
+    // it. This gate had none: an attacker holding a stolen session could guess the step-up password at the
+    // global per-IP rate to unlock the emergency binder (identity records, vehicles, properties, pets,
+    // medical appointments) or reveal a passport number. Both of those endpoints wrote an audit row on
+    // every failed attempt and nothing counted them — the same shape as sign-in before DEF-057, on the
+    // second factor rather than the first. Data export was the one caller with a per-route @Throttle,
+    // which is what made the absence on the others visible.
+    if (this.cache) {
+      const key = `stepup-fail:${userId}`;
+      const attempts = await this.cache.incr(key);
+      if (attempts === 1) await this.cache.expire(key, STEP_UP_FAILURE_WINDOW_SECONDS);
+      if (attempts > STEP_UP_FAILURE_LIMIT) {
+        throw new HttpException(
+          { code: "TOO_MANY_REQUESTS", message: "You're doing that too much. Please wait a bit and try again." },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
     const valid = await argon2.verify(user.passwordHash, password);
     if (!valid) {
       throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Incorrect password." });
     }
+    // Cleared on success, so the counter measures attempts since the last correct password rather than
+    // accumulating across a user's normal use of a step-up-gated feature.
+    await this.cache?.del(`stepup-fail:${userId}`);
   }
 
   /**

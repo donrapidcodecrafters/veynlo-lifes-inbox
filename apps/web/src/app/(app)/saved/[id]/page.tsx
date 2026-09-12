@@ -431,6 +431,7 @@ export default function SavedMemoryDetailPage() {
                 <button
                   key={c}
                   disabled={!isOwner}
+                  aria-pressed={memory.category === c}
                   onClick={() => setCategory(c)}
                   className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                     memory.category === c ? "bg-brand text-on-brand" : "bg-subtle text-secondary hover:bg-border-subtle"
@@ -496,7 +497,8 @@ export default function SavedMemoryDetailPage() {
                     key={star}
                     type="button"
                     aria-label={`Rate ${star} star${star === 1 ? "" : "s"}`}
-                    onClick={() => setRating(memory.rating === star ? null : star)}
+                    aria-pressed={memory.rating != null && star <= memory.rating}
+                  onClick={() => setRating(memory.rating === star ? null : star)}
                     className={`text-xl leading-none ${memory.rating != null && star <= memory.rating ? "text-warning" : "text-tertiary hover:text-secondary"}`}
                   >
                     ★
@@ -561,7 +563,7 @@ export default function SavedMemoryDetailPage() {
                     <li key={i} className="flex items-start justify-between gap-2 rounded-lg bg-subtle px-3 py-2 text-sm text-primary">
                       <span className="break-words">{highlight}</span>
                       {isOwner && (
-                        <button onClick={() => removeHighlight(i)} className="shrink-0 text-xs text-tertiary hover:text-critical">
+                        <button aria-label={`Remove highlight: ${highlight.length > 60 ? `${highlight.slice(0, 60)}…` : highlight}`} onClick={() => removeHighlight(i)} className="shrink-0 text-xs text-tertiary hover:text-critical">
                           Remove
                         </button>
                       )}
@@ -625,7 +627,7 @@ export default function SavedMemoryDetailPage() {
                       {!r.active && <span className="ml-1.5 text-xs text-tertiary">(done)</span>}
                       {r.active && r.lastFiredAt && <span className="ml-1.5 text-xs text-tertiary">(last reminded {new Date(r.lastFiredAt).toLocaleDateString()})</span>}
                     </span>
-                    <button onClick={() => removeRule(r.id)} className="shrink-0 text-xs text-critical hover:underline">
+                    <button aria-label={`Remove reminder: ${ruleDetail(r)}`} onClick={() => removeRule(r.id)} className="shrink-0 text-xs text-critical hover:underline">
                       Remove
                     </button>
                   </li>
@@ -641,6 +643,7 @@ export default function SavedMemoryDetailPage() {
                 {RESURFACING_RULE_TYPES.map((t) => (
                   <button
                     key={t.value}
+                    aria-pressed={ruleType === t.value}
                     onClick={() => setRuleType(t.value)}
                     className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                       ruleType === t.value ? "bg-brand text-on-brand" : "bg-subtle text-secondary hover:bg-border-subtle"
@@ -712,7 +715,8 @@ export default function SavedMemoryDetailPage() {
                       {upcomingTrips.map((t) => (
                         <button
                           key={t.id}
-                          onClick={() => setRuleLocationLabel(t.destinationLabel ?? "")}
+                          aria-pressed={ruleLocationLabel === t.destinationLabel}
+                      onClick={() => setRuleLocationLabel(t.destinationLabel ?? "")}
                           className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                             ruleLocationLabel === t.destinationLabel ? "bg-brand text-on-brand" : "bg-subtle text-secondary hover:bg-border-subtle"
                           }`}

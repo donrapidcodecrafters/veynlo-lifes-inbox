@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
+import { users } from "./identity";
 import { vector } from "./vector-type";
 import { tsvector } from "./tsvector-type";
 
@@ -12,7 +13,18 @@ export const searchDocuments = pgTable(
   "search_documents",
   {
     id: text("id").primaryKey(),
-    ownerUserId: text("owner_user_id").notNull(),
+    // The FK is the deletion mechanism, not decoration. Account deletion works by `DELETE FROM users` and
+    // letting 100 cascading foreign keys carry everything else away (see worker-main.ts's
+    // accountDeletionWorker). This column was the ONE owner_user_id in the schema with no foreign key at
+    // all, so those rows simply stayed — proven against the real database: delete a user and their
+    // pet_profiles row is gone while their search_documents row remains, `title` and `bodyText` intact.
+    //
+    // Which is the worst table for it to be: title/bodyText are deliberately PLAINTEXT (that is the entire
+    // point of this index — the source columns are encrypted and cannot be searched), so a deleted account
+    // left behind a plaintext, full-text-searchable copy of its own content, indefinitely.
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     householdId: text("household_id"),
     resourceType: text("resource_type").notNull(),
     resourceId: text("resource_id").notNull(),

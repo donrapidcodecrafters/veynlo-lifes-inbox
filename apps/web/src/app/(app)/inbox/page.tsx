@@ -239,7 +239,8 @@ export default function InboxPage() {
             {(["new", "all"] as const).map((f) => (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
+              onClick={() => setFilter(f)}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
                   filter === f ? "bg-surface text-primary shadow-xs" : "text-tertiary"
                 }`}
@@ -265,6 +266,7 @@ export default function InboxPage() {
           ).map(([value, label]) => (
             <button
               key={value}
+              aria-pressed={quickFilter === value}
               onClick={() => setQuickFilter(value)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 quickFilter === value

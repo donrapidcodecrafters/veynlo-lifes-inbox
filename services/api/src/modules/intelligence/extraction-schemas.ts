@@ -88,7 +88,7 @@ export const BillExtractionSchema = z.object({
 export type BillExtraction = z.infer<typeof BillExtractionSchema>;
 
 export const CalendarEventExtractionSchema = z.object({
-  title: z.string(),
+  title: z.string().trim(),
   startDate: ExtractedDateSchema,
   startTime: z.string().nullable().describe("HH:MM 24-hour, in the timezone below, null if only a date is known"),
   timezone: z.string().nullable(),
@@ -133,7 +133,7 @@ export type WarrantyExtraction = z.infer<typeof WarrantyExtractionSchema>;
  */
 export const SchoolExtractionSchema = z.object({
   schoolName: z.string().nullable().describe("The school/district/team name, if stated"),
-  title: z.string().describe("A short label for this event/notice, e.g. 'No school - teacher in-service day'"),
+  title: z.string().trim().describe("A short label for this event/notice, e.g. 'No school - teacher in-service day'"),
   eventKind: z.enum([
     "no_school",
     "picture_day",
@@ -314,7 +314,7 @@ export type HealthAppointmentExtraction = z.infer<typeof HealthAppointmentExtrac
  */
 export const PetEventExtractionSchema = z.object({
   petNameHint: z.string().nullable().describe("The pet's name exactly as stated in the source text, if any — never inferred or guessed"),
-  title: z.string(),
+  title: z.string().trim(),
   eventType: z.string().nullable().describe("A short logistics category only, e.g. 'vet checkup', 'grooming', 'boarding drop-off' — never a medical reason for the visit"),
   providerName: z.string().nullable().describe("The vet clinic/groomer name exactly as stated"),
   startDate: ExtractedDateSchema,
@@ -335,7 +335,7 @@ export type PetEventExtraction = z.infer<typeof PetEventExtractionSchema>;
  */
 export const PetVaccinationExtractionSchema = z.object({
   petNameHint: z.string().nullable().describe("The pet's name exactly as stated in the source text, if any — never inferred or guessed"),
-  label: z.string().nullable().describe("The vaccine or license type exactly as stated, e.g. 'Rabies', 'City dog license'"),
+  label: z.string().trim().nullable().describe("The vaccine or license type exactly as stated, e.g. 'Rabies', 'City dog license'"),
   expirationDate: ExtractedDateSchema,
   confidenceNotes: z.string(),
 });
@@ -365,7 +365,7 @@ export type ShareMessageCategory = z.infer<typeof ShareMessageCategorySchema>;
 export const ShareMessageClassificationSchema = z.object({
   category: ShareMessageCategorySchema,
   confidence: z.number().min(0).max(1),
-  title: z.string().nullable().describe("A short, human-readable title/summary of what was shared"),
+  title: z.string().trim().nullable().describe("A short, human-readable title/summary of what was shared"),
   dateIso: z.string().nullable().describe("YYYY-MM-DD if a specific date is clearly stated; null if unknown, ambiguous, or only approximate (e.g. sarcasm, 'someday')"),
   taskDescription: z.string().nullable().describe("What needs to be done, if this is a task/reminder — exactly as stated, never elaborated"),
   addressText: z.string().nullable().describe("A physical address or specific place name mentioned, if any"),

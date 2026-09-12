@@ -13,6 +13,10 @@
 //
 // Only `createOfflineMutationQueue` is exercised — the pure, dependency-injected half of the module (see
 // its own top doc comment). The real AsyncStorage/HTTP-backed singleton is never touched here.
+//
+/* eslint-disable @typescript-eslint/no-require-imports -- deliberate: this suite runs under `tsx --test`,
+   i.e. Node's own test runner rather than a bundler, and loads the module under test through CommonJS on
+   purpose. Rewriting these as ESM imports would change what is actually being exercised. */
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
@@ -180,7 +184,7 @@ test("a transient 5xx is retried automatically up to the retry cap, then gives u
     responses.push({ outcome: "rejected", status: 503, message: "Service unavailable." });
     await queue.drain();
   }
-  let entries = await queue.list();
+  const entries = await queue.list();
   assert.equal(entries[0].status, "failed");
   assert.equal(entries[0].attempts, 5);
   assert.equal(calls.length, 5);

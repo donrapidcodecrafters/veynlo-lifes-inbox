@@ -7,7 +7,7 @@ import { RecurrenceRuleSchema } from "@veynlo/core";
 const RecurrenceRuleField = RecurrenceRuleSchema.nullable().optional();
 
 export const CreateTaskDtoSchema = z.object({
-  title: z.string().min(1).max(300),
+  title: z.string().trim().min(1).max(300),
   dueIso: z.string().nullable().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
   householdId: z.string().nullable().optional(),
@@ -35,7 +35,7 @@ export type SetTaskRecurrenceDto = z.infer<typeof SetTaskRecurrenceDtoSchema>;
  * optional recurrence.
  */
 export const CreateEventDtoSchema = z.object({
-  title: z.string().min(1).max(300),
+  title: z.string().trim().min(1).max(300),
   // A plain YYYY-MM-DD when isAllDay, otherwise a full ISO datetime. Kept as one field (like
   // CreateTaskDtoSchema's dueIso) rather than separate date/time inputs — the service derives the right
   // TemporalValue precision from isAllDay.

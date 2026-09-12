@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createOnboardedUser, API_BASE_URL } from "./support/api";
+import { API_BASE_URL, createSignedInUser } from "./support/api";
 
 /**
  * Connections page load — every connector card (Gmail, Outlook, calendars, etc; see AVAILABLE_CONNECTORS
@@ -10,17 +10,18 @@ import { createOnboardedUser, API_BASE_URL } from "./support/api";
  */
 test.describe("Connections", () => {
   test.beforeEach(async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "connections");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    const user = await createSignedInUser(page, "connections");
   });
 
   test("the Connections page loads and lists available connectors", async ({ page }) => {
     await page.goto("/connections");
-    await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+    // `exact: true` because Playwright's `name` matches a case-insensitive SUBSTRING by default, so
+    // "Connections" also matched the empty-state heading "No connections yet" and failed with a strict
+    // mode violation once both were on screen together. The page is correct — an <h1> page title plus an
+    // empty-state <h3> for an account with nothing connected yet — the selector was simply ambiguous, and
+    // only passed before because the assertion happened to run before the empty state rendered. Making it
+    // exact removes the race without weakening what is asserted: the page heading must still be visible.
+    await expect(page.getByRole("heading", { name: "Connections", exact: true })).toBeVisible();
 
     const gmailCard = page.getByText("Gmail", { exact: true });
     await expect(gmailCard).toBeVisible();

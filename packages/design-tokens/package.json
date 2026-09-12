@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'no-op'",
+    "lint": "eslint src --max-warnings 0",
     "test": "echo 'no-op'",
     "clean": "rm -rf dist"
   },

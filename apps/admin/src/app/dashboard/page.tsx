@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { api, ApiError, apiErrorMessage, swrFetcher } from "@/lib/api-client";
+import { api, apiErrorMessage, swrFetcher } from "@/lib/api-client";
 
 interface UserLookupResult {
   id: string;
@@ -729,7 +729,7 @@ export default function DashboardPage() {
                       {e.total} ({e.success} ok, {e.failed} failed{e.running > 0 ? `, ${e.running} running` : ""})
                     </td>
                     <td className="py-2">
-                      <span className={e.successRate !== null && e.successRate < 0.9 ? "text-warning" : "text-positive"}>
+                      <span className={e.successRate !== null && e.successRate < 0.9 ? "text-warning-subtle-text" : "text-positive-subtle-text"}>
                         {e.successRate !== null ? `${Math.round(e.successRate * 100)}%` : "—"}
                       </span>
                     </td>
@@ -843,7 +843,7 @@ export default function DashboardPage() {
             <div className="flex flex-wrap gap-3">
               <div className="rounded-lg bg-subtle px-4 py-2">
                 <p className="text-xs text-tertiary">Latest pass rate</p>
-                <p className={`text-lg font-semibold ${modelEval.latestRun.passRate < 1 ? "text-warning" : "text-positive"}`}>
+                <p className={`text-lg font-semibold ${modelEval.latestRun.passRate < 1 ? "text-warning-subtle-text" : "text-positive-subtle-text"}`}>
                   {Math.round(modelEval.latestRun.passRate * 100)}% ({modelEval.latestRun.passedCases}/{modelEval.latestRun.totalCases})
                 </p>
               </div>
@@ -878,7 +878,7 @@ export default function DashboardPage() {
                         {s.passed}/{s.total}
                       </td>
                       <td className="py-2">
-                        <span className={s.passRate < 1 ? "text-warning" : "text-positive"}>{Math.round(s.passRate * 100)}%</span>
+                        <span className={s.passRate < 1 ? "text-warning-subtle-text" : "text-positive-subtle-text"}>{Math.round(s.passRate * 100)}%</span>
                       </td>
                     </tr>
                   ))}
@@ -904,7 +904,7 @@ export default function DashboardPage() {
                         <td className="py-2 text-tertiary">{new Date(r.runAt).toLocaleString()}</td>
                         <td className="py-2 text-tertiary">{r.modelKey}</td>
                         <td className="py-2">
-                          <span className={r.passRate < 1 ? "text-warning" : "text-positive"}>
+                          <span className={r.passRate < 1 ? "text-warning-subtle-text" : "text-positive-subtle-text"}>
                             {Math.round(r.passRate * 100)}% ({r.passedCases}/{r.totalCases})
                           </span>
                         </td>
@@ -1116,10 +1116,10 @@ export default function DashboardPage() {
                     <span
                       className={
                         e.result === "success"
-                          ? "text-positive"
+                          ? "text-positive-subtle-text"
                           : e.result === "denied"
-                            ? "text-warning"
-                            : "text-critical"
+                            ? "text-warning-subtle-text"
+                            : "text-critical-subtle-text"
                       }
                     >
                       {e.result}

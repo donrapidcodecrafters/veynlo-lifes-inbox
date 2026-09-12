@@ -31,10 +31,31 @@ export default function SettingsPage() {
   const { user, refresh } = useSession();
   const { data: prefs, mutate } = useSWR<NotificationPreferences>("/v1/notification-preferences", swrFetcher);
 
+  const [prefsError, setPrefsError] = useState<string | null>(null);
+
   async function updatePrefs(patch: Partial<NotificationPreferences>) {
+    // Same defect DEF-066 fixed on the automations kill switch, on controls that matter for the same
+    // reason. This optimistically wrote the new value into the SWR cache and then awaited the PUT with no
+    // try/catch, so a rejection skipped the revalidating mutate() below and nothing corrected the cache —
+    // this key has no refreshInterval either.
+    //
+    // These toggles include `sensitivePreviewsEnabled`, which decides whether sensitive content appears in
+    // a notification preview on a lock screen, and the quiet-hours window. A user turning previews OFF, or
+    // setting quiet hours, would have seen the control move and the setting stay unset on the server: a
+    // privacy choice that silently did not take, reported as though it had.
+    setPrefsError(null);
     mutate({ ...prefs, ...patch } as NotificationPreferences, false);
-    await api.put("/v1/notification-preferences", patch);
-    mutate();
+    try {
+      await api.put("/v1/notification-preferences", patch);
+    } catch (err) {
+      setPrefsError(err instanceof ApiError ? err.message : "Couldn't save that setting. It has been left as it was.");
+    } finally {
+      // Revalidated in `finally`, following settings/privacy/page.tsx:73's precedent — on failure this
+      // pulls the real server value back, so a control can never keep showing a setting the server never
+      // accepted. The message is added on top of that, because a toggle flicking back with no explanation
+      // reads as a glitch rather than as a failure.
+      mutate();
+    }
   }
 
   async function signOut() {
@@ -172,6 +193,11 @@ export default function SettingsPage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">{t("sections.notifications")}</h2>
         <Card>
           <CardBody className="space-y-4">
+            {prefsError && (
+              <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+                {prefsError}
+              </p>
+            )}
             <div className="flex items-center justify-between">
               <p className="text-[0.9375rem] font-medium text-primary">Intensity</p>
               <SegmentedControl

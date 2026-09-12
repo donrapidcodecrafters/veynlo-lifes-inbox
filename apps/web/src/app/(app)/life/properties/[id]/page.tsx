@@ -301,7 +301,12 @@ export default function PropertyDetailPage() {
             {moveIn && `Moved in ${moveIn}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" onClick={() => setSharing((s) => !s)}>
             Share
           </Button>
@@ -356,10 +361,10 @@ export default function PropertyDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {openAssetRecalls.length > 0 && <Badge tone="critical">{openAssetRecalls.length} recall{openAssetRecalls.length === 1 ? "" : "s"}</Badge>}
-                    <button onClick={() => checkAssetRecalls(a.id)} disabled={checkingAssetId === a.id} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                    <button aria-label={`Check for recalls: ${a.label}`} aria-busy={checkingAssetId === a.id} onClick={() => checkAssetRecalls(a.id)} disabled={checkingAssetId === a.id} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                       {checkingAssetId === a.id ? "Checking…" : "Check for recalls"}
                     </button>
-                    <button onClick={() => removeAsset(a.id, a.label)} className="text-xs font-medium text-tertiary hover:underline">
+                    <button aria-label={`Remove ${a.label}`} onClick={() => removeAsset(a.id, a.label)} className="text-xs font-medium text-tertiary hover:underline">
                       Remove
                     </button>
                   </div>
@@ -377,10 +382,10 @@ export default function PropertyDetailPage() {
                         {r.source === "seeded_generic_guidance" && r.confidenceNote && <p className="text-xs italic text-tertiary">{r.confidenceNote}</p>}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        <button onClick={() => completeAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                        <button aria-label={`Mark done: ${r.label}`} onClick={() => completeAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                           Mark done
                         </button>
-                        <button onClick={() => deleteAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                        <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
                           Remove
                         </button>
                       </div>
@@ -418,6 +423,7 @@ export default function PropertyDetailPage() {
                   </div>
                 ) : (
                   <button
+                    aria-label={`Add maintenance rule to ${a.label}`}
                     onClick={() => {
                       setAddingRuleForAsset(a.id);
                       void loadAssetRuleTemplates(a.id);
@@ -437,11 +443,11 @@ export default function PropertyDetailPage() {
                     {r.status !== "closed_or_repaired" && (
                       <div className="flex gap-2">
                         {r.status === "potential_match_verify_vin" && (
-                          <button onClick={() => confirmAssetRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
+                          <button aria-label={`This affects my unit: ${r.component ?? "Recall"}`} onClick={() => confirmAssetRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
                             This affects my unit
                           </button>
                         )}
-                        <button onClick={() => resolveAssetRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
+                        <button aria-label={`Mark repaired: ${r.component ?? "Recall"}`} onClick={() => resolveAssetRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
                           Mark repaired
                         </button>
                       </div>

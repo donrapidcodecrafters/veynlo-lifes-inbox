@@ -17,20 +17,41 @@ export function ScreenHeader({ title, subtitle, showBack = true }: { title: stri
           tapping Home → Life in the tab bar. Every other ScreenHeader caller is a genuinely pushed
           stack screen outside the tabs group, so `showBack` defaults to true and only the tab-root caller
           opts out. */}
-      {showBack && router.canGoBack() && (
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          style={{ alignSelf: "flex-start", paddingVertical: 4 }}
-          accessibilityRole="button"
-          // "‹ Back" read literally ("chevron, Back") is noise a sighted user never has to parse — the
-          // chevron is purely decorative here, so the spoken label skips straight to the action.
-          accessibilityLabel="Go back"
-        >
-          <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.brandDefault }} maxFontSizeMultiplier={1.6}>
-            ‹ Back
-          </Text>
-        </Pressable>
+      {/* Back AND Home. Back alone strands a user on a deep screen: pushed screens live outside the (tabs)
+          group, so the tab bar is not rendered on them, and the only way back to Home was to tap "‹ Back"
+          once per level. On a chain like Life → property → merge that is several taps with no visible
+          indication of how many remain, and a screen reached via a deep link can have no history at all.
+          "Home" resets straight to the tab navigator, which also restores the tab bar. */}
+      {showBack && (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 }}>
+          {router.canGoBack() ? (
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={8}
+              style={{ alignSelf: "flex-start" }}
+              accessibilityRole="button"
+              // "‹ Back" read literally ("chevron, Back") is noise a sighted user never has to parse — the
+              // chevron is purely decorative here, so the spoken label skips straight to the action.
+              accessibilityLabel="Go back"
+            >
+              <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.brandDefault }} maxFontSizeMultiplier={1.6}>
+                ‹ Back
+              </Text>
+            </Pressable>
+          ) : (
+            <View />
+          )}
+          <Pressable
+            onPress={() => router.replace("/(tabs)")}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Go to Home"
+          >
+            <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.brandDefault }} maxFontSizeMultiplier={1.6}>
+              Home
+            </Text>
+          </Pressable>
+        </View>
       )}
       {/* `accessibilityRole="header"` lets VoiceOver/TalkBack users jump screen-to-screen by heading
           instead of swiping through every row — every pushed screen's title becomes a navigable landmark. */}

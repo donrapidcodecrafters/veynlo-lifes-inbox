@@ -168,6 +168,10 @@ export default function VehicleDetailPage() {
   const [odometerReading, setOdometerReading] = useState("");
   const [odometerError, setOdometerError] = useState<string | null>(null);
   const [addingTire, setAddingTire] = useState(false);
+  // Distinct from addingTire, which is "the add form is open". This is "a create is in flight" —
+  // without it the Add button stayed live through the POST while the fields still held their values, so a
+  // double-click wrote two identical tires (DEF-071).
+  const [addingTireBusy, setAddingTireBusy] = useState(false);
   const [tireBrand, setTireBrand] = useState("");
   const [tireModel, setTireModel] = useState("");
   const [tireSize, setTireSize] = useState("");
@@ -327,6 +331,8 @@ export default function VehicleDetailPage() {
   }
 
   async function addTire() {
+    if (addingTireBusy) return;
+    setAddingTireBusy(true);
     setTireError(null);
     const validationErrors = validateTireFields();
     if (validationErrors) {
@@ -362,6 +368,8 @@ export default function VehicleDetailPage() {
         setTireFieldErrors(Object.fromEntries(Object.entries(err.fieldErrors).map(([k, v]) => [k, v[0] ?? ""])));
       }
       setTireError(err instanceof ApiError ? err.message : "Couldn't add that tire.");
+    } finally {
+      setAddingTireBusy(false);
     }
   }
 
@@ -549,7 +557,12 @@ export default function VehicleDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           {vehicle.vin && (
             <Button variant="ghost" onClick={decodeVin} loading={decodingVin}>
               Decode VIN
@@ -617,11 +630,11 @@ export default function VehicleDetailPage() {
               {r.status !== "closed_or_repaired" && (
                 <div className="flex gap-2 pt-1">
                   {r.status === "potential_match_verify_vin" && (
-                    <button onClick={() => confirmRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
+                    <button aria-label={`This affects my VIN: ${r.component ?? "Recall"}`} onClick={() => confirmRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
                       This affects my VIN
                     </button>
                   )}
-                  <button onClick={() => resolveRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
+                  <button aria-label={`Mark repaired / not applicable: ${r.component ?? "Recall"}`} onClick={() => resolveRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
                     Mark repaired / not applicable
                   </button>
                 </div>
@@ -725,10 +738,10 @@ export default function VehicleDetailPage() {
                   </div>
                   {t.status === "active" && (
                     <div className="flex shrink-0 gap-3">
-                      <button onClick={() => rotateTire(t.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                      <button aria-label={`Log rotation: ${label}`} onClick={() => rotateTire(t.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                         Log rotation
                       </button>
-                      <button onClick={() => replaceTire(t.id)} disabled={busy} className="text-xs font-medium text-critical hover:underline disabled:opacity-50">
+                      <button aria-label={`Replace ${label}`} onClick={() => replaceTire(t.id)} disabled={busy} className="text-xs font-medium text-critical hover:underline disabled:opacity-50">
                         Replace
                       </button>
                     </div>
@@ -822,7 +835,9 @@ export default function VehicleDetailPage() {
                 />
               )}
               <div className="flex gap-2">
-                <Button onClick={addTire}>Add</Button>
+                <Button onClick={addTire} loading={addingTireBusy}>
+                  Add
+                </Button>
                 <Button
                   variant="secondary"
                   onClick={() => {
@@ -881,10 +896,10 @@ export default function VehicleDetailPage() {
                     {r.source === "seeded_generic_guidance" && r.confidenceNote && <p className="text-xs text-tertiary italic">{r.confidenceNote}</p>}
                   </div>
                   <div className="flex shrink-0 gap-3">
-                    <button onClick={() => completeRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                    <button aria-label={`Mark done: ${r.label}`} onClick={() => completeRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                       Mark done
                     </button>
-                    <button onClick={() => deleteRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                    <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
                       Remove
                     </button>
                   </div>
@@ -984,10 +999,10 @@ export default function VehicleDetailPage() {
                 <div className="flex shrink-0 items-center gap-2">
                   {r.status === "expired" && <Badge tone="critical">Expired</Badge>}
                   {r.status === "active" && days != null && <Badge tone={days <= 14 ? "warning" : "neutral"}>{days}d left</Badge>}
-                  <button onClick={() => renewRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                  <button aria-label={`Renewed: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} onClick={() => renewRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
                     Renewed
                   </button>
-                  <button onClick={() => deleteRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                  <button aria-label={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} onClick={() => deleteRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
                     Remove
                   </button>
                 </div>

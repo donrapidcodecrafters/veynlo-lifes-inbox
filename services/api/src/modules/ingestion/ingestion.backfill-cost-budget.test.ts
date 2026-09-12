@@ -36,7 +36,7 @@ const stubAutomation = { evaluateEvent: async () => {} } as unknown as Automatio
 const stubConflicts = { detectOverlaps: async () => [] } as unknown as ConflictService;
 const stubTrips = { clusterSegment: async () => ({ tripId: "trip_stub", segmentId: "tseg_stub", isNewSegment: true, isNewTrip: true }) } as unknown as TripsService;
 const stubPreferences = { isCategoryEnabled: async () => true } as unknown as PreferencesService;
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 
 const BACKFILL_COST_BUDGET_FLAG_KEY = "backfill_cost_budget_paused";
 const AI_EXTRACTION_PAUSED_FLAG_KEY = "ai_extraction_paused";

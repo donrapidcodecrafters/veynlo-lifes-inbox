@@ -187,8 +187,8 @@ export default function PlacesPage() {
               <Card className="transition-colors hover:bg-subtle">
                 <CardBody className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{place.label}</p>
-                    {place.address && <p className="truncate text-sm text-tertiary">{place.address}</p>}
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={place.label}>{place.label}</p>
+                    {place.address && <p className="truncate text-sm text-tertiary" title={place.address}>{place.address}</p>}
                   </div>
                   <Badge tone={place.lat != null ? "positive" : "neutral"}>{place.lat != null ? "Has coordinates" : "No coordinates"}</Badge>
                 </CardBody>

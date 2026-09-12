@@ -29,7 +29,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!isAuthenticated) return null;
 
   async function signOut() {
-    await api.post("/v1/admin/auth/sign-out");
+    // The server call is best-effort; leaving the console is not. Unguarded, a 500 or a dropped connection
+    // threw out of the click handler, so `refresh()` and the redirect never ran and the operator was left
+    // sitting on the dashboard with no error — believing they had signed out of an admin console when they
+    // had not. Same reasoning (and same shape) as apps/mobile's auth-context signOut, which already treats
+    // an already-invalid token as no reason to keep local state.
+    try {
+      await api.post("/v1/admin/auth/sign-out");
+    } catch {
+      // The session may already be gone server-side. Clearing local state and leaving still succeeds.
+    }
     await refresh();
     router.push("/sign-in");
   }

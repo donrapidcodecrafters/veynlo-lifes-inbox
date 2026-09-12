@@ -175,8 +175,13 @@ export default function PropertyDetailScreen() {
   // Household-assignment gap close — mirrors person/[id].tsx's identical immediate-save private/household
   // toggle. `PUT /v1/properties/{id}` is the new edit endpoint; `null` explicitly means "make private again".
   async function saveHousehold(householdId: string | null) {
-    await api.put(`/v1/properties/${id}`, { householdId });
-    load();
+    setActionError(null);
+    try {
+      await api.put(`/v1/properties/${id}`, { householdId });
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't change who this is shared with.");
+    }
   }
 
   async function addAsset() {
@@ -196,17 +201,25 @@ export default function PropertyDetailScreen() {
 
   async function checkAssetRecalls(assetId: string) {
     setCheckingAssetId(assetId);
+    setActionError(null);
     try {
       await api.post(`/v1/home-assets/${assetId}/check-recalls`, {});
       load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't check for recalls. Please try again.");
     } finally {
       setCheckingAssetId(null);
     }
   }
 
   async function resolveAssetRecall(recallId: string) {
-    await api.post(`/v1/recall-matches/${recallId}/resolve`, {});
-    load();
+    setActionError(null);
+    try {
+      await api.post(`/v1/recall-matches/${recallId}/resolve`, {});
+      load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't mark that recall resolved.");
+    }
   }
 
   async function loadAssetRuleTemplates(assetId: string) {
@@ -360,7 +373,7 @@ export default function PropertyDetailScreen() {
         </View>
         {homeAssets.length === 0 && !addingAsset && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>No systems or appliances tracked yet.</Text>}
         {homeAssets.map((a) => {
-          const openAssetRecalls = a.recalls.filter((r) => r.status !== "closed_or_repaired");
+          const _openAssetRecalls = a.recalls.filter((r) => r.status !== "closed_or_repaired");
           return (
             <View key={a.id} style={{ gap: 4, paddingVertical: 6, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -369,7 +382,7 @@ export default function PropertyDetailScreen() {
                   {a.room ? ` — ${a.room}` : ""}
                   {(a.make || a.model) ? ` — ${[a.make, a.model].filter(Boolean).join(" ")}` : ""}
                 </Text>
-                <Pressable accessibilityRole="button" onPress={() => checkAssetRecalls(a.id)}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Check recalls for ${a.label}`} accessibilityState={{ busy: checkingAssetId === a.id }} onPress={() => checkAssetRecalls(a.id)}>
                   <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.brandDefault }}>
                     {checkingAssetId === a.id ? "Checking…" : "Check recalls"}
                   </Text>
@@ -393,10 +406,10 @@ export default function PropertyDetailScreen() {
                       )}
                     </View>
                     <View style={{ flexDirection: "row", gap: 8 }}>
-                      <Pressable accessibilityRole="button" onPress={() => completeAssetRule(r.id)} disabled={busy}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Mark done: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => completeAssetRule(r.id)} disabled={busy}>
                         <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Mark done</Text>
                       </Pressable>
-                      <Pressable accessibilityRole="button" onPress={() => deleteAssetRule(r.id)} disabled={busy}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove maintenance rule: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => deleteAssetRule(r.id)} disabled={busy}>
                         <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
                       </Pressable>
                     </View>
@@ -435,6 +448,7 @@ export default function PropertyDetailScreen() {
                 </View>
               ) : (
                 <Pressable accessibilityRole="button"
+                  accessibilityLabel={`Add maintenance rule to ${a.label}`}
                   onPress={() => {
                     setAddingRuleForAsset(a.id);
                     loadAssetRuleTemplates(a.id);
@@ -449,7 +463,7 @@ export default function PropertyDetailScreen() {
                   <Text style={{ fontSize: 11, color: theme.colors.textSecondary, flex: 1 }}>{r.component ?? r.summary}</Text>
                   <Badge tone={RECALL_STATUS_TONE[r.status]}>{RECALL_STATUS_LABEL[r.status]}</Badge>
                   {r.status !== "closed_or_repaired" && (
-                    <Pressable accessibilityRole="button" onPress={() => resolveAssetRecall(r.id)}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Resolve recall: ${r.component ?? r.summary}`} onPress={() => resolveAssetRecall(r.id)}>
                       <Text style={{ fontSize: 11, color: theme.colors.textTertiary, marginLeft: 6 }}>Resolve</Text>
                     </Pressable>
                   )}

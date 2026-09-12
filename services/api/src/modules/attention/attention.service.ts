@@ -1,7 +1,7 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { generateId, type TemporalValue, collapseRuns } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -11,6 +11,7 @@ import { NotificationDeliveryService } from "../notifications/notification-deliv
 import { identityRecordSafeColumns } from "../identity-records/identity-records.util";
 import { IDENTITY_RECORD_TYPE_LABELS, type IdentityRecordType } from "../identity-records/dto";
 import { EVENT_BUS, type EventBus } from "../../events/event-bus.interface";
+import { localDayWindow } from "../../common/local-day";
 
 const LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
 // BILL-002 "if expected payment fails to appear, alert after sensible grace period" — a bill isn't
@@ -48,6 +49,13 @@ function urgencyFor(days: number): "critical" | "important" | "useful" {
 // (verified/high-confidence items before a needs-review one, since a self-service action on unconfirmed
 // data is the exact case that should wait for its own promotion rather than jump the queue), then money at
 // stake (more to lose ranks higher within the same tier), and only then due date as the final tiebreaker.
+/**
+ * The ceiling on Home. Not a page size — Home is a ranked view of what needs attention, and paginating
+ * it would invite browsing through it, which is the behaviour DEF-104 exists to stop. Far above the
+ * worst real account seen (125), so in practice it never bites; when it does, `truncated` says so.
+ */
+const MAX_HOME_ITEMS = 500;
+
 const URGENCY_RANK: Record<string, number> = { critical: 0, important: 1, useful: 2 };
 const CONFIDENCE_RANK: Record<string, number> = { verified: 0, high: 0, needs_review: 1, approximate: 1, conflicting: 1 };
 
@@ -76,6 +84,45 @@ function comparePriority(a: ReturnType<typeof priorityKey>, b: ReturnType<typeof
 
 function money(minorUnits: number, currency: string): string {
   return `${(minorUnits / 100).toFixed(2)} ${currency}`;
+}
+// A genuinely late essential recurring event (paycheck/bill/subscription charge) — 3 days is generous
+// enough that a normal clock/timezone wobble or a payment landing mid-day doesn't false-positive, while
+// still catching something that actually looks missing.
+const MISSING_EVENT_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+// Bounds how many consecutive missed cycles one scan tick will catch up on for a single stream (e.g. 24
+// missed monthly cycles is 2 years of backlog) — a safety cap, not a correctness boundary, since whatever
+// isn't caught up this tick just continues on the next one.
+const MISSING_EVENT_ADVANCE_CAP = 24;
+
+/**
+ * recurringStreams.nextExpectedDate has exactly one writer in the app (IngestionService.extractSubscription,
+ * moving it forward only when a new email evidences the next cycle) and no cadence-driven advancement
+ * anywhere — so once a cycle is missed and no further email ever arrives, nextExpectedDate would otherwise
+ * sit in the past forever. That's fine for detecting the FIRST missed cycle (checking it's stuck in the past
+ * IS the "nothing arrived to move it forward" signal), but without moving it forward ourselves after filing,
+ * a second, later missed cycle for the same essential stream could never be detected — this computes that
+ * next occurrence from the stream's own cadence. Returns null for "irregular" (or any cadence with no
+ * reliable next-occurrence math), which deliberately leaves nextExpectedDate untouched.
+ */
+function advanceByCadence(from: Date, cadence: string): Date | null {
+  const next = new Date(from.getTime());
+  switch (cadence) {
+    case "weekly":
+      next.setUTCDate(next.getUTCDate() + 7);
+      break;
+    case "monthly":
+      next.setUTCMonth(next.getUTCMonth() + 1);
+      break;
+    case "quarterly":
+      next.setUTCMonth(next.getUTCMonth() + 3);
+      break;
+    case "annual":
+      next.setUTCFullYear(next.getUTCFullYear() + 1);
+      break;
+    default:
+      return null;
+  }
+  return next;
 }
 
 /**
@@ -153,9 +200,14 @@ export class AttentionService {
    * code after decrypting/parsing the temporal value, rather than in SQL.
    */
   async personalToday(userId: string) {
+    // The user's OWN day, not the UTC one. This bounded its window with Date.UTC(...) while
+    // `users.timezone` sat populated (every demo account is America/New_York) and already in use for
+    // quiet hours and data export. In New York the UTC day rolls over at 20:00 local, so from 20:00 to
+    // midnight this screen — the one the app opens to — listed tomorrow's items and hid the rest of
+    // today's. Four hours out of every twenty-four, every day.
+    const [owner] = await this.db.select({ timezone: schema.users.timezone }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     const now = new Date();
-    const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+    const { startOfDay, endOfDay } = localDayWindow(now, owner?.timezone);
     const householdIds = await this.households.activeHouseholdIds(userId);
     const ownerOrHousehold = (ownerCol: AnyPgColumn, householdCol: AnyPgColumn) =>
       householdIds.length > 0 ? or(eq(ownerCol, userId), inArray(householdCol, householdIds))! : eq(ownerCol, userId);
@@ -251,9 +303,30 @@ export class AttentionService {
       .select()
       .from(schema.attentionItems)
       .where(and(ownerOrHousehold, eq(schema.attentionItems.resolved, false)))
-      .orderBy(asc(schema.attentionItems.dueAtSort));
+      .orderBy(asc(schema.attentionItems.dueAtSort))
+      // DEF-105: this had no limit at all, so the payload, the query time and the client's memory all
+      // grew with how much the account had been used — worst for exactly the people who use it most.
+      // Set far above any real account (125 is the worst observed) so it is a ceiling rather than a
+      // page: Home is a ranked view of what needs attention, not a browsable archive, and paginating it
+      // would invite scrolling through it, which is the behaviour DEF-104 is about.
+      .limit(MAX_HOME_ITEMS + 1);
 
-    const items = [...rows].sort((a, b) => comparePriority(priorityKey(a), priorityKey(b)));
+    const truncated = rows.length > MAX_HOME_ITEMS;
+    const ranked = [...rows.slice(0, MAX_HOME_ITEMS)].sort((a, b) => comparePriority(priorityKey(a), priorityKey(b)));
+
+    // DEF-104: fold runs of same-kind items. Adjacency-based, so the priority order above is preserved
+    // exactly — grouping by key alone would pull distant items together and silently overrule the sort.
+    const entries = collapseRuns(ranked, { keyOf: (i) => i.reasonCode });
+    const items = entries.map((e) =>
+      e.kind === "item"
+        ? { ...e.item, group: null }
+        : {
+            ...e.representative,
+            // The representative is the run's FIRST member, i.e. its most urgent — a card advertising
+            // the least urgent thing it contains would misdescribe itself.
+            group: { reasonCode: e.key, count: e.count, members: e.members },
+          },
+    );
 
     const connections = await this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, userId));
     const unhealthyConnections = connections.filter((c) => !["healthy", "initializing"].includes(c.health));
@@ -261,6 +334,9 @@ export class AttentionService {
     return {
       items,
       caughtUp: items.length === 0,
+      // Stated rather than hidden: a silently truncated list is indistinguishable from a short one.
+      truncated,
+      totalItems: truncated ? MAX_HOME_ITEMS : ranked.length,
       degraded: unhealthyConnections.length > 0,
       unhealthyConnections: unhealthyConnections.map((c) => ({ id: c.id, provider: c.provider, health: c.health })),
     };
@@ -301,6 +377,77 @@ export class AttentionService {
    * `paymentObservedTransactionId` check. Warranties still have no equivalent "handled" signal, so they
    * keep the original due-soon-only, never-overdue behavior.
    */
+  /**
+   * Restored after being lost in the main force-push — see PROJECT_AUDIT.md DEF-082. The 3 September
+   * recovery pass (80f82c4) restored data-integrity and history and did not reach this one. Worth
+   * having back on its own merits regardless of how it went: a detector for "an essential recurring
+   * thing stopped arriving" fails silently by construction, so its absence produces no symptom.
+   *
+   * Part 4 of the Notifications backlog item — "expected-event monitor" (absent paycheck/missing bill
+   * detection). recurringStreams is this codebase's only "we expect this to recur" table today, and it
+   * only actually gets populated by subscription-style extraction (IngestionService.extractSubscription) —
+   * bills.recurringStreamId exists in the schema but has no writer anywhere, so there's no real per-cycle
+   * "a bill showed up" signal to join against. The only real, current signal for "this essential recurring
+   * thing hasn't arrived" is nextExpectedDate itself sitting stuck in the past — see advanceByCadence's
+   * comment for why that's actually sufficient, not just a shortcut.
+   *
+   * Same recurring-worker-tick shape as scanAndFileDeadlines (see queue-producer.service.ts/worker-main.ts).
+   */
+  async scanForMissingExpectedEvents(): Promise<void> {
+    const now = new Date();
+    const streams = await this.db.select().from(schema.recurringStreams).where(eq(schema.recurringStreams.essential, true));
+
+    for (const stream of streams) {
+      let expected = stream.nextExpectedDate;
+      let advancedTo: TemporalValue | null = null;
+
+      for (let i = 0; i < MISSING_EVENT_ADVANCE_CAP; i++) {
+        if (!expected) break;
+        const expectedAt = temporalToSortDate(expected);
+        if (!expectedAt || now.getTime() - expectedAt.getTime() < MISSING_EVENT_GRACE_MS) break;
+
+        const expectedDateKey = expected.date ?? expectedAt.toISOString().slice(0, 10);
+        const daysLate = Math.max(0, Math.ceil((now.getTime() - expectedAt.getTime()) / 86_400_000));
+        const amount =
+          stream.typicalAmountMinorUnits != null && stream.typicalAmountCurrency
+            ? ` of ${money(stream.typicalAmountMinorUnits, stream.typicalAmountCurrency)}`
+            : "";
+        await this.fileIfNew({
+          ownerUserId: stream.ownerUserId,
+          householdId: stream.householdId,
+          reasonCode: "expected_event_missing",
+          reasonText: `${stream.serviceLabel}${amount} was expected around ${expectedDateKey} but hasn't arrived — ${daysLate} day${daysLate === 1 ? "" : "s"} late.`,
+          // urgencyFor is written for "days until due" (soon = urgent, far off = not); daysLate runs the
+          // opposite direction (further overdue = more concerning), so it needs its own mapping rather
+          // than reusing that helper directly — otherwise a severely overdue essential event would rank
+          // as the LEAST urgent case instead of the most.
+          urgency: daysLate >= 7 ? "critical" : "important",
+          dueAt: expected,
+          dueAtSort: expectedAt,
+          moneyAtStakeMinorUnits: stream.typicalAmountMinorUnits,
+          moneyAtStakeCurrency: stream.typicalAmountCurrency,
+          confidenceBand: "needs_review", // an inferred absence, not an observed fact — never "verified"
+          linkedResourceType: "recurring_stream",
+          linkedResourceId: `${stream.id}:${expectedDateKey}`,
+          primaryActions: ["review"],
+        });
+
+        const nextAt = advanceByCadence(expectedAt, stream.cadence);
+        if (!nextAt) break;
+        expected = { precision: "date", instantUtc: null, date: nextAt.toISOString().slice(0, 10), timezone: expected.timezone, sourceText: null };
+        advancedTo = expected;
+      }
+
+      if (advancedTo) {
+        await this.db
+          .update(schema.recurringStreams)
+          .set({ nextExpectedDate: advancedTo, updatedAt: new Date() })
+          .where(eq(schema.recurringStreams.id, stream.id));
+      }
+    }
+  }
+
+
   async scanAndFileDeadlines(): Promise<void> {
     const now = new Date();
     const lookahead = new Date(now.getTime() + LOOKAHEAD_MS);
@@ -542,7 +689,23 @@ export class AttentionService {
       .from(schema.recallMatches)
       .leftJoin(schema.vehicleProfiles, eq(schema.vehicleProfiles.id, schema.recallMatches.vehicleProfileId))
       .leftJoin(schema.homeAssets, eq(schema.homeAssets.id, schema.recallMatches.homeAssetId))
-      .where(ne(schema.recallMatches.status, "closed_or_repaired"));
+      .where(
+        and(
+          ne(schema.recallMatches.status, "closed_or_repaired"),
+          // The scanner that CREATES these matches already excludes merged-away and soft-deleted vehicles,
+          // and RecallMonitorService.scanAll's own comment says why: "a merged-away duplicate is never
+          // hard-deleted ... any resulting recall match would be silently orphaned". This READ path had no
+          // equivalent exclusion, so a merged-away duplicate's pre-existing matches kept filing attention
+          // items under the old vehicle's name on every scan tick, for a vehicle no list screen shows and
+          // the user believes they already merged away.
+          //
+          // Safe for home-asset recalls: those rows have a null vehicleProfileId, so the left join yields
+          // null and isNull() passes. The same holds in reverse for vehicle recalls and homeAssets.
+          isNull(schema.vehicleProfiles.deletedAt),
+          isNull(schema.vehicleProfiles.mergedIntoVehicleId),
+          isNull(schema.homeAssets.deletedAt),
+        ),
+      );
     for (const row of openRecalls) {
       const ownerUserId = row.vehicle?.ownerUserId ?? row.homeAsset?.ownerUserId;
       if (!ownerUserId) continue; // orphaned match — its subject was deleted without the FK cascade running yet; nothing to notify
@@ -1322,6 +1485,10 @@ export class AttentionService {
     await this.notifications.createAndEnqueue({
       ownerUserId: item.ownerUserId,
       dedupeKey: `${item.reasonCode}:${item.linkedResourceId}`,
+      // The scanner already knows exactly what this item is about, so a tap can open it instead of
+      // dumping the user on Home. Not derivable from dedupeKey: that carries the id but never the type.
+      linkedResourceType: item.linkedResourceType,
+      linkedResourceId: item.linkedResourceId,
       priority: item.urgency,
       channel: "push",
       title: item.urgency === "critical" ? "Needs you now" : "Needs your attention",

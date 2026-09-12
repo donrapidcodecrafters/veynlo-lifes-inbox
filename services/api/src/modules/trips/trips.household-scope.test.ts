@@ -24,7 +24,7 @@ import type { ScheduleService } from "../schedule/schedule.service";
  *    than the action" inconsistency `CommerceService.redeemStoreCredit` avoids. Fixed to match.
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubMemories = { evaluateSmartQuery: async () => [] } as unknown as MemoriesService;
 // Not exercising "Add to calendar" here (see trips.segment-actions.test.ts) — a minimal stub satisfies

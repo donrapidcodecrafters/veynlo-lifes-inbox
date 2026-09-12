@@ -8,6 +8,21 @@ import type { HouseholdService } from "../household/household.service";
 import { merchantSupportsPause } from "./pause-capability";
 
 /**
+ * Every date below is relative to now, never pinned.
+ *
+ * The paths these tests exercise compare an event's date against the clock — reschedule reconciliation
+ * only looks at still-upcoming events, the subscription state machine advances anything whose date has
+ * passed — so a hardcoded date stops testing the behaviour and starts testing the window, silently, on a
+ * date nobody chose. ingestion.dedup.test.ts did exactly that: pinned to 2026-09-10, green for months,
+ * then failing on 2026-09-11 against a commit that touched nothing near it.
+ *
+ * A month out, so every scenario here is comfortably upcoming, and offsets preserve the relative spacing
+ * each scenario depends on.
+ */
+const DATE_ANCHOR = Date.now() + 30 * 86_400_000;
+const day = (offsetDays: number) => new Date(DATE_ANCHOR + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+/**
  * §40.3 "Representative state machines" — Subscription: `candidate → trial/active → renewal upcoming /
  * price changed / paused → cancellation pending → canceled/expired`. Before this pass, "renewal_upcoming"
  * and "paused" never existed anywhere in the codebase, and "cancellation_pending" appeared only in an
@@ -63,8 +78,8 @@ describe("CommerceService §40.3 Subscription state machine", () => {
 
   it("scanAndAdvanceSubscriptionRenewalStates moves an active subscription into renewal_upcoming within the window, and back to active once the date passes", async () => {
     if (!dbAvailable) return;
-    const now = new Date("2026-09-01T00:00:00Z");
-    const { subscriptionId } = await makeSubscription("active", "2026-09-05"); // 4 days out — inside the 7-day window
+    const now = new Date(`${day(0)}T00:00:00Z`);
+    const { subscriptionId } = await makeSubscription("active", day(4)); // 4 days out — inside the 7-day window
 
     const result = await commerce.scanAndAdvanceSubscriptionRenewalStates(now);
     expect(result.renewalUpcoming).toBeGreaterThanOrEqual(1);
@@ -74,7 +89,7 @@ describe("CommerceService §40.3 Subscription state machine", () => {
     // The guardrail this row names: "Transaction disappearance alone does not prove cancellation" — once
     // the renewal date has simply passed, the safe default is "it renewed," reverting to active rather
     // than staying stuck in renewal_upcoming or jumping to canceled on silence alone.
-    const later = new Date("2026-09-10T00:00:00Z");
+    const later = new Date(`${day(9)}T00:00:00Z`);
     const secondResult = await commerce.scanAndAdvanceSubscriptionRenewalStates(later);
     expect(secondResult.reactivated).toBeGreaterThanOrEqual(1);
     [row] = await db.select({ state: schema.subscriptions.state }).from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
@@ -83,8 +98,8 @@ describe("CommerceService §40.3 Subscription state machine", () => {
 
   it("scanAndAdvanceSubscriptionRenewalStates leaves an active subscription alone when its renewal is far in the future", async () => {
     if (!dbAvailable) return;
-    const now = new Date("2026-09-01T00:00:00Z");
-    const { subscriptionId } = await makeSubscription("active", "2026-11-01"); // well outside the 7-day window
+    const now = new Date(`${day(0)}T00:00:00Z`);
+    const { subscriptionId } = await makeSubscription("active", day(61)); // well outside the 7-day window
     await commerce.scanAndAdvanceSubscriptionRenewalStates(now);
     const [row] = await db.select({ state: schema.subscriptions.state }).from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
     expect(row?.state).toBe("active");
@@ -92,7 +107,7 @@ describe("CommerceService §40.3 Subscription state machine", () => {
 
   it("submitSubscriptionCancellation moves an active subscription to cancellation_pending, and scanAndFinalizeSubscriptionCancellations finalizes it to canceled once the effective (next-billing) date passes", async () => {
     if (!dbAvailable) return;
-    const { subscriptionId } = await makeSubscription("active", "2026-09-20");
+    const { subscriptionId } = await makeSubscription("active", day(19));
 
     await commerce.submitSubscriptionCancellation(subscriptionId, ownerUserId);
     let [row] = await db.select({ state: schema.subscriptions.state }).from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
@@ -100,11 +115,11 @@ describe("CommerceService §40.3 Subscription state machine", () => {
 
     // Effective date (recurringStreams.nextExpectedDate) hasn't passed yet — must stay pending, not jump
     // straight to canceled the instant it's submitted.
-    await commerce.scanAndFinalizeSubscriptionCancellations(new Date("2026-09-10T00:00:00Z"));
+    await commerce.scanAndFinalizeSubscriptionCancellations(new Date(`${day(9)}T00:00:00Z`));
     [row] = await db.select({ state: schema.subscriptions.state }).from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
     expect(row?.state).toBe("cancellation_pending");
 
-    await commerce.scanAndFinalizeSubscriptionCancellations(new Date("2026-09-25T00:00:00Z"));
+    await commerce.scanAndFinalizeSubscriptionCancellations(new Date(`${day(24)}T00:00:00Z`));
     [row] = await db.select({ state: schema.subscriptions.state }).from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
     expect(row?.state).toBe("canceled");
   });
@@ -113,7 +128,7 @@ describe("CommerceService §40.3 Subscription state machine", () => {
     if (!dbAvailable) return;
     const merchantId = generateId("merchant");
     await db.insert(schema.merchants).values({ id: merchantId, displayName: "Pause Lifecycle Test Merchant" });
-    const { subscriptionId } = await makeSubscription("active", "2026-10-01", merchantId);
+    const { subscriptionId } = await makeSubscription("active", day(30), merchantId);
 
     await expect(commerce.pauseSubscription(subscriptionId, ownerUserId)).rejects.toThrow();
     let [row] = await db.select({ state: schema.subscriptions.state }).from(schema.subscriptions).where(eq(schema.subscriptions.id, subscriptionId));
@@ -147,7 +162,7 @@ describe("CommerceService §40.3 Subscription state machine", () => {
     if (!dbAvailable) return;
     const merchantId = generateId("merchant");
     await db.insert(schema.merchants).values({ id: merchantId, displayName: "Detail Pause Test Merchant" });
-    const { subscriptionId } = await makeSubscription("active", "2026-10-01", merchantId);
+    const { subscriptionId } = await makeSubscription("active", day(30), merchantId);
 
     const detail = await commerce.subscriptionDetail(subscriptionId, ownerUserId);
     expect(detail?.merchantName).toBe("Detail Pause Test Merchant");
@@ -155,7 +170,7 @@ describe("CommerceService §40.3 Subscription state machine", () => {
     expect(detail?.canPause).toBe(false);
     expect(merchantSupportsPause("Detail Pause Test Merchant", new Set(["Detail Pause Test Merchant"]))).toBe(true);
 
-    const { subscriptionId: noMerchantSubId } = await makeSubscription("active", "2026-10-01", null);
+    const { subscriptionId: noMerchantSubId } = await makeSubscription("active", day(30), null);
     const noMerchantDetail = await commerce.subscriptionDetail(noMerchantSubId, ownerUserId);
     expect(noMerchantDetail?.merchantName).toBeNull();
     expect(noMerchantDetail?.canPause).toBe(false);

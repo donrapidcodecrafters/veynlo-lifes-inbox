@@ -71,7 +71,6 @@ export default function SavedScreen() {
   useFocusEffect(
     useCallback(() => {
       load(category);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [load, category]),
   );
 
@@ -125,6 +124,7 @@ export default function SavedScreen() {
             <Pressable accessibilityRole="button"
               key={c.value}
               onPress={() => setCategory(c.value)}
+                          accessibilityState={{ selected: active }}
               style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
             >
               <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{c.label}</Text>

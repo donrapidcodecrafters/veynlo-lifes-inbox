@@ -44,7 +44,7 @@ function apiErrorMessage(err: unknown, fallback = "Something went wrong. Please 
  * exists on mobile yet).
  */
 export default function HouseholdScreen() {
-  const { theme } = useAppTheme();
+  const { theme: _theme } = useAppTheme();
   const [household, setHousehold] = useState<MyHousehold | null>(null);
   const [dependents, setDependents] = useState<Dependent[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

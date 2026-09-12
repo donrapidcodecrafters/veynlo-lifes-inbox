@@ -125,6 +125,7 @@ export default function ReturnDetailScreen() {
 
   useEffect(() => {
     load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` is redeclared every render, so depending on it would re-run this effect forever; the effect is deliberately keyed on `id` alone.
   }, [id]);
 
   function load() {

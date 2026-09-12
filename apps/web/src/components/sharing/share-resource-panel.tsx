@@ -100,6 +100,9 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
   const [passcode, setPasscode] = useState("");
   const [creatingLink, setCreatingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  // The confirmation promises "loses access immediately". If the request fails, the user has to be told,
+  // or that promise is simply untrue and nothing on screen says so.
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const [newLinkUrl, setNewLinkUrl] = useState<string | null>(null);
   // SHARE-001 "preview exactly what recipient will see" — fetched from the same redacted read path the
   // recipient's own view eventually uses (e.g. AssetsService.publicVehicleContent), so what's shown here
@@ -147,8 +150,18 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
 
   async function revokeGrant(grantId: string, granteeEmail: string) {
     if (!window.confirm(`Stop sharing this ${resourceLabel} with ${granteeEmail}?`)) return;
-    await api.delete(`${collectionPath}/grants/${grantId}`);
-    mutateGrants();
+    setRevokeError(null);
+    try {
+      await api.delete(`${collectionPath}/grants/${grantId}`);
+    } catch (err) {
+      setRevokeError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't stop sharing with ${granteeEmail}. They still have access — please try again.`,
+      );
+    } finally {
+      mutateGrants();
+    }
   }
 
   async function addLink(e: FormEvent) {
@@ -172,13 +185,28 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
 
   async function revokeLink(linkId: string) {
     if (!window.confirm("Revoke this share link? Anyone using it loses access immediately.")) return;
-    await api.delete(`${collectionPath}/share-links/${linkId}`);
-    setNewLinkUrl(null);
-    mutateLinks();
+    setRevokeError(null);
+    try {
+      await api.delete(`${collectionPath}/share-links/${linkId}`);
+      setNewLinkUrl(null);
+    } catch (err) {
+      // Deliberately NOT clearing newLinkUrl on failure: the link still works, so hiding it would be the
+      // same lie the missing catch told.
+      setRevokeError(
+        err instanceof ApiError ? err.message : "Couldn't revoke that link. It still works — please try again.",
+      );
+    } finally {
+      mutateLinks();
+    }
   }
 
   return (
     <div className="space-y-4 border-t border-border-subtle pt-3">
+      {revokeError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-2 py-1.5 text-xs text-critical-subtle-text">
+          {revokeError}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <p className="text-xs text-tertiary">See exactly what a recipient would get before you share.</p>
         <Button type="button" size="sm" variant="secondary" onClick={loadPreview}>
@@ -217,7 +245,7 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
                   </span>
                   {g.grant.message && <span className="block text-tertiary">Note: {g.grant.message}</span>}
                 </span>
-                <button onClick={() => revokeGrant(g.grant.id, g.granteeEmail)} className="shrink-0 text-critical hover:underline">
+                <button aria-label={`Remove access for ${g.granteeEmail}`} onClick={() => revokeGrant(g.grant.id, g.granteeEmail)} className="shrink-0 text-critical hover:underline">
                   Remove
                 </button>
               </li>
@@ -277,10 +305,10 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
         </p>
         {links && links.length > 0 && (
           <ul className="space-y-1">
-            {links.map((l) => (
+            {links.map((l, i) => (
               <li key={l.id} className="flex items-center justify-between text-xs">
                 <span className="text-tertiary">{l.hasPasscode ? "Passcode-protected link" : "Open link"}</span>
-                <button onClick={() => revokeLink(l.id)} className="text-critical hover:underline">
+                <button aria-label={`Revoke ${l.hasPasscode ? "passcode-protected" : "open"} link ${i + 1}`} onClick={() => revokeLink(l.id)} className="text-critical hover:underline">
                   Revoke
                 </button>
               </li>

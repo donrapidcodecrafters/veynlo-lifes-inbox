@@ -51,6 +51,14 @@
       "bundler": "metro"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ],
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
@@ -124,7 +132,8 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "./plugins/withCmakeObjectPathMax"
     ],
     "extra": {
       "router": {},

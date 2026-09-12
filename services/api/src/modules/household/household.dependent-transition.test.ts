@@ -8,7 +8,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 
 /** Captures the last email sent, and pulls the raw invite token out of its accept-link URL — mirrors the
  * real accept-invite web page, which reads `?token=` off the emailed link. */

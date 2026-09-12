@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createOnboardedUser } from "./support/api";
+import { createSignedInUser } from "./support/api";
 
 /**
  * Regression coverage for a real bug found via a live QA pass: DocumentsPage keys its SWR cache per filter
@@ -13,12 +13,7 @@ import { createOnboardedUser } from "./support/api";
  */
 test.describe("Documents — archive/unarchive tab revalidation", () => {
   test("unarchiving a document makes it reappear on the Active tab without a page reload", async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "doc-unarchive");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    const user = await createSignedInUser(page, "doc-unarchive");
 
     await page.goto("/documents");
     // `exact: true` matters here: Playwright's `name` option is a substring match by default, so plain

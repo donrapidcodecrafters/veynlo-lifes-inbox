@@ -1,4 +1,4 @@
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 
 /**
  * Same default the app itself uses (see src/lib/api-client.ts) — overridable so CI (or a developer
@@ -31,17 +31,43 @@ export function uniqueTestUser(prefix = "e2e"): TestUser {
  * csrf.ts) — without it, any state-changing call made *after* a session cookie already exists (e.g.
  * onboarding-skip right after sign-up) is rejected with CSRF_CHECK_FAILED.
  */
+/**
+ * Waits out a 429 instead of failing on it.
+ *
+ * `POST /v1/auth/sign-up` is throttled at 20 per 60s per IP — deliberately, and correctly: its own comment
+ * names "mass account creation" as the abuse pattern. Every spec here creates its own account through that
+ * route, and the default suite makes **16** of those 20. That is 80% of the budget with no margin, so the
+ * suite failed the moment anything nudged it over: a second run inside the same minute, a CI retry, or one
+ * more spec. Observed directly — a back-to-back run failed nine specs, every one with
+ * `POST /v1/auth/sign-up failed with 429`.
+ *
+ * The limiter is a real security control and is left exactly as strict. What changes is the fixture's
+ * manners: a well-behaved client that is told "too many, wait" waits, rather than treating it as a fatal
+ * error. Non-429 failures still throw immediately, so a genuine bug is never papered over by a retry.
+ */
+const THROTTLE_RETRIES = 4;
+const THROTTLE_BACKOFF_MS = 20_000;
+
 async function apiRequest(request: APIRequestContext, method: "GET" | "POST", path: string, data?: unknown) {
-  const res = await request.fetch(`${API_BASE_URL}${path}`, {
-    method,
-    data,
-    headers: { "x-veynlo-csrf": "1" },
-  });
-  if (!res.ok()) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await request.fetch(`${API_BASE_URL}${path}`, {
+      method,
+      data,
+      headers: { "x-veynlo-csrf": "1" },
+    });
+    if (res.ok()) return res;
+
     const body = await res.text();
-    throw new Error(`${method} ${path} failed with ${res.status()}: ${body}`);
+    const throttled = res.status() === 429;
+    if (!throttled || attempt >= THROTTLE_RETRIES) {
+      throw new Error(
+        `${method} ${path} failed with ${res.status()}: ${body}` +
+          (throttled ? ` (still throttled after ${THROTTLE_RETRIES} waits — the suite is creating accounts faster than the limit allows)` : ""),
+      );
+    }
+    // The window is 60s; waiting a third of it per attempt clears a burst without stalling the run.
+    await new Promise((resolve) => setTimeout(resolve, THROTTLE_BACKOFF_MS));
   }
-  return res;
 }
 
 /**
@@ -81,4 +107,35 @@ export async function isAiConfigured(request: APIRequestContext): Promise<boolea
   if (!res.ok()) return false;
   const body = (await res.json()) as { aiConfigured?: boolean };
   return Boolean(body.aiConfigured);
+}
+
+/**
+ * Creates an account and leaves the BROWSER signed in, without driving the sign-in form.
+ *
+ * Most specs signed in through the UI purely as setup — they are about Documents, Connections, Settings,
+ * not about the sign-in page. That cost one `POST /v1/auth/sign-in` each, and that route is throttled at
+ * **10 per 60s per IP**, deliberately: its comment names credential guessing as the abuse pattern. The
+ * default suite performed exactly **10** UI sign-ins and finished in about twelve seconds — sitting on
+ * 100% of the limit, so any retry, any added spec, or any two runs inside a minute pushed it over and the
+ * e2e job failed. Observed directly: a back-to-back run failed 8 specs.
+ *
+ * Sign-up already issues a session (`setSessionCookie` on the sign-up response), so there was never a need
+ * to authenticate twice. Going through `page.request` puts that cookie in the browser's own jar —
+ * Playwright shares cookie storage between `page` and `page.request` — so the page is signed in with no
+ * second credential call. Verified before adopting it: sign-up 201, then `page.goto("/home")` stays on
+ * /home rather than bouncing to /sign-in.
+ *
+ * The limiter is unchanged. What changed is that the suite stopped spending its budget on authentication it
+ * had already done. `sign-in.spec.ts` still drives the real form, because that is the thing it tests.
+ */
+export async function createSignedInUser(page: Page, prefix?: string): Promise<TestUser> {
+  const user = uniqueTestUser(prefix);
+  const signUp = await page.request.post(`${API_BASE_URL}/v1/auth/sign-up`, {
+    data: { email: user.email, password: user.password, displayName: user.displayName },
+    headers: { "x-veynlo-csrf": "1" },
+  });
+  if (!signUp.ok()) throw new Error(`sign-up for ${prefix ?? "e2e"} failed with ${signUp.status()}: ${await signUp.text()}`);
+  const skip = await page.request.post(`${API_BASE_URL}/v1/onboarding/skip`, { headers: { "x-veynlo-csrf": "1" } });
+  if (!skip.ok()) throw new Error(`onboarding skip failed with ${skip.status()}: ${await skip.text()}`);
+  return user;
 }
