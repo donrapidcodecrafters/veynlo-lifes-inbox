@@ -11,7 +11,7 @@ import { NotificationDeliveryService } from "../notifications/notification-deliv
 import { identityRecordSafeColumns } from "../identity-records/identity-records.util";
 import { IDENTITY_RECORD_TYPE_LABELS, type IdentityRecordType } from "../identity-records/dto";
 import { EVENT_BUS, type EventBus } from "../../events/event-bus.interface";
-import { localDayWindow } from "../../common/local-day";
+import { dueOnOrBeforeLocalDaySql, fallsOnLocalDaySql, localDateIso, localDayWindow, temporalFallsOnLocalDay } from "../../common/local-day";
 
 const LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
 // BILL-002 "if expected payment fails to appear, alert after sensible grace period" — a bill isn't
@@ -207,7 +207,10 @@ export class AttentionService {
     // today's. Four hours out of every twenty-four, every day.
     const [owner] = await this.db.select({ timezone: schema.users.timezone }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     const now = new Date();
-    const { startOfDay, endOfDay } = localDayWindow(now, owner?.timezone);
+    const window = localDayWindow(now, owner?.timezone);
+    // The calendar date the user is actually living in. A date-only value is a DATE, not an instant, and
+    // comparing it to the window alone put it on the wrong day for everyone not on UTC.
+    const today = localDateIso(now, owner?.timezone);
     const householdIds = await this.households.activeHouseholdIds(userId);
     const ownerOrHousehold = (ownerCol: AnyPgColumn, householdCol: AnyPgColumn) =>
       householdIds.length > 0 ? or(eq(ownerCol, userId), inArray(householdCol, householdIds))! : eq(ownerCol, userId);
@@ -219,9 +222,7 @@ export class AttentionService {
         and(
           ownerOrHousehold(schema.calendarEvents.ownerUserId, schema.calendarEvents.householdId),
           or(ne(schema.calendarEvents.visibility, "private"), eq(schema.calendarEvents.ownerUserId, userId))!,
-          isNotNull(schema.calendarEvents.startSort),
-          gte(schema.calendarEvents.startSort, startOfDay),
-          lte(schema.calendarEvents.startSort, endOfDay),
+          fallsOnLocalDaySql(schema.calendarEvents.start, schema.calendarEvents.startSort, window, today),
         ),
       )
       .orderBy(asc(schema.calendarEvents.startSort));
@@ -234,8 +235,8 @@ export class AttentionService {
           or(ownerOrHousehold(schema.tasks.ownerUserId, schema.tasks.householdId), eq(schema.tasks.assignedToUserId, userId))!,
           ne(schema.tasks.state, "completed"),
           ne(schema.tasks.state, "dismissed"),
-          isNotNull(schema.tasks.dueSort),
-          lte(schema.tasks.dueSort, endOfDay),
+          // One-sided on purpose: Today shows overdue tasks as well as today's.
+          dueOnOrBeforeLocalDaySql(schema.tasks.dueCondition, schema.tasks.dueSort, window, today),
         ),
       )
       .orderBy(asc(schema.tasks.dueSort));
@@ -246,9 +247,7 @@ export class AttentionService {
       .where(
         and(
           ownerOrHousehold(schema.bills.ownerUserId, schema.bills.householdId),
-          isNotNull(schema.bills.dueDateSort),
-          gte(schema.bills.dueDateSort, startOfDay),
-          lte(schema.bills.dueDateSort, endOfDay),
+          fallsOnLocalDaySql(schema.bills.dueDate, schema.bills.dueDateSort, window, today),
         ),
       )
       .orderBy(asc(schema.bills.dueDateSort));
@@ -260,11 +259,9 @@ export class AttentionService {
       .select()
       .from(schema.shipments)
       .where(and(eq(schema.shipments.ownerUserId, userId), ne(schema.shipments.status, "delivered")));
-    const deliveries = candidateShipments.filter((s) => {
-      if (!s.estimatedDelivery) return false;
-      const sort = temporalToSortDate(s.estimatedDelivery);
-      return sort != null && sort >= startOfDay && sort <= endOfDay;
-    });
+    // Filtered in memory rather than in SQL (shipments are already loaded for the status check above),
+    // but by the same rule — the helper is shared so the two cannot drift.
+    const deliveries = candidateShipments.filter((s) => temporalFallsOnLocalDay(s.estimatedDelivery, window, today));
 
     return { events, tasks, bills, deliveries };
   }

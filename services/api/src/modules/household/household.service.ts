@@ -21,7 +21,7 @@ import type {
   SetMemberLabelDto,
   TransferOwnershipDto,
 } from "./dto";
-import { localDayWindow } from "../../common/local-day";
+import { localDateIso, localDayWindow, temporalFallsOnLocalDay } from "../../common/local-day";
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — longer-lived than a password reset since a household invite is a lower-stakes, non-account-recovery action
 
@@ -222,21 +222,28 @@ export class HouseholdService {
     // Today view shows the same person, which the UTC boundary did not.
     const [viewer] = await this.db.select({ timezone: schema.users.timezone }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     const now = new Date();
-    const { startOfDay, endOfDay } = localDayWindow(now, viewer?.timezone);
+    const window = localDayWindow(now, viewer?.timezone);
+    // The viewer's calendar date. Same reason as AttentionService.today: a date-only value is a DATE,
+    // and comparing it to the instant window alone put it on the wrong day for everyone not on UTC.
+    const today = localDateIso(now, viewer?.timezone);
 
     const events = await this.db
       .select()
       .from(schema.calendarEvents)
       .where(and(eq(schema.calendarEvents.householdId, householdId), or(ne(schema.calendarEvents.visibility, "private"), eq(schema.calendarEvents.ownerUserId, userId))!))
       .orderBy(asc(schema.calendarEvents.startSort));
-    const todaysEvents = events.filter((e) => e.startSort && e.startSort >= startOfDay && e.startSort < endOfDay);
+    const todaysEvents = events.filter((e) => temporalFallsOnLocalDay(e.start, window, today));
 
     const tasks = await this.db
       .select()
       .from(schema.tasks)
       .where(and(eq(schema.tasks.householdId, householdId), ne(schema.tasks.state, "completed"), ne(schema.tasks.state, "dismissed")))
       .orderBy(asc(schema.tasks.dueSort));
-    const dueTasks = tasks.filter((t) => !t.dueSort || t.dueSort < endOfDay);
+    // A task with no due date at all still belongs here — it is the household's outstanding work, not
+    // something scheduled — so the no-date case is kept exactly as it was.
+    const dueTasks = tasks.filter(
+      (t) => !t.dueSort || temporalFallsOnLocalDay(t.dueCondition, window, today) || (t.dueCondition?.date ?? "") < today,
+    );
 
     const attentionItems = await this.db
       .select()

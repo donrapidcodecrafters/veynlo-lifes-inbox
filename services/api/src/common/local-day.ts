@@ -1,3 +1,5 @@
+import { sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 /**
  * The UTC instants that bound a user's LOCAL calendar day.
  *
@@ -102,4 +104,85 @@ export function localWallClockToInstant(
   // Re-measure at the corrected instant: across a DST boundary the first offset can be the wrong side's.
   instant = new Date(wallClock - zoneOffsetMs(instant, timeZone));
   return instant;
+}
+
+/**
+ * The YYYY-MM-DD calendar date an instant falls on, in a given zone.
+ *
+ * The counterpart to `localDayWindow`: that answers "which instants are in this local day", this answers
+ * "which local day is this". Both are needed because rows carry two different kinds of temporal value.
+ */
+export function localDateIso(at: Date, timeZone: string | null | undefined): string {
+  const { year, month, day } = localDateParts(at, timeZone || "UTC");
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * Does a temporal value fall on the given local day?
+ *
+ * A date-only value is a CALENDAR DATE, and comparing it to an instant window is a category error. Its
+ * sort key is UTC midnight, so for anyone west of UTC it sits before their day has started — a Chicago
+ * user's September 12th begins at 05:00Z, and an all-day event dated the 12th sorts at 00:00Z, five hours
+ * earlier, landing it in the window for the 11th. East of UTC the same mismatch pushes it the other way.
+ *
+ * The effect was a whole day of error on exactly the values a user is most likely to have entered by hand:
+ * an all-day event, a bill due "on the 12th", a task with a date and no time. Measured, not reasoned
+ * about — see local-day-date-precision.test.ts, which fails for Chicago, Los Angeles and Auckland and
+ * passes only for UTC.
+ *
+ * So a date-only value is compared BY DATE, and only an instant is compared against the window.
+ */
+export function temporalFallsOnLocalDay(
+  value: { precision?: string | null; date?: string | null; instantUtc?: string | null } | null | undefined,
+  window: LocalDayWindow,
+  localDate: string,
+): boolean {
+  if (!value) return false;
+  if (value.precision === "date") return value.date === localDate;
+  if (value.instantUtc) {
+    const at = new Date(value.instantUtc);
+    return at >= window.startOfDay && at <= window.endOfDay;
+  }
+  return false;
+}
+
+/**
+ * A SQL predicate for "this row falls on the given local day", for a table whose temporal value is stored
+ * as jsonb alongside an instant sort column.
+ *
+ * Deliberately excludes date-precision rows from the instant comparison rather than widening the window.
+ * Widening would pull in genuine instants from the neighbouring day, trading one wrong answer for another;
+ * a date-only value simply is not an instant and has to be matched on the date it carries.
+ */
+export function fallsOnLocalDaySql(
+  temporalColumn: AnyPgColumn,
+  sortColumn: AnyPgColumn,
+  window: LocalDayWindow,
+  localDate: string,
+): SQL {
+  return sql`(
+    (${temporalColumn} ->> 'precision' IS DISTINCT FROM 'date'
+      AND ${sortColumn} >= ${window.startOfDay} AND ${sortColumn} <= ${window.endOfDay})
+    OR (${temporalColumn} ->> 'precision' = 'date' AND ${temporalColumn} ->> 'date' = ${localDate})
+  )`;
+}
+
+/**
+ * A SQL predicate for "this row is due on or before the given local day".
+ *
+ * Separate from `fallsOnLocalDaySql` because it is a different question, and collapsing the two would get
+ * one of them wrong. The Today list includes tasks that are OVERDUE as well as those due today, so its
+ * bound is one-sided — and for a date-only value that means comparing calendar dates, where a string
+ * comparison on YYYY-MM-DD is exactly a chronological one.
+ */
+export function dueOnOrBeforeLocalDaySql(
+  temporalColumn: AnyPgColumn,
+  sortColumn: AnyPgColumn,
+  window: LocalDayWindow,
+  localDate: string,
+): SQL {
+  return sql`(
+    (${temporalColumn} ->> 'precision' IS DISTINCT FROM 'date' AND ${sortColumn} <= ${window.endOfDay})
+    OR (${temporalColumn} ->> 'precision' = 'date' AND ${temporalColumn} ->> 'date' <= ${localDate})
+  )`;
 }
