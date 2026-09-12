@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { getAttentionReasonExplanation } from "@veynlo/core";
+import { getAttentionReasonExplanation, collapseRuns } from "@veynlo/core";
 import { api, ApiError } from "@/lib/api-client";
 import { useOfflineMutationQueue } from "@/lib/offline-mutation-queue";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { CollapsibleGroup } from "@/components/collapsible-group";
 import { Card } from "@/components/card";
+import { DividedList } from "@/components/divided-list";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
@@ -29,6 +31,12 @@ interface AttentionItem {
   moneyAtStakeCurrency: string | null;
   confidenceBand: string;
   linkedResourceType: string | null;
+  /**
+   * DEF-104. Null for an ordinary item; set when the server folded a run of 3+ of one kind, in which
+   * case THIS item is the run's most urgent member and stands for the rest. `members` carries every one
+   * of them, so expanding needs no second request.
+   */
+  group: { reasonCode: string; count: number; members: AttentionItem[] } | null;
 }
 
 // HOME-001 — parity with web home/page.tsx's identical fix: confidence and source are two of the spec's
@@ -38,6 +46,12 @@ interface AttentionItem {
 // scanAndFileDeadlines has been filing these additional resource types for a while, but this map never
 // grew past the original four, so the fallback rendered a raw internal value like "recall_match".
 const SOURCE_LABEL: Record<string, string> = {
+  // Found live on Home: these three reach the screen as raw internal values ("store_credit", "person",
+  // "maintenance_rule") next to properly-labelled siblings like "Bill". Same gap this map was added to
+  // close for recall_match and refill_reminder — AttentionService files these types and nothing named them.
+  store_credit: "Store credit",
+  person: "Person",
+  maintenance_rule: "Maintenance",
   bill: "Bill",
   return_case: "Return",
   warranty: "Warranty",
@@ -82,7 +96,9 @@ interface MyHousehold {
 interface FamilyToday {
   events: Array<{ id: string; title: string }>;
   tasks: Array<{ id: string; title: string; assignedToUserId: string | null }>;
-  attentionItems: Array<{ id: string; reasonText: string }>;
+  // The endpoint does a plain `.select()` on attention_items, so every column is already on the wire —
+  // this type simply under-declared it, which is why the recall run could not be grouped by kind.
+  attentionItems: Array<{ id: string; reasonText: string; reasonCode: string; urgency: string }>;
 }
 
 interface TodayResponse {
@@ -129,6 +145,29 @@ function resolveModuleOrder(prefs: HomeModulePreferences | null): OptionalModule
   const missing = OPTIONAL_MODULE_KEYS.filter((k) => !stored.includes(k));
   return [...stored, ...missing];
 }
+
+/**
+ * Plain-language headings for a collapsed group.
+ *
+ * A reasonCode is an internal identifier, and "vehicle_recall" on a card reads as a bug. Anything not
+ * listed falls back to the representative item's own reasonText, which is already written for a person —
+ * the same no-raw-internal-values stance the SOURCE_LABEL map above this one was added for.
+ */
+const ATTENTION_GROUP_LABEL: Record<string, string> = {
+  vehicle_recall: "Vehicle recalls",
+  home_asset_recall: "Appliance recalls",
+  bill_due: "Bills due",
+  bill_overdue: "Overdue bills",
+  return_window_closing: "Return windows closing",
+  warranty_expiring: "Warranties expiring",
+  subscription_price_increase: "Subscription price increases",
+  trial_ending: "Trials ending",
+  person_important_date: "Important dates",
+  event_reminder: "Upcoming events",
+  store_credit_expiring: "Store credit expiring",
+  pet_refill_due: "Pet refills due",
+  memory_resurface_trip_location: "Saved for this trip",
+};
 
 const URGENCY_TONE: Record<AttentionItem["urgency"], "critical" | "warning" | "neutral"> = {
   critical: "critical",
@@ -371,71 +410,11 @@ export default function HomeScreen() {
   // none (Needs You itself is handled separately above); any other tab jumps straight to that one module.
   const modulesToRender: OptionalModuleKey[] = homeTab === "all" ? moduleOrder : homeTab === "needs_you" ? [] : [homeTab];
 
-  return (
-    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
-      <View>
-        <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }} accessibilityRole="header">
-          {t("title")}
-        </Text>
-        <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>{t("subtitle")}</Text>
-      </View>
-
-      <SectionTabs accessibilityLabel="Home sections" value={homeTab} onChange={setHomeTab} options={visibleHomeTabs} />
-
-      {/* Found live: apps/web's home page shows two pulsing skeleton bars while `isLoading`, but this
-          screen showed nothing at all — no skeleton, no spinner — while `data` was still null, just a
-          blank gap below the header until the first `/v1/home` response landed. These bars carry no
-          information of their own, so they're hidden from the accessibility tree rather than announced as
-          two blank, unlabeled elements. */}
-      {(homeTab === "all" || homeTab === "needs_you") && !data && !loadError && (
-        <View style={{ gap: 12 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <View style={{ height: 80, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
-          <View style={{ height: 80, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
-        </View>
-      )}
-
-      {(homeTab === "all" || homeTab === "needs_you") && !data && loadError && <FetchError what="your home screen" message={loadError} onRetry={load} />}
-
-      {/* Spec §6.1 lists a "connector-health exception banner" as one of Home's persistent elements, and
-          apps/web/src/app/(app)/home/page.tsx already has this — mobile had no idea `degraded`/
-          `unhealthyConnections` even existed (the field wasn't in HomeResponse above until now), so a
-          connector silently going unhealthy was invisible here even though the exact same account showed
-          the warning on web. Mirrors web's copy/behavior, except web's singular/plural text disagrees with
-          its own verb ("1 connection need attention") — fixed here rather than copied verbatim. Routes to
-          the same Connections screen Settings' "Connections" button already uses. */}
-      {data?.degraded && data.unhealthyConnections.length > 0 && (
-        <Card style={{ backgroundColor: theme.colors.warningSubtleBg, borderColor: theme.colors.warning, gap: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            {/* §38.2 "Locale: no concatenated grammar" — i18next's native `_one`/`_other` count-keyed
-                keys (see lib/i18n/en.json's home.degradedBanner_one/_other) instead of gluing an
-                English "s"/"" and "need"/"needs" onto an interpolated number. */}
-            <Text style={{ flex: 1, fontSize: 14, color: theme.colors.warningSubtleText }}>
-              {t("degradedBanner", { count: data.unhealthyConnections.length })}
-            </Text>
-            <Button variant="secondary" onPress={() => router.push("/connections")}>
-              {t("review")}
-            </Button>
-          </View>
-        </Card>
-      )}
-
-      {/* HOME-004 parity with web's home/page.tsx fix — mirrors the same bug found live there: this
-          unconditionally showed "You're caught up." even while the degraded banner right above it was
-          reporting an unhealthy connection, the exact false-positive the spec's purpose statement calls
-          out by name ("Never falsely tell a user they are caught up when the system is blind"). */}
-      {(homeTab === "all" || homeTab === "needs_you") && data?.caughtUp && !data.degraded && (
-        <EmptyState title={t("caughtUpTitle")} description={t("caughtUpDescription")} />
-      )}
-
-      {(homeTab === "all" || homeTab === "needs_you") && data?.caughtUp && data.degraded && (
-        <EmptyState title={t("degradedCaughtUpTitle")} description={t("degradedCaughtUpDescription")} />
-      )}
-
-      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
-
-      {(homeTab === "all" || homeTab === "needs_you") && data && data.items.length > 0 && (
-        <View style={{ gap: 12 }}>
-          {data.items.map((item) => {
+  /**
+   * One attention item, exactly as it rendered before DEF-104 — extracted so a collapsed group's
+   * members reuse it instead of a second copy drifting away from this one.
+   */
+  function AttentionItemCard({ item }: { item: AttentionItem }) {
             const due = formatTemporal(item.dueAt, personalization.timeFormat, locale);
             const money = maskedMoney(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency);
             const whyOpen = whyOpenId === item.id;
@@ -521,7 +500,96 @@ export default function HomeScreen() {
                 </Button>
               </Card>
             );
-          })}
+  }
+
+  return (
+    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
+      <View>
+        <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }} accessibilityRole="header">
+          {t("title")}
+        </Text>
+        <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>{t("subtitle")}</Text>
+      </View>
+
+      <SectionTabs accessibilityLabel="Home sections" value={homeTab} onChange={setHomeTab} options={visibleHomeTabs} />
+
+      {/* Found live: apps/web's home page shows two pulsing skeleton bars while `isLoading`, but this
+          screen showed nothing at all — no skeleton, no spinner — while `data` was still null, just a
+          blank gap below the header until the first `/v1/home` response landed. These bars carry no
+          information of their own, so they're hidden from the accessibility tree rather than announced as
+          two blank, unlabeled elements. */}
+      {(homeTab === "all" || homeTab === "needs_you") && !data && !loadError && (
+        <View style={{ gap: 12 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <View style={{ height: 80, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
+          <View style={{ height: 80, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
+        </View>
+      )}
+
+      {(homeTab === "all" || homeTab === "needs_you") && !data && loadError && <FetchError what="your home screen" message={loadError} onRetry={load} />}
+
+      {/* Spec §6.1 lists a "connector-health exception banner" as one of Home's persistent elements, and
+          apps/web/src/app/(app)/home/page.tsx already has this — mobile had no idea `degraded`/
+          `unhealthyConnections` even existed (the field wasn't in HomeResponse above until now), so a
+          connector silently going unhealthy was invisible here even though the exact same account showed
+          the warning on web. Mirrors web's copy/behavior, except web's singular/plural text disagrees with
+          its own verb ("1 connection need attention") — fixed here rather than copied verbatim. Routes to
+          the same Connections screen Settings' "Connections" button already uses. */}
+      {data?.degraded && data.unhealthyConnections.length > 0 && (
+        <Card style={{ backgroundColor: theme.colors.warningSubtleBg, borderColor: theme.colors.warning, gap: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            {/* §38.2 "Locale: no concatenated grammar" — i18next's native `_one`/`_other` count-keyed
+                keys (see lib/i18n/en.json's home.degradedBanner_one/_other) instead of gluing an
+                English "s"/"" and "need"/"needs" onto an interpolated number. */}
+            <Text style={{ flex: 1, fontSize: 14, color: theme.colors.warningSubtleText }}>
+              {t("degradedBanner", { count: data.unhealthyConnections.length })}
+            </Text>
+            <Button variant="secondary" onPress={() => router.push("/connections")}>
+              {t("review")}
+            </Button>
+          </View>
+        </Card>
+      )}
+
+      {/* HOME-004 parity with web's home/page.tsx fix — mirrors the same bug found live there: this
+          unconditionally showed "You're caught up." even while the degraded banner right above it was
+          reporting an unhealthy connection, the exact false-positive the spec's purpose statement calls
+          out by name ("Never falsely tell a user they are caught up when the system is blind"). */}
+      {(homeTab === "all" || homeTab === "needs_you") && data?.caughtUp && !data.degraded && (
+        <EmptyState title={t("caughtUpTitle")} description={t("caughtUpDescription")} />
+      )}
+
+      {(homeTab === "all" || homeTab === "needs_you") && data?.caughtUp && data.degraded && (
+        <EmptyState title={t("degradedCaughtUpTitle")} description={t("degradedCaughtUpDescription")} />
+      )}
+
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
+
+      {(homeTab === "all" || homeTab === "needs_you") && data && data.items.length > 0 && (
+        <View style={{ gap: 12 }}>
+          {data.items.map((entry) =>
+            entry.group ? (
+              <View key={entry.id}>
+                {/* DEF-104: a run of 3+ of one kind arrives folded. The card says how many and
+                    opens in place — no navigation, and every original record still reachable. */}
+                <CollapsibleGroup
+                  label={ATTENTION_GROUP_LABEL[entry.group.reasonCode] ?? entry.reasonText}
+                  count={entry.group.count}
+                  badge={<Badge tone={URGENCY_TONE[entry.urgency]}>{entry.urgency}</Badge>}
+                  tone={entry.urgency === "critical" ? "critical" : entry.urgency === "important" ? "warning" : "default"}
+                >
+                  <View style={{ gap: 10 }}>
+                    {entry.group.members.map((m) => (
+                      <AttentionItemCard key={m.id} item={m} />
+                    ))}
+                  </View>
+                </CollapsibleGroup>
+              </View>
+            ) : (
+              <View key={entry.id}>
+                <AttentionItemCard item={entry} />
+              </View>
+            ),
+          )}
         </View>
       )}
 
@@ -545,35 +613,37 @@ export default function HomeScreen() {
           return (
             <View key={key} style={{ gap: 8 }}>
               <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{t("today")}</Text>
-              <Card style={{ gap: 10 }}>
-                {today.events.map((e) => (
-                  <Text key={e.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                    {e.title}
-                  </Text>
-                ))}
-                {today.tasks.map((t) => (
-                  <View key={t.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <Text style={{ fontSize: 14, color: theme.colors.textPrimary, flex: 1 }}>{t.title}</Text>
-                    <Button variant="ghost" onPress={() => completeTodayTask(t.id)} loading={actioningId === t.id}>
-                      Mark done
-                    </Button>
-                  </View>
-                ))}
-                {today.bills.map((b) => {
-                  const money = maskedMoney(b.amountDueMinorUnits, b.amountDueCurrency);
-                  return (
-                    <Text key={b.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                      {b.billerLabel}
-                      {money && <Text style={{ color: theme.colors.textTertiary }}> — {money}</Text>}
+              <Card style={{ paddingVertical: 4 }}>
+              <DividedList>
+                  {today.events.map((e) => (
+                    <Text key={e.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
+                      {e.title}
                     </Text>
-                  );
-                })}
-                {today.deliveries.map((d) => (
-                  <Text key={d.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                    {d.carrier} — {d.trackingNumber}
-                  </Text>
-                ))}
-              </Card>
+                  ))}
+                  {today.tasks.map((t) => (
+                    <View key={t.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <Text style={{ fontSize: 14, color: theme.colors.textPrimary, flex: 1 }}>{t.title}</Text>
+                      <Button variant="ghost" onPress={() => completeTodayTask(t.id)} loading={actioningId === t.id}>
+                        Mark done
+                      </Button>
+                    </View>
+                  ))}
+                  {today.bills.map((b) => {
+                    const money = maskedMoney(b.amountDueMinorUnits, b.amountDueCurrency);
+                    return (
+                      <Text key={b.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
+                        {b.billerLabel}
+                        {money && <Text style={{ color: theme.colors.textTertiary }}> — {money}</Text>}
+                      </Text>
+                    );
+                  })}
+                  {today.deliveries.map((d) => (
+                    <Text key={d.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
+                      {d.carrier} — {d.trackingNumber}
+                    </Text>
+                  ))}
+              </DividedList>
+            </Card>
             </View>
           );
         }
@@ -587,38 +657,40 @@ export default function HomeScreen() {
           return (
             <View key={key} style={{ gap: 8 }}>
               <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>{t("moneyAtRisk")}</Text>
-              <Card style={{ gap: 10 }}>
-                {validatedSavingsMinorUnits > 0 && (
-                  <Text style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                    <Text style={{ fontWeight: "700" }}>{maskedMoney(validatedSavingsMinorUnits, "USD")}</Text> saved so far (confirmed returns and
-                    redeemed credits).
-                  </Text>
-                )}
-                {expiringReturns.map((r) => {
-                  const value = maskedMoney(r.returnCase.valueAtStakeMinorUnits, r.returnCase.valueAtStakeCurrency);
-                  return (
-                    <View key={r.returnCase.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <Card style={{ paddingVertical: 4 }}>
+              <DividedList>
+                  {validatedSavingsMinorUnits > 0 && (
+                    <Text style={{ fontSize: 14, color: theme.colors.textPrimary }}>
+                      <Text style={{ fontWeight: "700" }}>{maskedMoney(validatedSavingsMinorUnits, "USD")}</Text> saved so far (confirmed returns and
+                      redeemed credits).
+                    </Text>
+                  )}
+                  {expiringReturns.map((r) => {
+                    const value = maskedMoney(r.returnCase.valueAtStakeMinorUnits, r.returnCase.valueAtStakeCurrency);
+                    return (
+                      <View key={r.returnCase.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <Text style={{ fontSize: 14, color: theme.colors.textPrimary, flex: 1 }}>
+                          Order {r.purchase.orderNumber ?? r.purchase.id}
+                          {value && <Text style={{ color: theme.colors.textTertiary }}> — {value}</Text>}
+                        </Text>
+                        <Button variant="ghost" onPress={() => resolveReturn(r.returnCase.id)} loading={actioningId === r.returnCase.id}>
+                          Mark resolved
+                        </Button>
+                      </View>
+                    );
+                  })}
+                  {expiringCredits.map((c) => (
+                    <View key={c.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                       <Text style={{ fontSize: 14, color: theme.colors.textPrimary, flex: 1 }}>
-                        Order {r.purchase.orderNumber ?? r.purchase.id}
-                        {value && <Text style={{ color: theme.colors.textTertiary }}> — {value}</Text>}
+                        {c.merchantName ?? "Store credit"} — {maskedMoney(c.amountMinorUnits, c.currency)}
                       </Text>
-                      <Button variant="ghost" onPress={() => resolveReturn(r.returnCase.id)} loading={actioningId === r.returnCase.id}>
-                        Mark resolved
+                      <Button variant="ghost" onPress={() => redeemCredit(c.id)} loading={actioningId === c.id}>
+                        Mark redeemed
                       </Button>
                     </View>
-                  );
-                })}
-                {expiringCredits.map((c) => (
-                  <View key={c.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <Text style={{ fontSize: 14, color: theme.colors.textPrimary, flex: 1 }}>
-                      {c.merchantName ?? "Store credit"} — {maskedMoney(c.amountMinorUnits, c.currency)}
-                    </Text>
-                    <Button variant="ghost" onPress={() => redeemCredit(c.id)} loading={actioningId === c.id}>
-                      Mark redeemed
-                    </Button>
-                  </View>
-                ))}
-              </Card>
+                  ))}
+              </DividedList>
+            </Card>
             </View>
           );
         }
@@ -629,23 +701,44 @@ export default function HomeScreen() {
             <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>
               {myHousehold.household.name} — Today
             </Text>
-            <Card style={{ gap: 10 }}>
-              {familyToday.events.map((e) => (
-                <Text key={e.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                  {e.title}
-                </Text>
-              ))}
-              {familyToday.tasks.map((t) => (
-                <Text key={t.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                  {t.title}
-                  {!t.assignedToUserId && <Text style={{ color: theme.colors.textTertiary }}> — unassigned</Text>}
-                </Text>
-              ))}
-              {familyToday.attentionItems.map((a) => (
-                <Text key={a.id} style={{ fontSize: 14, color: theme.colors.textPrimary }}>
-                  {a.reasonText}
-                </Text>
-              ))}
+            <Card style={{ paddingVertical: 4 }}>
+              <DividedList>
+                {familyToday.events.map((e) => (
+                  <Text key={e.id} style={{ fontSize: 14, color: theme.colors.textPrimary }} maxFontSizeMultiplier={1.6}>
+                    {e.title}
+                  </Text>
+                ))}
+                {familyToday.tasks.map((t) => (
+                  <Text key={t.id} style={{ fontSize: 14, color: theme.colors.textPrimary }} maxFontSizeMultiplier={1.6}>
+                    {t.title}
+                    {!t.assignedToUserId && <Text style={{ color: theme.colors.textTertiary }}> — unassigned</Text>}
+                  </Text>
+                ))}
+                {/* DEF-104 in miniature: on a real household this is nine identical recall notices,
+                    which is what made this card read as one paragraph. Same rule as the main feed —
+                    a run of 3+ of one kind folds into a row that says how many and opens in place. */}
+                {collapseRuns(familyToday.attentionItems, { keyOf: (a) => a.reasonCode }).map((entry, i) =>
+                  entry.kind === "item" ? (
+                    <Text key={entry.item.id} style={{ fontSize: 14, color: theme.colors.textPrimary }} maxFontSizeMultiplier={1.6}>
+                      {entry.item.reasonText}
+                    </Text>
+                  ) : (
+                    <CollapsibleGroup
+                      key={`${entry.key}-${i}`}
+                      label={ATTENTION_GROUP_LABEL[entry.key] ?? entry.representative.reasonText}
+                      count={entry.count}
+                    >
+                      <DividedList>
+                        {entry.members.map((a) => (
+                          <Text key={a.id} style={{ fontSize: 14, color: theme.colors.textPrimary }} maxFontSizeMultiplier={1.6}>
+                            {a.reasonText}
+                          </Text>
+                        ))}
+                      </DividedList>
+                    </CollapsibleGroup>
+                  ),
+                )}
+              </DividedList>
             </Card>
           </View>
         );

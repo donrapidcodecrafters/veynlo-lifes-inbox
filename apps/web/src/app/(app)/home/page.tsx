@@ -7,6 +7,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { getAttentionReasonExplanation } from "@veynlo/core";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CollapsibleGroup } from "@/components/collapsible-group";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
@@ -28,6 +29,12 @@ interface AttentionItem {
   primaryActions: string[];
   confidenceBand: string;
   linkedResourceType: string | null;
+  /**
+   * DEF-104. Null for an ordinary item; set when the server folded a run of 3+ of one kind, in which
+   * case THIS item is the run's most urgent member and stands for the rest. `members` carries every one
+   * of them, so expanding needs no second request.
+   */
+  group: { reasonCode: string; count: number; members: AttentionItem[] } | null;
 }
 
 // HOME-001 "small ranked queue with plain-language reason, due/expiration time, money/value at stake if
@@ -45,6 +52,12 @@ interface AttentionItem {
 // value like "recall_match" or "refill_reminder" — the exact "no fake precision, but no raw internals
 // either" gap this queue's own confidence-band label already avoids for confidenceBand.
 const SOURCE_LABEL: Record<string, string> = {
+  // Found live on Home: these three reach the screen as raw internal values ("store_credit", "person",
+  // "maintenance_rule") next to properly-labelled siblings like "Bill". Same gap this map was added to
+  // close for recall_match and refill_reminder — AttentionService files these types and nothing named them.
+  store_credit: "Store credit",
+  person: "Person",
+  maintenance_rule: "Maintenance",
   bill: "Bill",
   return_case: "Return",
   warranty: "Warranty",
@@ -149,6 +162,29 @@ function resolveModuleOrder(prefs: HomeModulePreferences | undefined): OptionalM
   const missing = OPTIONAL_MODULE_KEYS.filter((k) => !stored.includes(k));
   return [...stored, ...missing];
 }
+
+/**
+ * Plain-language headings for a collapsed group.
+ *
+ * A reasonCode is an internal identifier, and "vehicle_recall" on a card reads as a bug. Anything not
+ * listed falls back to the representative item's own reasonText, which is already written for a person —
+ * the same no-raw-internal-values stance the SOURCE_LABEL map above this one was added for.
+ */
+const ATTENTION_GROUP_LABEL: Record<string, string> = {
+  vehicle_recall: "Vehicle recalls",
+  home_asset_recall: "Appliance recalls",
+  bill_due: "Bills due",
+  bill_overdue: "Overdue bills",
+  return_window_closing: "Return windows closing",
+  warranty_expiring: "Warranties expiring",
+  subscription_price_increase: "Subscription price increases",
+  trial_ending: "Trials ending",
+  person_important_date: "Important dates",
+  event_reminder: "Upcoming events",
+  store_credit_expiring: "Store credit expiring",
+  pet_refill_due: "Pet refills due",
+  memory_resurface_trip_location: "Saved for this trip",
+};
 
 const URGENCY_TONE: Record<AttentionItem["urgency"], "critical" | "warning" | "info" | "neutral"> = {
   critical: "critical",
@@ -423,82 +459,11 @@ export default function HomePage() {
       ) : null,
   };
 
-  return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">{t("title")}</h1>
-        <p className="mt-1 text-sm text-tertiary">{t("subtitle")}</p>
-      </header>
-
-      <SectionTabs aria-label="Home sections" value={homeTab} onChange={setHomeTab} options={visibleHomeTabs} />
-
-      {data?.degraded && data.unhealthyConnections.length > 0 && (
-        <Card className="border-warning/40 bg-warning-subtle">
-          <CardBody className="flex items-center justify-between gap-3">
-            {/* §38.2 "Locale: no concatenated grammar that breaks translation" — a single ICU plural
-                message (count-dependent noun AND verb agreement) instead of gluing an English "s"/""
-                and "need"/"needs" onto either side of an interpolated number, which can't be
-                correctly reordered/pluralized in every language. */}
-            <p className="text-sm text-warning-subtle-text">{t("degradedBanner", { count: data.unhealthyConnections.length })}</p>
-            <Link href="/connections">
-              <Button variant="secondary" size="sm">
-                {t("review")}
-              </Button>
-            </Link>
-          </CardBody>
-        </Card>
-      )}
-
-      {(homeTab === "all" || homeTab === "needs_you") && (
-      <section aria-labelledby="needs-you-heading">
-        <h2 id="needs-you-heading" className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">
-          {t("needsYou")}
-        </h2>
-
-        {isLoading && (
-          <div className="space-y-3">
-            {[0, 1].map((i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl bg-subtle" />
-            ))}
-          </div>
-        )}
-
-        {/* A 500/network failure on /v1/home previously fell through every branch below (data stays
-            undefined, isLoading goes false) and rendered nothing at all under the "Needs You" heading --
-            indistinguishable from a slow network tab with no feedback, and with no way to recover short of
-            a full reload. Confirmed live via a mocked 500 on /v1/home. */}
-        {!isLoading && error && !data && (
-          <FetchError what="your home screen" message={error instanceof ApiError ? error.message : undefined} onRetry={() => mutate()} />
-        )}
-
-        {/* HOME-004 "Never falsely tell a user they are caught up when the system is blind" — this used to
-            render "You're caught up." unconditionally whenever the queue was empty, even while the banner
-            immediately above it was reporting an unhealthy connection. That's the exact false-positive the
-            spec calls out by name: a literal "you're caught up" claim sitting right next to a warning that
-            the picture might be incomplete. Confirmed live by seeding a degraded connection via a fixture
-            script and hitting this screen — both messages rendered together. Degraded-and-caught-up now gets
-            the spec's own alternate copy instead. */}
-        {!isLoading && data?.caughtUp && !data.degraded && (
-          <EmptyState
-            title={t("caughtUpTitle")}
-            description={t("caughtUpDescription")}
-            action={
-              <Link href="/connections">
-                <Button variant="secondary" size="sm">
-                  {t("connectSource")}
-                </Button>
-              </Link>
-            }
-          />
-        )}
-
-        {!isLoading && data?.caughtUp && data.degraded && (
-          <EmptyState title={t("degradedCaughtUpTitle")} description={t("degradedCaughtUpDescription")} />
-        )}
-
-        {!isLoading && data && data.items.length > 0 && (
-          <ul className="space-y-3">
-            {data.items.map((item) => {
+  /**
+   * One attention item, exactly as it rendered before DEF-104 — extracted so a collapsed group's
+   * members reuse it instead of a second copy drifting away from this one.
+   */
+  function AttentionItemCard({ item }: { item: AttentionItem }) {
               const due = formatTemporal(item.dueAt, personalization.timeFormat, locale);
               const money = maskedMoney(item.moneyAtStakeMinorUnits, item.moneyAtStakeCurrency, locale);
               const whyOpen = whyOpenId === item.id;
@@ -591,7 +556,109 @@ export default function HomePage() {
                   </Card>
                 </li>
               );
-            })}
+  }
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight text-primary">{t("title")}</h1>
+        <p className="mt-1 text-sm text-tertiary">{t("subtitle")}</p>
+      </header>
+
+      <SectionTabs aria-label="Home sections" value={homeTab} onChange={setHomeTab} options={visibleHomeTabs} />
+
+      {data?.degraded && data.unhealthyConnections.length > 0 && (
+        <Card className="border-warning/40 bg-warning-subtle">
+          <CardBody className="flex items-center justify-between gap-3">
+            {/* §38.2 "Locale: no concatenated grammar that breaks translation" — a single ICU plural
+                message (count-dependent noun AND verb agreement) instead of gluing an English "s"/""
+                and "need"/"needs" onto either side of an interpolated number, which can't be
+                correctly reordered/pluralized in every language. */}
+            <p className="text-sm text-warning-subtle-text">{t("degradedBanner", { count: data.unhealthyConnections.length })}</p>
+            <Link href="/connections">
+              <Button variant="secondary" size="sm">
+                {t("review")}
+              </Button>
+            </Link>
+          </CardBody>
+        </Card>
+      )}
+
+      {(homeTab === "all" || homeTab === "needs_you") && (
+      <section aria-labelledby="needs-you-heading">
+        <h2 id="needs-you-heading" className="mb-3 text-sm font-semibold uppercase tracking-wide text-tertiary">
+          {t("needsYou")}
+        </h2>
+
+        {isLoading && (
+          <div className="space-y-3">
+            {[0, 1].map((i) => (
+              <div key={i} className="h-20 animate-pulse rounded-xl bg-subtle" />
+            ))}
+          </div>
+        )}
+
+        {/* A 500/network failure on /v1/home previously fell through every branch below (data stays
+            undefined, isLoading goes false) and rendered nothing at all under the "Needs You" heading --
+            indistinguishable from a slow network tab with no feedback, and with no way to recover short of
+            a full reload. Confirmed live via a mocked 500 on /v1/home. */}
+        {!isLoading && error && !data && (
+          <FetchError what="your home screen" message={error instanceof ApiError ? error.message : undefined} onRetry={() => mutate()} />
+        )}
+
+        {/* HOME-004 "Never falsely tell a user they are caught up when the system is blind" — this used to
+            render "You're caught up." unconditionally whenever the queue was empty, even while the banner
+            immediately above it was reporting an unhealthy connection. That's the exact false-positive the
+            spec calls out by name: a literal "you're caught up" claim sitting right next to a warning that
+            the picture might be incomplete. Confirmed live by seeding a degraded connection via a fixture
+            script and hitting this screen — both messages rendered together. Degraded-and-caught-up now gets
+            the spec's own alternate copy instead. */}
+        {!isLoading && data?.caughtUp && !data.degraded && (
+          <EmptyState
+            title={t("caughtUpTitle")}
+            description={t("caughtUpDescription")}
+            action={
+              <Link href="/connections">
+                <Button variant="secondary" size="sm">
+                  {t("connectSource")}
+                </Button>
+              </Link>
+            }
+          />
+        )}
+
+        {!isLoading && data?.caughtUp && data.degraded && (
+          <EmptyState title={t("degradedCaughtUpTitle")} description={t("degradedCaughtUpDescription")} />
+        )}
+
+        {!isLoading && data && data.items.length > 0 && (
+          <ul className="space-y-3">
+            {data.items.map((entry) =>
+              entry.group ? (
+                <li key={entry.id}>
+                  {/* DEF-104: a run of 3+ of one kind arrives folded. The card says how many and
+                      opens in place — no navigation, and every original record still reachable. */}
+                  <CollapsibleGroup
+                    label={ATTENTION_GROUP_LABEL[entry.group.reasonCode] ?? entry.reasonText}
+                    count={entry.group.count}
+                    badge={<Badge tone={URGENCY_TONE[entry.urgency]}>{entry.urgency}</Badge>}
+                    tone={entry.urgency === "critical" ? "critical" : entry.urgency === "important" ? "warning" : "default"}
+                  >
+                    <ul className="space-y-3">
+                      {entry.group.members.map((m) => (
+                        <li key={m.id}>
+                          <AttentionItemCard item={m} />
+                        </li>
+                      ))}
+                    </ul>
+                  </CollapsibleGroup>
+                </li>
+              ) : (
+                <li key={entry.id}>
+                  <AttentionItemCard item={entry} />
+                </li>
+              ),
+            )}
           </ul>
         )}
       </section>

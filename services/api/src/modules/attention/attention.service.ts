@@ -1,7 +1,7 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { generateId, type TemporalValue, collapseRuns } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -49,6 +49,13 @@ function urgencyFor(days: number): "critical" | "important" | "useful" {
 // (verified/high-confidence items before a needs-review one, since a self-service action on unconfirmed
 // data is the exact case that should wait for its own promotion rather than jump the queue), then money at
 // stake (more to lose ranks higher within the same tier), and only then due date as the final tiebreaker.
+/**
+ * The ceiling on Home. Not a page size — Home is a ranked view of what needs attention, and paginating
+ * it would invite browsing through it, which is the behaviour DEF-104 exists to stop. Far above the
+ * worst real account seen (125), so in practice it never bites; when it does, `truncated` says so.
+ */
+const MAX_HOME_ITEMS = 500;
+
 const URGENCY_RANK: Record<string, number> = { critical: 0, important: 1, useful: 2 };
 const CONFIDENCE_RANK: Record<string, number> = { verified: 0, high: 0, needs_review: 1, approximate: 1, conflicting: 1 };
 
@@ -296,9 +303,30 @@ export class AttentionService {
       .select()
       .from(schema.attentionItems)
       .where(and(ownerOrHousehold, eq(schema.attentionItems.resolved, false)))
-      .orderBy(asc(schema.attentionItems.dueAtSort));
+      .orderBy(asc(schema.attentionItems.dueAtSort))
+      // DEF-105: this had no limit at all, so the payload, the query time and the client's memory all
+      // grew with how much the account had been used — worst for exactly the people who use it most.
+      // Set far above any real account (125 is the worst observed) so it is a ceiling rather than a
+      // page: Home is a ranked view of what needs attention, not a browsable archive, and paginating it
+      // would invite scrolling through it, which is the behaviour DEF-104 is about.
+      .limit(MAX_HOME_ITEMS + 1);
 
-    const items = [...rows].sort((a, b) => comparePriority(priorityKey(a), priorityKey(b)));
+    const truncated = rows.length > MAX_HOME_ITEMS;
+    const ranked = [...rows.slice(0, MAX_HOME_ITEMS)].sort((a, b) => comparePriority(priorityKey(a), priorityKey(b)));
+
+    // DEF-104: fold runs of same-kind items. Adjacency-based, so the priority order above is preserved
+    // exactly — grouping by key alone would pull distant items together and silently overrule the sort.
+    const entries = collapseRuns(ranked, { keyOf: (i) => i.reasonCode });
+    const items = entries.map((e) =>
+      e.kind === "item"
+        ? { ...e.item, group: null }
+        : {
+            ...e.representative,
+            // The representative is the run's FIRST member, i.e. its most urgent — a card advertising
+            // the least urgent thing it contains would misdescribe itself.
+            group: { reasonCode: e.key, count: e.count, members: e.members },
+          },
+    );
 
     const connections = await this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, userId));
     const unhealthyConnections = connections.filter((c) => !["healthy", "initializing"].includes(c.health));
@@ -306,6 +334,9 @@ export class AttentionService {
     return {
       items,
       caughtUp: items.length === 0,
+      // Stated rather than hidden: a silently truncated list is indistinguishable from a short one.
+      truncated,
+      totalItems: truncated ? MAX_HOME_ITEMS : ranked.length,
       degraded: unhealthyConnections.length > 0,
       unhealthyConnections: unhealthyConnections.map((c) => ({ id: c.id, provider: c.provider, health: c.health })),
     };
