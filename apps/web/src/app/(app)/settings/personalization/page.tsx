@@ -163,7 +163,7 @@ export default function PersonalizationSettingsPage() {
                       aria-label={`Move ${MODULE_LABELS[key]} up`}
                       disabled={index === 0}
                       onClick={() => moveModule(key, -1)}
-                      className="px-1 text-tertiary hover:text-primary disabled:opacity-30"
+                      className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle px-1 text-tertiary hover:text-primary disabled:opacity-30"
                     >
                       ▲
                     </button>
@@ -172,7 +172,7 @@ export default function PersonalizationSettingsPage() {
                       aria-label={`Move ${MODULE_LABELS[key]} down`}
                       disabled={index === moduleOrder.length - 1}
                       onClick={() => moveModule(key, 1)}
-                      className="px-1 text-tertiary hover:text-primary disabled:opacity-30"
+                      className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle px-1 text-tertiary hover:text-primary disabled:opacity-30"
                     >
                       ▼
                     </button>

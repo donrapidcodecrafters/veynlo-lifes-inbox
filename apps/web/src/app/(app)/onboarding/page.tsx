@@ -78,7 +78,7 @@ function StepShell({ title, subtitle, children, onSkip }: { title: string; subti
         {children}
         {onSkip && (
           <div className="border-t border-border-subtle pt-4 text-center">
-            <button type="button" onClick={onSkip} className="text-sm font-medium text-tertiary hover:text-secondary hover:underline">
+            <button type="button" onClick={onSkip} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-tertiary hover:text-secondary">
               Skip for now
             </button>
           </div>
@@ -470,7 +470,7 @@ function ConnectingStep({
       </div>
       <button
         type="button"
-        className="mt-3 text-sm text-tertiary underline"
+        className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle mt-3 text-sm text-tertiary"
         onClick={() => {
           onNeedsRefresh();
         }}

@@ -4,6 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -406,12 +407,8 @@ export default function PropertyDetailScreen() {
                       )}
                     </View>
                     <View style={{ flexDirection: "row", gap: 8 }}>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Mark done: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => completeAssetRule(r.id)} disabled={busy}>
-                        <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Mark done</Text>
-                      </Pressable>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove maintenance rule: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => deleteAssetRule(r.id)} disabled={busy}>
-                        <Text style={{ fontSize: 11, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
-                      </Pressable>
+                      <InlineButton onPress={() => completeAssetRule(r.id)} disabled={busy} accessibilityLabel={`Mark done: ${r.label}`}>Mark done</InlineButton>
+                      <InlineButton onPress={() => deleteAssetRule(r.id)} tone="neutral" disabled={busy} accessibilityLabel={`Remove maintenance rule: ${r.label}`}>Remove</InlineButton>
                     </View>
                   </View>
                 );
@@ -463,9 +460,7 @@ export default function PropertyDetailScreen() {
                   <Text style={{ fontSize: 11, color: theme.colors.textSecondary, flex: 1 }}>{r.component ?? r.summary}</Text>
                   <Badge tone={RECALL_STATUS_TONE[r.status]}>{RECALL_STATUS_LABEL[r.status]}</Badge>
                   {r.status !== "closed_or_repaired" && (
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Resolve recall: ${r.component ?? r.summary}`} onPress={() => resolveAssetRecall(r.id)}>
-                      <Text style={{ fontSize: 11, color: theme.colors.textTertiary, marginLeft: 6 }}>Resolve</Text>
-                    </Pressable>
+                    <InlineButton onPress={() => resolveAssetRecall(r.id)} tone="neutral" accessibilityLabel={`Resolve recall: ${r.component ?? r.summary}`}>Resolve</InlineButton>
                   )}
                 </View>
               ))}

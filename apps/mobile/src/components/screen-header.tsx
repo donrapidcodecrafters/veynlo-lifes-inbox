@@ -1,6 +1,7 @@
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAppTheme } from "@/lib/theme-context";
+import { InlineButton } from "@/components/inline-button";
 
 /** A simple back-button + title header for stack screens pushed on top of the tab bar (root Stack has headerShown: false globally). */
 export function ScreenHeader({ title, subtitle, showBack = true }: { title: string; subtitle?: string; showBack?: boolean }) {
@@ -25,32 +26,13 @@ export function ScreenHeader({ title, subtitle, showBack = true }: { title: stri
       {showBack && (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 }}>
           {router.canGoBack() ? (
-            <Pressable
-              onPress={() => router.back()}
-              hitSlop={8}
-              style={{ alignSelf: "flex-start" }}
-              accessibilityRole="button"
-              // "‹ Back" read literally ("chevron, Back") is noise a sighted user never has to parse — the
-              // chevron is purely decorative here, so the spoken label skips straight to the action.
-              accessibilityLabel="Go back"
-            >
-              <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.brandDefault }} maxFontSizeMultiplier={1.6}>
-                ‹ Back
-              </Text>
-            </Pressable>
+            // "‹ Back" read literally ("chevron, Back") is noise a sighted user never has to parse — the
+            // chevron is purely decorative here, so the spoken label skips straight to the action.
+            <InlineButton onPress={() => router.back()} accessibilityLabel="Go back">‹ Back</InlineButton>
           ) : (
             <View />
           )}
-          <Pressable
-            onPress={() => router.replace("/(tabs)")}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Go to Home"
-          >
-            <Text style={{ fontSize: 15, fontWeight: "600", color: theme.colors.brandDefault }} maxFontSizeMultiplier={1.6}>
-              Home
-            </Text>
-          </Pressable>
+          <InlineButton onPress={() => router.replace("/(tabs)")} accessibilityLabel="Go to Home">Home</InlineButton>
         </View>
       )}
       {/* `accessibilityRole="header"` lets VoiceOver/TalkBack users jump screen-to-screen by heading

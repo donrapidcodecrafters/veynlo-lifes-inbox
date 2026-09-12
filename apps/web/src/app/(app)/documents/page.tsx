@@ -623,11 +623,11 @@ export default function DocumentsPage() {
                   )}
                   {myHousehold && (
                     <div className="flex items-center gap-3 border-t border-border-subtle pt-2 text-xs">
-                      <button onClick={() => toggleHousehold(doc)} className="font-medium text-brand hover:underline">
+                      <button onClick={() => toggleHousehold(doc)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium text-brand">
                         {doc.householdId ? `Shared with ${myHousehold.household.name}` : `Share with ${myHousehold.household.name}`}
                       </button>
                       {doc.householdId && (
-                        <button onClick={() => toggleBinder(doc)} className="font-medium text-brand hover:underline">
+                        <button onClick={() => toggleBinder(doc)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium text-brand">
                           {doc.isEmergencyBinderItem ? "Remove from emergency binder" : "Add to emergency binder"}
                         </button>
                       )}

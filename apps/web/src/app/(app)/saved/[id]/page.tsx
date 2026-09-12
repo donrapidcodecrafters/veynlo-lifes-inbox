@@ -456,7 +456,7 @@ export default function SavedMemoryDetailPage() {
             <div className="mb-1.5 flex items-center justify-between">
               <p className="text-sm font-medium text-secondary">Notes</p>
               {isOwner && !editingNotes && (
-                <button onClick={startEditingNotes} className="text-xs font-medium text-brand hover:underline">
+                <button onClick={startEditingNotes} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
                   Edit
                 </button>
               )}
@@ -505,7 +505,7 @@ export default function SavedMemoryDetailPage() {
                   </button>
                 ))}
                 {memory.rating != null && (
-                  <button onClick={() => setRating(null)} className="ml-2 text-xs text-tertiary hover:text-critical">
+                  <button onClick={() => setRating(null)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle ml-2 text-xs text-tertiary hover:text-critical">
                     Clear
                   </button>
                 )}
@@ -522,7 +522,7 @@ export default function SavedMemoryDetailPage() {
                     <span className="flex items-center gap-1">
                       {tag}
                       {isOwner && (
-                        <button aria-label={`Remove tag ${tag}`} onClick={() => removeTag(tag)} className="text-tertiary hover:text-critical">
+                        <button aria-label={`Remove tag ${tag}`} onClick={() => removeTag(tag)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-tertiary hover:text-critical">
                           ×
                         </button>
                       )}
@@ -563,7 +563,7 @@ export default function SavedMemoryDetailPage() {
                     <li key={i} className="flex items-start justify-between gap-2 rounded-lg bg-subtle px-3 py-2 text-sm text-primary">
                       <span className="break-words">{highlight}</span>
                       {isOwner && (
-                        <button aria-label={`Remove highlight: ${highlight.length > 60 ? `${highlight.slice(0, 60)}…` : highlight}`} onClick={() => removeHighlight(i)} className="shrink-0 text-xs text-tertiary hover:text-critical">
+                        <button aria-label={`Remove highlight: ${highlight.length > 60 ? `${highlight.slice(0, 60)}…` : highlight}`} onClick={() => removeHighlight(i)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle shrink-0 text-xs text-tertiary hover:text-critical">
                           Remove
                         </button>
                       )}
@@ -627,7 +627,7 @@ export default function SavedMemoryDetailPage() {
                       {!r.active && <span className="ml-1.5 text-xs text-tertiary">(done)</span>}
                       {r.active && r.lastFiredAt && <span className="ml-1.5 text-xs text-tertiary">(last reminded {new Date(r.lastFiredAt).toLocaleDateString()})</span>}
                     </span>
-                    <button aria-label={`Remove reminder: ${ruleDetail(r)}`} onClick={() => removeRule(r.id)} className="shrink-0 text-xs text-critical hover:underline">
+                    <button aria-label={`Remove reminder: ${ruleDetail(r)}`} onClick={() => removeRule(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle shrink-0 text-xs text-critical">
                       Remove
                     </button>
                   </li>
@@ -793,7 +793,7 @@ export default function SavedMemoryDetailPage() {
                   <span>
                     Scheduled for {new Date(memory.autoArchiveAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
                   </span>
-                  <button onClick={clearAutoArchive} className="text-xs text-critical hover:underline">
+                  <button onClick={clearAutoArchive} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs text-critical">
                     Cancel
                   </button>
                 </div>

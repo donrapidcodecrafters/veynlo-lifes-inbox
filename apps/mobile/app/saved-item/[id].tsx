@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -384,7 +385,7 @@ export default function SavedItemDetailScreen() {
                 accessibilityState={{ selected: active }}
                 style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
               >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{c.replace(/_/g, " ")}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{c.replace(/_/g, " ")}</Text>
               </Pressable>
             );
           })}
@@ -462,9 +463,7 @@ export default function SavedItemDetailScreen() {
             {memory.highlights.map((highlight, i) => (
               <View key={i} style={{ backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.md, padding: 10, gap: 4 }}>
                 <Text style={{ fontSize: 14, color: theme.colors.textPrimary }}>{highlight}</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Remove highlight: ${highlight.length > 60 ? `${highlight.slice(0, 60)}…` : highlight}`} onPress={() => removeHighlight(i)}>
-                  <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Remove</Text>
-                </Pressable>
+                <InlineButton onPress={() => removeHighlight(i)} tone="neutral" accessibilityLabel={`Remove highlight: ${highlight.length > 60 ? `${highlight.slice(0, 60)}…` : highlight}`}>Remove</InlineButton>
               </View>
             ))}
           </View>
@@ -508,9 +507,7 @@ export default function SavedItemDetailScreen() {
                   {ruleDetail(r)}
                   {!r.active ? " (done)" : ""}
                 </Text>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Remove reminder: ${ruleDetail(r)}`} onPress={() => removeRule(r.id)}>
-                  <Text style={{ fontSize: 12, color: theme.colors.critical }}>Remove</Text>
-                </Pressable>
+                <InlineButton onPress={() => removeRule(r.id)} tone="critical" accessibilityLabel={`Remove reminder: ${ruleDetail(r)}`}>Remove</InlineButton>
               </View>
             ))}
           </View>
@@ -529,7 +526,7 @@ export default function SavedItemDetailScreen() {
                   accessibilityState={{ selected: active }}
                   style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
                 >
-                  <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{t.label}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{t.label}</Text>
                 </Pressable>
               );
             })}
@@ -552,7 +549,7 @@ export default function SavedItemDetailScreen() {
                         accessibilityState={{ selected: active }}
                         style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
                       >
-                        <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{d.displayName}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{d.displayName}</Text>
                       </Pressable>
                     );
                   })}
@@ -577,7 +574,7 @@ export default function SavedItemDetailScreen() {
                         accessibilityState={{ selected: active }}
                         style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
                       >
-                        <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{t.destinationLabel}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{t.destinationLabel}</Text>
                       </Pressable>
                     );
                   })}
@@ -604,7 +601,7 @@ export default function SavedItemDetailScreen() {
                       accessibilityState={{ selected: active }}
                       style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
                     >
-                      <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{p.label}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{p.label}</Text>
                     </Pressable>
                   );
                 })}
@@ -628,9 +625,7 @@ export default function SavedItemDetailScreen() {
             <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>
               Scheduled for {new Date(memory.autoArchiveAt).toLocaleDateString()}
             </Text>
-            <Pressable accessibilityRole="button" onPress={clearAutoArchive}>
-              <Text style={{ fontSize: 13, color: theme.colors.critical }}>Cancel</Text>
-            </Pressable>
+            <InlineButton onPress={clearAutoArchive} tone="critical">Cancel</InlineButton>
           </View>
         ) : (
           <>

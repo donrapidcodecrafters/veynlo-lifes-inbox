@@ -142,7 +142,7 @@ function SectionFetchError({ onRetry }: { onRetry: () => void }) {
   return (
     <p className="flex items-center gap-3 rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
       Couldn&apos;t load this section.
-      <button onClick={onRetry} className="font-medium underline underline-offset-2">
+      <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium">
         Retry
       </button>
     </p>
@@ -595,7 +595,7 @@ export default function DashboardPage() {
                               <button
                                 onClick={() => revokeEntitlement(e.id)}
                                 disabled={revokingId === e.id}
-                                className="text-critical-subtle-text hover:underline disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-critical-subtle-text disabled:opacity-50"
                               >
                                 {revokingId === e.id ? "Revoking…" : "Revoke"}
                               </button>

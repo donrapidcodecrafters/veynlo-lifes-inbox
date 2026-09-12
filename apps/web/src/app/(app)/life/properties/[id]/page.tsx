@@ -343,7 +343,7 @@ export default function PropertyDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Home assets</p>
             {!addingAsset && (
-              <button onClick={() => setAddingAsset(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingAsset(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add an asset
               </button>
             )}
@@ -361,10 +361,10 @@ export default function PropertyDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {openAssetRecalls.length > 0 && <Badge tone="critical">{openAssetRecalls.length} recall{openAssetRecalls.length === 1 ? "" : "s"}</Badge>}
-                    <button aria-label={`Check for recalls: ${a.label}`} aria-busy={checkingAssetId === a.id} onClick={() => checkAssetRecalls(a.id)} disabled={checkingAssetId === a.id} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                    <button aria-label={`Check for recalls: ${a.label}`} aria-busy={checkingAssetId === a.id} onClick={() => checkAssetRecalls(a.id)} disabled={checkingAssetId === a.id} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                       {checkingAssetId === a.id ? "Checking…" : "Check for recalls"}
                     </button>
-                    <button aria-label={`Remove ${a.label}`} onClick={() => removeAsset(a.id, a.label)} className="text-xs font-medium text-tertiary hover:underline">
+                    <button aria-label={`Remove ${a.label}`} onClick={() => removeAsset(a.id, a.label)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary">
                       Remove
                     </button>
                   </div>
@@ -382,10 +382,10 @@ export default function PropertyDetailPage() {
                         {r.source === "seeded_generic_guidance" && r.confidenceNote && <p className="text-xs italic text-tertiary">{r.confidenceNote}</p>}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        <button aria-label={`Mark done: ${r.label}`} onClick={() => completeAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                        <button aria-label={`Mark done: ${r.label}`} onClick={() => completeAssetRule(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                           Mark done
                         </button>
-                        <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                        <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteAssetRule(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary disabled:opacity-50">
                           Remove
                         </button>
                       </div>
@@ -428,7 +428,7 @@ export default function PropertyDetailPage() {
                       setAddingRuleForAsset(a.id);
                       void loadAssetRuleTemplates(a.id);
                     }}
-                    className="ml-2 text-xs font-medium text-brand hover:underline"
+                    className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle ml-2 text-xs font-medium text-brand"
                   >
                     + Add maintenance rule
                   </button>
@@ -443,11 +443,11 @@ export default function PropertyDetailPage() {
                     {r.status !== "closed_or_repaired" && (
                       <div className="flex gap-2">
                         {r.status === "potential_match_verify_vin" && (
-                          <button aria-label={`This affects my unit: ${r.component ?? "Recall"}`} onClick={() => confirmAssetRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
+                          <button aria-label={`This affects my unit: ${r.component ?? "Recall"}`} onClick={() => confirmAssetRecall(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
                             This affects my unit
                           </button>
                         )}
-                        <button aria-label={`Mark repaired: ${r.component ?? "Recall"}`} onClick={() => resolveAssetRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
+                        <button aria-label={`Mark repaired: ${r.component ?? "Recall"}`} onClick={() => resolveAssetRecall(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary">
                           Mark repaired
                         </button>
                       </div>
@@ -508,7 +508,7 @@ export default function PropertyDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Maintenance history</p>
             {!addingRecord && (
-              <button onClick={() => setAddingRecord(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingRecord(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a record
               </button>
             )}

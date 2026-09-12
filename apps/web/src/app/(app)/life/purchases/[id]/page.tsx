@@ -130,7 +130,7 @@ function PolicyEditor({ merchantId, merchantName, policy, onSaved }: { merchantI
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="text-xs font-medium text-brand hover:underline">
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
         {policy.confidence === "user_confirmed" ? "Edit your policy" : `Know ${merchantName ?? "this merchant"}'s real policy?`}
       </button>
     );
@@ -376,7 +376,7 @@ function LineItemRow({
       {!editing && (
         <div className="flex items-center gap-3 text-xs text-tertiary">
           {line.serialNumber ? <span>Serial: {line.serialNumber}</span> : <span>No serial number recorded</span>}
-          <button type="button" onClick={() => setEditing(true)} className="font-medium text-brand hover:underline">
+          <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium text-brand">
             Edit
           </button>
         </div>

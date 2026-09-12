@@ -170,7 +170,7 @@ function CancellationStepsEditor({
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="text-xs font-medium text-brand hover:underline">
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
         {current?.source === "user" ? "Edit your steps" : `Know how to cancel ${serviceLabel}?`}
       </button>
     );

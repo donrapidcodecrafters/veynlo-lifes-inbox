@@ -21,8 +21,14 @@ export function SegmentedControl<T extends string>({ value, onChange, options, .
           role="radio"
           aria-checked={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-            value === opt.value ? "bg-surface text-primary shadow-xs" : "text-tertiary hover:text-secondary"
+          // Every segment draws a border, selected or not. An unselected segment used to be bare text on
+          // the track, which is the one thing a user cannot tell apart from a label — and the track alone
+          // does not say "these words are three separate choices". The unselected border is deliberately
+          // faint so the selected segment still wins the eye.
+          className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+            value === opt.value
+              ? "border-border-default bg-surface text-primary shadow-xs"
+              : "border-border-subtle text-tertiary hover:text-secondary"
           }`}
         >
           {opt.label}

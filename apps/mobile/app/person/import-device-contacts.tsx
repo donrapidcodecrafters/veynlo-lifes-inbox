@@ -15,6 +15,7 @@ import * as Contacts from "expo-contacts/legacy";
 import { api } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Button } from "@/components/button";
 import { TextField } from "@/components/text-field";
@@ -221,12 +222,8 @@ export default function ImportDeviceContactsScreen() {
       />
       <TextField label="Search" placeholder="Filter by name" value={query} onChangeText={setQuery} autoCapitalize="none" />
       <View style={{ flexDirection: "row", gap: 16 }}>
-        <Pressable onPress={() => setSelectedIds(new Set(filtered.map((c) => c.id)))} accessibilityRole="button">
-          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}>Select all shown</Text>
-        </Pressable>
-        <Pressable onPress={() => setSelectedIds(new Set())} accessibilityRole="button">
-          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textTertiary }}>Clear</Text>
-        </Pressable>
+        <InlineButton onPress={() => setSelectedIds(new Set(filtered.map((c) => c.id)))}>Select all shown</InlineButton>
+        <InlineButton onPress={() => setSelectedIds(new Set())} tone="neutral">Clear</InlineButton>
       </View>
 
       {filtered.length === 0 && <EmptyState title="No contacts found" description="Try a different search, or go back and check a different device account." />}

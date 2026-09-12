@@ -4,6 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -725,13 +726,9 @@ export default function VehicleDetailScreen() {
             {r.status !== "closed_or_repaired" && (
               <View style={{ flexDirection: "row", gap: 12 }}>
                 {r.status === "potential_match_verify_vin" && (
-                  <Pressable accessibilityRole="button" accessibilityLabel={`This affects my VIN: ${r.component ?? "Recall"}`} onPress={() => confirmRecall(r.id)}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault }}>This affects my VIN</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => confirmRecall(r.id)} accessibilityLabel={`This affects my VIN: ${r.component ?? "Recall"}`}>This affects my VIN</InlineButton>
                 )}
-                <Pressable accessibilityRole="button" accessibilityLabel={`Mark repaired: ${r.component ?? "Recall"}`} onPress={() => resolveRecall(r.id)}>
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary }}>Mark repaired</Text>
-                </Pressable>
+                <InlineButton onPress={() => resolveRecall(r.id)} tone="neutral" accessibilityLabel={`Mark repaired: ${r.component ?? "Recall"}`}>Mark repaired</InlineButton>
               </View>
             )}
           </View>
@@ -830,12 +827,8 @@ export default function VehicleDetailScreen() {
                 </View>
                 {t.status === "active" && confirmingReplaceTireId !== t.id && (
                   <View style={{ flexDirection: "row", gap: 12 }}>
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Rotate ${label}`} accessibilityState={{ disabled: busy }} onPress={() => rotateTire(t.id)} disabled={busy}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Rotate</Text>
-                    </Pressable>
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Replace ${label}`} accessibilityState={{ disabled: busy }} onPress={() => setConfirmingReplaceTireId(t.id)} disabled={busy}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.critical, opacity: busy ? 0.5 : 1 }}>Replace</Text>
-                    </Pressable>
+                    <InlineButton onPress={() => rotateTire(t.id)} disabled={busy} accessibilityLabel={`Rotate ${label}`}>Rotate</InlineButton>
+                    <InlineButton onPress={() => setConfirmingReplaceTireId(t.id)} tone="critical" disabled={busy} accessibilityLabel={`Replace ${label}`}>Replace</InlineButton>
                   </View>
                 )}
               </View>
@@ -982,12 +975,8 @@ export default function VehicleDetailScreen() {
                   )}
                 </View>
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Mark done: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => completeRule(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Mark done</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove maintenance rule: ${r.label}`} accessibilityState={{ disabled: busy }} onPress={() => deleteRule(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => completeRule(r.id)} disabled={busy} accessibilityLabel={`Mark done: ${r.label}`}>Mark done</InlineButton>
+                  <InlineButton onPress={() => deleteRule(r.id)} tone="neutral" disabled={busy} accessibilityLabel={`Remove maintenance rule: ${r.label}`}>Remove</InlineButton>
                 </View>
               </View>
             </View>
@@ -1092,12 +1081,8 @@ export default function VehicleDetailScreen() {
                 </View>
               ) : (
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Record renewal: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} accessibilityState={{ disabled: busy }} onPress={() => startRenew(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Renewed</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} accessibilityState={{ disabled: busy }} onPress={() => deleteRegistrationRecord(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => startRenew(r.id)} disabled={busy} accessibilityLabel={`Record renewal: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`}>Renewed</InlineButton>
+                  <InlineButton onPress={() => deleteRegistrationRecord(r.id)} tone="neutral" disabled={busy} accessibilityLabel={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`}>Remove</InlineButton>
                 </View>
               )}
             </View>

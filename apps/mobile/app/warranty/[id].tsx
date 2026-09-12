@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -208,14 +209,10 @@ export default function WarrantyDetailScreen() {
             no way back — mirrors the web fix at life/warranties/[id]/page.tsx (§644 "detail pages include
             History" implies this should be navigable in both directions). */}
         {warranty.propertyProfileId && (
-          <Pressable accessibilityRole="button" onPress={() => router.push(`/property/${warranty.propertyProfileId}`)}>
-            <Text style={{ fontSize: 13, color: theme.colors.brandDefault }}>View property →</Text>
-          </Pressable>
+          <InlineButton onPress={() => router.push(`/property/${warranty.propertyProfileId}`)}>View property →</InlineButton>
         )}
         {warranty.vehicleProfileId && (
-          <Pressable accessibilityRole="button" onPress={() => router.push(`/vehicle/${warranty.vehicleProfileId}`)}>
-            <Text style={{ fontSize: 13, color: theme.colors.brandDefault }}>View vehicle →</Text>
-          </Pressable>
+          <InlineButton onPress={() => router.push(`/vehicle/${warranty.vehicleProfileId}`)}>View vehicle →</InlineButton>
         )}
       </Card>
       <LinkAssetPanel warranty={warranty} onLinked={load} />

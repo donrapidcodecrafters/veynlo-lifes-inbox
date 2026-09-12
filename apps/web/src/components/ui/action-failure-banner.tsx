@@ -61,7 +61,7 @@ export function ActionFailureBanner() {
           type="button"
           onClick={() => setMessage(null)}
           aria-label="Dismiss"
-          className="-mr-1 shrink-0 rounded px-1 text-sm text-critical-subtle-text/70 hover:text-critical-subtle-text"
+          className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle -mr-1 shrink-0 rounded px-1 text-sm text-critical-subtle-text/70 hover:text-critical-subtle-text"
         >
           ✕
         </button>

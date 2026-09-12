@@ -121,7 +121,7 @@ export default function ListsScreen() {
                   backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{k.label}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{k.label}</Text>
               </Pressable>
             );
           })}
@@ -142,7 +142,7 @@ export default function ListsScreen() {
                   backgroundColor: householdId === null ? theme.colors.brandDefault : theme.colors.bgSubtle,
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: householdId === null ? "#fff" : theme.colors.textSecondary }}>Just me</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: householdId === null ? theme.colors.textOnBrand : theme.colors.textSecondary }}>Just me</Text>
               </Pressable>
               {households.map((h) => {
                 const active = householdId === h.household.id;
@@ -158,7 +158,7 @@ export default function ListsScreen() {
                       backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
                     }}
                   >
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{h.household.name}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{h.household.name}</Text>
                   </Pressable>
                 );
               })}

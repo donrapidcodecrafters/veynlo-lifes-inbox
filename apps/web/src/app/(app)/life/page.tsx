@@ -399,7 +399,7 @@ function AddStoreCreditForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a store credit
       </button>
     );
@@ -454,7 +454,7 @@ function AddTaskForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a reminder
       </button>
     );
@@ -521,7 +521,7 @@ function AddEventForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add an event
       </button>
     );
@@ -626,7 +626,7 @@ function AddPropertyForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a property
       </button>
     );
@@ -706,7 +706,7 @@ function AddVehicleForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a vehicle
       </button>
     );
@@ -884,7 +884,7 @@ function AddSchoolSourceForm({ householdId, onAdded }: { householdId: string; on
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Subscribe to a school/team calendar feed
       </button>
     );
@@ -1116,7 +1116,7 @@ function AddPetForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a pet
       </button>
     );
@@ -1235,7 +1235,7 @@ function AddPersonForm({ organizations, onAdded }: { organizations: Organization
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a person
       </button>
     );
@@ -1493,7 +1493,7 @@ function AddHealthAppointmentForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add an appointment
       </button>
     );
@@ -1568,7 +1568,7 @@ function AddRefillReminderForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a refill reminder
       </button>
     );

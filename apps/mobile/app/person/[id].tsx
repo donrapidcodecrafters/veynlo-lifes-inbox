@@ -4,6 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -417,9 +418,7 @@ function RelationshipLabelEditor({ person, onSaved }: { person: Person; onSaved:
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Relationship</Text>
         {!editing && (
-          <Pressable accessibilityRole="button" onPress={() => setEditing(true)}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}>Edit</Text>
-          </Pressable>
+          <InlineButton onPress={() => setEditing(true)}>Edit</InlineButton>
         )}
       </View>
       {!editing ? (
@@ -501,9 +500,7 @@ function OrganizationEditor({ person, organizations, onSaved }: { person: Person
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Organization</Text>
         {!editing && (
-          <Pressable accessibilityRole="button" onPress={() => setEditing(true)}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}>Edit</Text>
-          </Pressable>
+          <InlineButton onPress={() => setEditing(true)}>Edit</InlineButton>
         )}
       </View>
       {!editing ? (

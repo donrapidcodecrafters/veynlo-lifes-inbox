@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { groupResultSet } from "@veynlo/core";
 import { Pressable, RefreshControl, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -6,6 +7,7 @@ import { useAudioRecorder, useAudioRecorderState, requestRecordingPermissionsAsy
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { CollapsibleGroup } from "@/components/collapsible-group";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -116,10 +118,42 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
   ],
 };
 
+/**
+ * Plain-language category headings — parity with web's identical map.
+ *
+ * `price_adjustment` and `voice_note` on a card read as internal identifiers. Anything unlisted falls
+ * back to the raw key rather than to a wrong guess.
+ */
+const INBOX_CATEGORY_LABEL: Record<string, string> = {
+  purchase: "Purchases",
+  bill: "Bills",
+  appointment: "Appointments",
+  document: "Documents",
+  travel: "Travel",
+  warranty: "Warranties",
+  subscription: "Subscriptions",
+  delivery: "Deliveries",
+  price_adjustment: "Price adjustments",
+  voice_note: "Voice notes",
+  school: "School",
+  health: "Health",
+};
+
 export default function InboxScreen() {
   const { theme } = useAppTheme();
   const { t } = useTranslation("translation", { keyPrefix: "inbox" });
   const [items, setItems] = useState<InboxItem[] | null>(null);
+  // Parity with web's category picker, which this screen did not have at all. Declared here rather than
+  // with the other state below because the derived lists underneath read it — the reverse order is a
+  // temporal-dead-zone ReferenceError that crashes the screen on first render.
+  const [category, setCategory] = useState<string>("all");
+
+  // Derived, not stored: a second copy of the category list would go stale the moment an item is
+  // confirmed or dismissed.
+  const categories = Array.from(new Set((items ?? []).map((i) => i.category))).sort();
+  // Everything below works on the FILTERED list — including Select all, which must never quietly
+  // select items the user cannot see.
+  const visibleItems = (items ?? []).filter((i) => category === "all" || i.category === category);
   const [refreshing, setRefreshing] = useState(false);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [addingToCalendarId, setAddingToCalendarId] = useState<string | null>(null);
@@ -132,6 +166,9 @@ export default function InboxScreen() {
   // question instead of 12 repetitive confirmations") is a MOBILE example, so this belongs here just as
   // much as the web Inbox page's identical bulk confirm/dismiss.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Single source for the select-all state: the box that is drawn and the state that is announced read
+  // the same expression, so they cannot drift apart.
+  const allVisibleSelected = visibleItems.length > 0 && selectedIds.size === visibleItems.length;
   const [bulkActing, setBulkActing] = useState(false);
   // Found live: act() / snooze() below fire an api.post from a bare onPress with no try/catch, and
   // bulkAct's try/finally had no catch either (still lets the rejection propagate unhandled) — same
@@ -232,7 +269,7 @@ export default function InboxScreen() {
 
   function toggleSelectAll() {
     if (!items) return;
-    setSelectedIds((prev) => (prev.size === items.length ? new Set() : new Set(items.map((i) => i.id))));
+    setSelectedIds((prev) => (prev.size === visibleItems.length ? new Set() : new Set(visibleItems.map((i) => i.id))));
   }
 
   async function bulkAct(action: "confirm" | "dismiss") {
@@ -280,77 +317,11 @@ export default function InboxScreen() {
     }
   }
 
-  return (
-    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
-      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }} accessibilityRole="header">
-            {t("title")}
-          </Text>
-          <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>{t("subtitle")}</Text>
-        </View>
-        <Button variant="secondary" onPress={() => setCapturing((v) => !v)}>
-          {capturing ? t("cancel") : t("addManually")}
-        </Button>
-      </View>
-
-      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
-
-      {bulkResultNote && (
-        <View style={{ backgroundColor: theme.colors.warningSubtleBg, borderRadius: theme.radius.md, padding: 10 }}>
-          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>{bulkResultNote}</Text>
-        </View>
-      )}
-
-      {capturing && (
-        <Card style={{ gap: 12 }}>
-          <CaptureForm
-            onDone={() => {
-              setCapturing(false);
-              load();
-            }}
-          />
-        </Card>
-      )}
-
-      {/* Found live: apps/web's inbox page shows two pulsing skeleton bars while `isLoading`, but this
-          screen showed nothing at all while `items` was still null — just a blank gap below the header
-          until the first `/v1/inbox` response landed, indistinguishable from "nothing to review". */}
-      {!items && !loadError && (
-        <View style={{ gap: 12 }}>
-          <View style={{ height: 96, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
-          <View style={{ height: 96, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
-        </View>
-      )}
-
-      {!items && loadError && <FetchError what="your inbox" message={loadError} onRetry={load} />}
-
-      {items?.length === 0 && <EmptyState title={t("caughtUpTitle")} description={t("caughtUpDescription")} />}
-
-      {items && items.length > 0 && (
-        <View style={{ gap: 12 }}>
-          <Pressable
-            onPress={toggleSelectAll}
-            style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: items.length > 0 && selectedIds.size === items.length }}
-            accessibilityLabel="Select all items"
-          >
-            <Text style={{ fontSize: 13, color: theme.colors.textSecondary }}>
-              {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
-            </Text>
-            {selectedIds.size > 0 && (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <Button onPress={() => bulkAct("confirm")} loading={bulkActing}>
-                  Confirm
-                </Button>
-                <Button variant="ghost" onPress={() => bulkAct("dismiss")} loading={bulkActing}>
-                  Dismiss
-                </Button>
-              </View>
-            )}
-          </Pressable>
-          {items.map((item) => {
+  /**
+   * One inbox item, exactly as it rendered before — extracted so a collapsed category's members
+   * reuse it instead of a second copy drifting away from this one.
+   */
+  function InboxItemCard({ item }: { item: InboxItem }) {
             const fields = item.linkedResourceType ? CORRECTION_FIELDS[item.linkedResourceType] : undefined;
             const isCorrecting = correctingId === item.id;
             const isAddingToCalendar = addingToCalendarId === item.id;
@@ -513,7 +484,144 @@ export default function InboxScreen() {
                 )}
               </Card>
             );
-          })}
+  }
+
+  return (
+    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brandDefault} />}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }} accessibilityRole="header">
+            {t("title")}
+          </Text>
+          <Text style={{ fontSize: 14, color: theme.colors.textTertiary, marginTop: 2 }}>{t("subtitle")}</Text>
+        </View>
+        <Button variant="secondary" onPress={() => setCapturing((v) => !v)}>
+          {capturing ? t("cancel") : t("addManually")}
+        </Button>
+      </View>
+
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
+
+      {bulkResultNote && (
+        <View style={{ backgroundColor: theme.colors.warningSubtleBg, borderRadius: theme.radius.md, padding: 10 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>{bulkResultNote}</Text>
+        </View>
+      )}
+
+      {capturing && (
+        <Card style={{ gap: 12 }}>
+          <CaptureForm
+            onDone={() => {
+              setCapturing(false);
+              load();
+            }}
+          />
+        </Card>
+      )}
+
+      {/* Found live: apps/web's inbox page shows two pulsing skeleton bars while `isLoading`, but this
+          screen showed nothing at all while `items` was still null — just a blank gap below the header
+          until the first `/v1/inbox` response landed, indistinguishable from "nothing to review". */}
+      {!items && !loadError && (
+        <View style={{ gap: 12 }}>
+          <View style={{ height: 96, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
+          <View style={{ height: 96, backgroundColor: theme.colors.bgSubtle, borderRadius: theme.radius.lg }} accessibilityElementsHidden importantForAccessibility="no" />
+        </View>
+      )}
+
+      {!items && loadError && <FetchError what="your inbox" message={loadError} onRetry={load} />}
+
+      {items?.length === 0 && <EmptyState title={t("caughtUpTitle")} description={t("caughtUpDescription")} />}
+
+      {items && items.length > 0 && (
+        <View style={{ gap: 12 }}>
+          {/* Category chips. Only shown when there is more than one category to choose between — a
+              filter offering a single option is a control that cannot do anything. */}
+          {categories.length > 1 && (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {["all", ...categories].map((c) => {
+                const active = category === c;
+                return (
+                  <Pressable
+                    key={c}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setCategory(c)}
+                    style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 12,
+                      borderRadius: 999,
+                      backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }} maxFontSizeMultiplier={1.4}>
+                      {c === "all" ? "All" : (INBOX_CATEGORY_LABEL[c] ?? c)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+          <Pressable
+            onPress={toggleSelectAll}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: allVisibleSelected }}
+            accessibilityLabel="Select all items"
+          >
+            {/* This row announced itself as a checkbox but drew nothing — grey text that does not look
+                interactive, directly above item rows that each DO draw a box. Same square as those rows,
+                so the control reads as the same kind of thing it claims to be. Decorative, because the
+                row already carries the checked state. */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View
+                importantForAccessibility="no"
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 4,
+                  borderWidth: 1.5,
+                  borderColor: allVisibleSelected ? theme.colors.brandDefault : theme.colors.borderDefault,
+                  backgroundColor: allVisibleSelected ? theme.colors.brandDefault : "transparent",
+                }}
+              />
+              <Text style={{ fontSize: 13, color: theme.colors.textSecondary }}>
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+              </Text>
+            </View>
+            {selectedIds.size > 0 && (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Button onPress={() => bulkAct("confirm")} loading={bulkActing}>
+                  Confirm
+                </Button>
+                <Button variant="ghost" onPress={() => bulkAct("dismiss")} loading={bulkActing}>
+                  Dismiss
+                </Button>
+              </View>
+            )}
+          </Pressable>
+          {/* Fold by category on "All"; flat once a category is chosen, because a group header inside
+              a single-category view repeats the filter and costs a tap for no information. Same rule
+              as web, and as search. */}
+          {category !== "all"
+            ? visibleItems.map((item) => <InboxItemCard key={item.id} item={item} />)
+            : groupResultSet(visibleItems, (i) => i.category).map((entry) =>
+            entry.kind === "item" ? (
+              <InboxItemCard key={entry.item.id} item={entry.item} />
+            ) : (
+              <CollapsibleGroup
+                key={entry.key}
+                label={INBOX_CATEGORY_LABEL[entry.key] ?? entry.key}
+                count={entry.count}
+              >
+                <View style={{ gap: 12 }}>
+                  {entry.members.map((m) => (
+                    <InboxItemCard key={m.id} item={m} />
+                  ))}
+                </View>
+              </CollapsibleGroup>
+            ),
+          )}
         </View>
       )}
     </Screen>

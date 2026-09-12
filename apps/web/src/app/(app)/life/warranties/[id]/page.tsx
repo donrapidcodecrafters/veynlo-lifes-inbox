@@ -102,7 +102,7 @@ function LinkAssetPanel({
             <p className="text-sm text-tertiary">
               Currently linked to <span className="text-primary">{currentlyLinkedLabel}</span>.
             </p>
-            <button onClick={clearLink} disabled={submitting} className="text-sm text-critical-subtle-text hover:underline disabled:opacity-50">
+            <button onClick={clearLink} disabled={submitting} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm text-critical-subtle-text disabled:opacity-50">
               {submitting ? "Clearing…" : "Clear link"}
             </button>
           </div>

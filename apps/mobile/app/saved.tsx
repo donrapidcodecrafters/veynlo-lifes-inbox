@@ -127,7 +127,7 @@ export default function SavedScreen() {
                           accessibilityState={{ selected: active }}
               style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle }}
             >
-              <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{c.label}</Text>
+              <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{c.label}</Text>
             </Pressable>
           );
         })}

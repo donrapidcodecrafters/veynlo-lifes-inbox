@@ -217,7 +217,7 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
         <div className="space-y-2 rounded-lg border border-border-default bg-surface-subtle p-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium text-secondary">Recipient preview</p>
-            <button onClick={() => setPreviewOpen(false)} className="text-xs text-tertiary hover:underline">
+            <button onClick={() => setPreviewOpen(false)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs text-tertiary">
               Close
             </button>
           </div>
@@ -245,7 +245,7 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
                   </span>
                   {g.grant.message && <span className="block text-tertiary">Note: {g.grant.message}</span>}
                 </span>
-                <button aria-label={`Remove access for ${g.granteeEmail}`} onClick={() => revokeGrant(g.grant.id, g.granteeEmail)} className="shrink-0 text-critical hover:underline">
+                <button aria-label={`Remove access for ${g.granteeEmail}`} onClick={() => revokeGrant(g.grant.id, g.granteeEmail)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle shrink-0 text-critical">
                   Remove
                 </button>
               </li>
@@ -308,7 +308,7 @@ export function ShareResourcePanel({ resourceId, collectionPath, resourceLabel }
             {links.map((l, i) => (
               <li key={l.id} className="flex items-center justify-between text-xs">
                 <span className="text-tertiary">{l.hasPasscode ? "Passcode-protected link" : "Open link"}</span>
-                <button aria-label={`Revoke ${l.hasPasscode ? "passcode-protected" : "open"} link ${i + 1}`} onClick={() => revokeLink(l.id)} className="text-critical hover:underline">
+                <button aria-label={`Revoke ${l.hasPasscode ? "passcode-protected" : "open"} link ${i + 1}`} onClick={() => revokeLink(l.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-critical">
                   Revoke
                 </button>
               </li>

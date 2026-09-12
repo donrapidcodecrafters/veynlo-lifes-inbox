@@ -178,7 +178,7 @@ function TransactionHistoryDisclosure({ transactionId, currency }: { transaction
 
   return (
     <div className="mt-1">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs font-medium text-brand hover:underline">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
         {open ? "Hide history" : "History"}
       </button>
       {open && (
@@ -797,7 +797,7 @@ export default function ConnectionsPage() {
                       <button
                         type="button"
                         onClick={() => setAiProcessing(c, null)}
-                        className="text-sm font-medium text-brand hover:underline"
+                        className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand"
                       >
                         Go back to following the account-wide setting
                       </button>
@@ -992,7 +992,7 @@ function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         <Input id="ics-name" value={feedName} onChange={(e) => setFeedName(e.target.value)} placeholder="e.g. Kid's soccer schedule" />
       </div>
       {!showAuth ? (
-        <button type="button" onClick={() => setShowAuth(true)} className="text-sm font-medium text-brand hover:underline">
+        <button type="button" onClick={() => setShowAuth(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
           This feed needs a username and password
         </button>
       ) : (
@@ -1057,7 +1057,7 @@ function ForwardingAddress({ address, onRotate }: { address: string; onRotate: (
         </Button>
       </div>
       {!confirmingRotate ? (
-        <button type="button" onClick={() => setConfirmingRotate(true)} className="text-sm font-medium text-brand hover:underline">
+        <button type="button" onClick={() => setConfirmingRotate(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
           Generate a new address
         </button>
       ) : (
@@ -1118,7 +1118,7 @@ function ExclusionsManager({ connectionId, open, onToggle }: { connectionId: str
 
   return (
     <div>
-      <button type="button" onClick={onToggle} className="text-sm font-medium text-brand hover:underline">
+      <button type="button" onClick={onToggle} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         {open ? "Hide excluded senders" : "Exclude specific senders from this connection"}
       </button>
       {open && (

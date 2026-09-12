@@ -48,7 +48,7 @@ function AddVaccinationForm({ petId, onAdded }: { petId: string; onAdded: () => 
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a vaccination/license
       </button>
     );
@@ -100,7 +100,7 @@ function VaccinationRow({ vaccination }: { vaccination: PetDetail["vaccinations"
           <span className="text-primary">{vaccination.label}</span>
           {vaccination.source === "evidence_sourced" && <span className="ml-2 text-xs text-tertiary">(awaiting confirmation in Inbox)</span>}
           {vaccination.evidence && (
-            <button onClick={() => setShowEvidence((v) => !v)} className="ml-2 text-xs font-medium text-brand hover:underline">
+            <button onClick={() => setShowEvidence((v) => !v)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle ml-2 text-xs font-medium text-brand">
               {showEvidence ? "Hide why" : "Why am I seeing this?"}
             </button>
           )}
@@ -128,7 +128,7 @@ function AddRefillReminderForm({ petId, onAdded }: { petId: string; onAdded: () 
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a refill reminder
       </button>
     );
@@ -464,7 +464,7 @@ export default function PetDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Vet visits &amp; service history</p>
             {!addingRecord && (
-              <button onClick={() => setAddingRecord(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingRecord(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a record
               </button>
             )}

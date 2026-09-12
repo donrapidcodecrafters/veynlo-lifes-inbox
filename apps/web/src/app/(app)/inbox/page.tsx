@@ -1,10 +1,12 @@
 "use client";
+import { groupResultSet } from "@veynlo/core";
 
 import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { useTranslations } from "next-intl";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CollapsibleGroup } from "@/components/collapsible-group";
 import { FetchError } from "@/components/ui/fetch-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -126,6 +128,28 @@ const CORRECTION_FIELDS: Record<string, CorrectionField[]> = {
   ],
 };
 
+/**
+ * Plain-language category headings.
+ *
+ * `price_adjustment` and `voice_note` on a card read as internal identifiers — the same "no raw values"
+ * stance the attention-item labels needed. Anything unlisted falls back to the raw key rather than to a
+ * wrong guess.
+ */
+const INBOX_CATEGORY_LABEL: Record<string, string> = {
+  purchase: "Purchases",
+  bill: "Bills",
+  appointment: "Appointments",
+  document: "Documents",
+  travel: "Travel",
+  warranty: "Warranties",
+  subscription: "Subscriptions",
+  delivery: "Deliveries",
+  price_adjustment: "Price adjustments",
+  voice_note: "Voice notes",
+  school: "School",
+  health: "Health",
+};
+
 export default function InboxPage() {
   const t = useTranslations("inbox");
   const [filter, setFilter] = useState<"new" | "all">("new");
@@ -227,139 +251,11 @@ export default function InboxPage() {
     mutate();
   }
 
-  return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-primary">{t("title")}</h1>
-          <p className="mt-1 text-sm text-tertiary">{t("subtitle")}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1 rounded-lg bg-subtle p-1">
-            {(["new", "all"] as const).map((f) => (
-              <button
-                key={f}
-                aria-pressed={filter === f}
-              onClick={() => setFilter(f)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
-                  filter === f ? "bg-surface text-primary shadow-xs" : "text-tertiary"
-                }`}
-              >
-                {f === "new" ? t("filterNew") : t("filterAll")}
-              </button>
-            ))}
-          </div>
-          <Button size="sm" variant="secondary" onClick={() => setCapturing((v) => !v)}>
-            {capturing ? t("cancel") : t("addManually")}
-          </Button>
-        </div>
-      </header>
-
-      {!isLoading && data && data.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ["none", t("quickFilterAll")],
-              ["auto_filed", t("quickFilterAutoFiled")],
-              ["low_confidence", t("quickFilterLowConfidence")],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              aria-pressed={quickFilter === value}
-              onClick={() => setQuickFilter(value)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                quickFilter === value
-                  ? "border-brand bg-brand-subtle text-brand-subtle-text"
-                  : "border-border-default text-tertiary hover:bg-subtle"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-          {categories.length > 1 && (
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="rounded-full border border-border-default bg-surface px-3 py-1 text-xs font-medium capitalize text-secondary"
-              aria-label={t("filterByCategory")}
-            >
-              <option value="all">{t("allCategories")}</option>
-              {categories.map((c) => (
-                <option key={c} value={c} className="capitalize">
-                  {c.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-
-      {capturing && (
-        <CaptureForm
-          onDone={() => {
-            setCapturing(false);
-            mutate();
-          }}
-          onCancel={() => setCapturing(false)}
-        />
-      )}
-
-      {/* Deliberately outside every branch below (isLoading/empty/no-match/populated) — found live via this
-          audit's own repro: a bulk action that resolves the LAST "new" item(s) with one genuine per-item
-          failure mixed in flips this screen straight to the "You're caught up." empty state on the very
-          same render the partial-failure note was meant to explain, and a note nested inside the
-          "has items" branch below would have disappeared at exactly the moment it mattered most. */}
-      {bulkResultNote && (
-        <div className="rounded-lg border border-warning/40 bg-warning-subtle px-3 py-2 text-sm text-warning-subtle-text">
-          {bulkResultNote}
-        </div>
-      )}
-
-      {isLoading && (
-        <div className="space-y-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl bg-subtle" />
-          ))}
-        </div>
-      )}
-
-      {!isLoading && error && !data && (
-        <FetchError what="your inbox" message={error instanceof ApiError ? error.message : undefined} onRetry={() => mutate()} />
-      )}
-
-      {!isLoading && !error && data?.length === 0 && <EmptyState title={t("caughtUpTitle")} description={t("caughtUpDescription")} />}
-
-      {!isLoading && data && data.length > 0 && visibleData.length === 0 && (
-        <EmptyState title={t("noMatchTitle")} description={t("noMatchDescription")} />
-      )}
-
-      {!isLoading && data && data.length > 0 && visibleData.length > 0 && (
-        <>
-          {visibleData.some((i) => i.reviewState === "new") && (
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border-subtle bg-subtle px-3 py-2">
-              <label className="flex items-center gap-2 text-sm text-secondary">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.size > 0 && selectedIds.size === visibleData.filter((i) => i.reviewState === "new").length}
-                  onChange={toggleSelectAll}
-                />
-                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
-              </label>
-              {selectedIds.size > 0 && (
-                <div className="flex gap-2">
-                  <Button size="sm" loading={bulkActing} onClick={() => bulkAct("confirm")}>
-                    Confirm selected
-                  </Button>
-                  <Button size="sm" variant="ghost" loading={bulkActing} onClick={() => bulkAct("dismiss")}>
-                    Dismiss selected
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-          <ul className="space-y-3">
-          {visibleData.map((item) => {
+  /**
+   * One inbox item, exactly as it rendered before — extracted so a collapsed category's members
+   * reuse it instead of a second copy drifting away from this one.
+   */
+  function InboxItemCard({ item }: { item: (typeof visibleData)[number] }) {
             const fields = item.linkedResourceType ? CORRECTION_FIELDS[item.linkedResourceType] : undefined;
             return (
               <li key={item.id}>
@@ -498,7 +394,165 @@ export default function InboxPage() {
                 </Card>
               </li>
             );
-          })}
+  }
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">{t("title")}</h1>
+          <p className="mt-1 text-sm text-tertiary">{t("subtitle")}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div role="group" aria-label={t("filterByReviewState")} className="flex gap-1 rounded-lg bg-subtle p-1">
+            {(["new", "all"] as const).map((f) => (
+              <button
+                key={f}
+                aria-pressed={filter === f}
+              onClick={() => setFilter(f)}
+                // Outlined whether selected or not — the unselected half was bare text on the track, which
+                // reads as a label rather than the other half of a two-way choice.
+                className={`rounded-md border px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                  filter === f ? "border-border-default bg-surface text-primary shadow-xs" : "border-border-subtle text-tertiary"
+                }`}
+              >
+                {f === "new" ? t("filterNew") : t("filterAll")}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => setCapturing((v) => !v)}>
+            {capturing ? t("cancel") : t("addManually")}
+          </Button>
+        </div>
+      </header>
+
+      {!isLoading && data && data.length > 0 && (
+        <div role="group" aria-label={t("quickFiltersLabel")} className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["none", t("quickFilterAll")],
+              ["auto_filed", t("quickFilterAutoFiled")],
+              ["low_confidence", t("quickFilterLowConfidence")],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              aria-pressed={quickFilter === value}
+              onClick={() => setQuickFilter(value)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                quickFilter === value
+                  ? "border-brand bg-brand-subtle text-brand-subtle-text"
+                  : "border-border-default text-tertiary hover:bg-subtle"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {categories.length > 1 && (
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="rounded-full border border-border-default bg-surface px-3 py-1 text-xs font-medium text-secondary"
+              aria-label={t("filterByCategory")}
+            >
+              <option value="all">{t("allCategories")}</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {INBOX_CATEGORY_LABEL[c] ?? c.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
+      {capturing && (
+        <CaptureForm
+          onDone={() => {
+            setCapturing(false);
+            mutate();
+          }}
+          onCancel={() => setCapturing(false)}
+        />
+      )}
+
+      {/* Deliberately outside every branch below (isLoading/empty/no-match/populated) — found live via this
+          audit's own repro: a bulk action that resolves the LAST "new" item(s) with one genuine per-item
+          failure mixed in flips this screen straight to the "You're caught up." empty state on the very
+          same render the partial-failure note was meant to explain, and a note nested inside the
+          "has items" branch below would have disappeared at exactly the moment it mattered most. */}
+      {bulkResultNote && (
+        <div className="rounded-lg border border-warning/40 bg-warning-subtle px-3 py-2 text-sm text-warning-subtle-text">
+          {bulkResultNote}
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-subtle" />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && error && !data && (
+        <FetchError what="your inbox" message={error instanceof ApiError ? error.message : undefined} onRetry={() => mutate()} />
+      )}
+
+      {!isLoading && !error && data?.length === 0 && <EmptyState title={t("caughtUpTitle")} description={t("caughtUpDescription")} />}
+
+      {!isLoading && data && data.length > 0 && visibleData.length === 0 && (
+        <EmptyState title={t("noMatchTitle")} description={t("noMatchDescription")} />
+      )}
+
+      {!isLoading && data && data.length > 0 && visibleData.length > 0 && (
+        <>
+          {visibleData.some((i) => i.reviewState === "new") && (
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border-subtle bg-subtle px-3 py-2">
+              <label className="flex items-center gap-2 text-sm text-secondary">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size > 0 && selectedIds.size === visibleData.filter((i) => i.reviewState === "new").length}
+                  onChange={toggleSelectAll}
+                />
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+              </label>
+              {selectedIds.size > 0 && (
+                <div className="flex gap-2">
+                  <Button size="sm" loading={bulkActing} onClick={() => bulkAct("confirm")}>
+                    Confirm selected
+                  </Button>
+                  <Button size="sm" variant="ghost" loading={bulkActing} onClick={() => bulkAct("dismiss")}>
+                    Dismiss selected
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <ul className="space-y-3">
+            {/* Collapse by category only when no category is chosen. Picking one gives a flat list —
+                a group header inside a single-category view repeats the filter and costs a tap for no
+                information. Same rule as search. */}
+            {category === "all"
+              ? groupResultSet(visibleData, (i) => i.category).map((entry) =>
+                  entry.kind === "item" ? (
+                    <InboxItemCard key={entry.item.id} item={entry.item} />
+                  ) : (
+                    <CollapsibleGroup
+                      key={entry.key}
+                      label={INBOX_CATEGORY_LABEL[entry.key] ?? entry.key}
+                      count={entry.count}
+                      className="mb-3"
+                    >
+                      <div className="space-y-3">
+                        {entry.members.map((m) => (
+                          <InboxItemCard key={m.id} item={m} />
+                        ))}
+                      </div>
+                    </CollapsibleGroup>
+                  ),
+                )
+              : visibleData.map((item) => <InboxItemCard key={item.id} item={item} />)}
           </ul>
         </>
       )}

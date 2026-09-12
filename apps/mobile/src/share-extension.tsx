@@ -76,8 +76,10 @@ const styles = StyleSheet.create({
   preview: { fontSize: 13, color: "#4a5163", maxHeight: 80 },
   row: { flexDirection: "row", gap: 10, marginTop: 4 },
   button: { flex: 1, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  cancelButton: { backgroundColor: "#eef0f4" },
+  // #eef0f4 on a #ffffff sheet is barely a fill — at a glance Cancel read as text beside a solid Save.
+  // An explicit border makes both halves of the pair read as buttons.
+  cancelButton: { backgroundColor: "#eef0f4", borderWidth: 1, borderColor: "#d5d9e2" },
   cancelText: { color: "#191d24", fontWeight: "600" },
-  saveButton: { backgroundColor: "#3548c4" },
+  saveButton: { backgroundColor: "#3548c4", borderWidth: 1, borderColor: "#3548c4" },
   saveText: { color: "#ffffff", fontWeight: "600" },
 });

@@ -102,7 +102,7 @@ export function HouseholdPicker(props: HouseholdPickerProps) {
     borderRadius: 999,
     backgroundColor: selected ? theme.colors.brandDefault : theme.colors.bgSubtle,
   });
-  const chipTextStyle = (selected: boolean) => ({ fontSize: 13, fontWeight: "600" as const, color: selected ? "#fff" : theme.colors.textSecondary });
+  const chipTextStyle = (selected: boolean) => ({ fontSize: 13, fontWeight: "600" as const, color: selected ? theme.colors.textOnBrand : theme.colors.textSecondary });
 
   return (
     <View style={{ gap: 6 }}>

@@ -33,7 +33,16 @@ export function Button({
           ? theme.colors.bgSurface
           : "transparent";
   const textColor = variant === "primary" || variant === "critical" ? theme.colors.textOnBrand : theme.colors.textPrimary;
-  const borderColor = variant === "secondary" ? theme.colors.borderDefault : "transparent";
+  // Every button carries a visible outline. "ghost" previously rendered as bare text on the canvas, so
+  // there was nothing to tell a user it was a control at all — "Dismiss" under an Inbox card read as a
+  // caption. Filled variants draw their border in their own fill colour: invisible, but it keeps the box
+  // geometry identical across variants so a primary and a ghost sitting in the same row line up exactly.
+  const borderColor =
+    variant === "primary"
+      ? theme.colors.brandDefault
+      : variant === "critical"
+        ? theme.colors.critical
+        : theme.colors.borderDefault;
 
   return (
     <Pressable
@@ -55,7 +64,7 @@ export function Button({
         {
           backgroundColor,
           borderColor,
-          borderWidth: variant === "secondary" ? 1 : 0,
+          borderWidth: 1,
           borderRadius: theme.radius.md,
           height: 48,
           // Horizontal padding is required here, not cosmetic. This style fixed the height and centred

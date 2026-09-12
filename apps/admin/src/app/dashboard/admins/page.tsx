@@ -158,7 +158,7 @@ export default function AdminsPage() {
         {adminsError && (
           <p className="flex items-center gap-3 text-sm text-critical-subtle-text">
             {adminsError instanceof ApiError ? adminsError.message : "Couldn't load admin accounts."}
-            <button onClick={() => mutate()} className="font-medium underline underline-offset-2">
+            <button onClick={() => mutate()} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium">
               Retry
             </button>
           </p>
