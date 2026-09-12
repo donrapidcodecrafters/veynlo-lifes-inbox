@@ -19,6 +19,14 @@ export class ApiError extends Error {
     public readonly code: string,
     public readonly status: number,
     public readonly fieldErrors?: Record<string, string[]>,
+    /**
+     * The rest of the error body, as the API sent it.
+     *
+     * Some errors carry more than a message: a merged record's 404 names the record it was merged into,
+     * so the client can send the user there instead of showing "not found" for something that still
+     * exists. Kept as the whole body rather than one named field per feature.
+     */
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -151,7 +159,7 @@ export async function request<T>(path: string, init?: RequestInit, isRetryAfterR
       onSessionExpired?.();
       router.replace("/sign-in");
     }
-    throw new ApiError(message, code, res.status, typeof body === "object" ? body?.fieldErrors : undefined);
+    throw new ApiError(message, code, res.status, typeof body === "object" ? body?.fieldErrors : undefined, typeof body === "object" && body ? body : undefined);
   }
   return body as T;
 }

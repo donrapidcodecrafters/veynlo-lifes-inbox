@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { mergedRecordException } from "../../common/merged-record";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { canCreateShareLink, generateId, type SensitivityTier, type TemporalValue } from "@veynlo/core";
@@ -123,8 +124,11 @@ export class AssetsService {
 
   async propertyDetail(propertyId: string, userId: string) {
     const [property] = await this.db.select().from(schema.propertyProfiles).where(eq(schema.propertyProfiles.id, propertyId)).limit(1);
-    if (!property || property.deletedAt || property.mergedIntoPropertyId) return null;
+    if (!property || property.deletedAt) return null;
+    // Access is asserted BEFORE the merged branch below, because that branch now returns an id. A caller
+    // who cannot see this property must not learn which property it was merged into.
     await this.assertAssetAccess(property.ownerUserId, property.householdId, userId, { resourceType: "property", resourceId: propertyId });
+    if (property.mergedIntoPropertyId) throw mergedRecordException("property", property.mergedIntoPropertyId);
     // SHARE-001 "optional message" — same reasoning as ListsService.listDetail: null for owner/household
     // access, populated only for a grant-based visitor who has one.
     const sharedNote = (await this.isOwnerOrHousehold(property.ownerUserId, property.householdId, userId)) ? null : await this.sharing.grantMessage("property", propertyId, userId);
@@ -238,8 +242,10 @@ export class AssetsService {
 
   async vehicleDetail(vehicleId: string, userId: string) {
     const [vehicle] = await this.db.select().from(schema.vehicleProfiles).where(eq(schema.vehicleProfiles.id, vehicleId)).limit(1);
-    if (!vehicle || vehicle.deletedAt || vehicle.mergedIntoVehicleId) return null;
+    if (!vehicle || vehicle.deletedAt) return null;
+    // See propertyDetail: the merged branch discloses an id, so authorise first.
     await this.assertAssetAccess(vehicle.ownerUserId, vehicle.householdId, userId, { resourceType: "vehicle", resourceId: vehicleId });
+    if (vehicle.mergedIntoVehicleId) throw mergedRecordException("vehicle", vehicle.mergedIntoVehicleId);
     const sharedNote = (await this.isOwnerOrHousehold(vehicle.ownerUserId, vehicle.householdId, userId)) ? null : await this.sharing.grantMessage("vehicle", vehicleId, userId);
     const warranties = await this.db.select().from(schema.warranties).where(eq(schema.warranties.vehicleProfileId, vehicleId));
     const maintenance = await this.db

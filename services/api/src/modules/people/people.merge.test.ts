@@ -120,9 +120,15 @@ describe("PeopleService — merge candidates and reversible merge/unmerge", () =
 
     const [mergedRow] = await db.select().from(schema.people).where(eq(schema.people.id, mergedId));
     expect(mergedRow!.mergedIntoPersonId).toBe(survivorId);
-    // Merged-away person is excluded from ordinary list/detail queries but not hard-deleted.
+    // Merged-away person is excluded from ordinary list queries but not hard-deleted.
     expect(mergedRow!.deletedAt).toBeNull();
-    await expect(people.detail(mergedId, ownerUserId)).rejects.toMatchObject({ response: { code: "PERSON_NOT_FOUND" } });
+    // The detail route reports the merge and names the survivor, rather than reporting the person as
+    // missing: their history moved, it did not disappear, and an old link or notification must be able to
+    // lead somewhere. Asserting the id too, not just the code — a redirect that names the WRONG record
+    // would be worse than the dead end it replaces.
+    await expect(people.detail(mergedId, ownerUserId)).rejects.toMatchObject({
+      response: { code: "PERSON_MERGED", mergedIntoId: survivorId },
+    });
     const list = await people.list(ownerUserId);
     expect(list.map((p) => p.id)).not.toContain(mergedId);
     expect(list.map((p) => p.id)).toContain(survivorId);

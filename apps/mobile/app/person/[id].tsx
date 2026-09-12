@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Switch, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { InlineButton } from "@/components/inline-button";
@@ -151,6 +152,11 @@ export default function PersonDetailScreen() {
   // Same "map a 404 to setData(null), everything else to an inline error" fix pet/[id].tsx's own doc
   // comment explains — a bare .then with no .catch on a mount-time fetch becomes an unhandled promise
   // rejection that crashes the whole app on React Native Web.
+  // The raw error, kept alongside the message: a merged record's 404 carries the id it was merged
+  // into, and mapping straight to a string threw that away.
+  const [fetchError, setFetchError] = useState<unknown>(null);
+  useMergeRedirect(fetchError, (survivingId) => `/person/${survivingId}`);
+
   const load = useCallback(() => {
     setError(null);
     api
@@ -172,6 +178,7 @@ export default function PersonDetailScreen() {
         }
       })
       .catch((err) => {
+        setFetchError(err);
         if (err instanceof ApiError && err.status === 404) {
           setData(null);
         } else {

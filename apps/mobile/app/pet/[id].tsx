@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -65,12 +66,18 @@ export default function PetDetailScreen() {
   // comment explains — a bare .then with no .catch on a mount-time fetch becomes an unhandled promise
   // rejection that crashes the whole app on React Native Web (confirmed live on the identical vehicle
   // screen this mirrors).
+  // The raw error, kept alongside the message: a merged record's 404 carries the id it was merged
+  // into, and mapping straight to a string threw that away.
+  const [fetchError, setFetchError] = useState<unknown>(null);
+  useMergeRedirect(fetchError, (survivingId) => `/pet/${survivingId}`);
+
   const load = useCallback(() => {
     setError(null);
     api
       .get<PetDetail | null>(`/v1/pets/${id}`)
       .then(setData)
       .catch((err) => {
+        setFetchError(err);
         if (err instanceof ApiError && err.status === 404) {
           setData(null);
         } else {

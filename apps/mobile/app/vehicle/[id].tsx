@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Switch, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { InlineButton } from "@/components/inline-button";
@@ -211,12 +212,18 @@ export default function VehicleDetailScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
 
+  // The raw error, kept alongside the message: a merged record's 404 carries the id it was merged
+  // into, and mapping straight to a string threw that away.
+  const [fetchError, setFetchError] = useState<unknown>(null);
+  useMergeRedirect(fetchError, (survivingId) => `/vehicle/${survivingId}`);
+
   const load = useCallback(() => {
     setError(null);
     api
       .get<VehicleDetail | null>(`/v1/vehicles/${id}`)
       .then(setData)
       .catch((err) => {
+        setFetchError(err);
         if (err instanceof ApiError && err.status === 404) {
           setData(null);
         } else {

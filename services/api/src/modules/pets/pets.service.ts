@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { mergedRecordException } from "../../common/merged-record";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { canCreateShareLink, generateId, type SensitivityTier, type TemporalValue } from "@veynlo/core";
@@ -114,8 +115,10 @@ export class PetsService {
 
   async detail(petId: string, userId: string) {
     const [pet] = await this.db.select().from(schema.petProfiles).where(eq(schema.petProfiles.id, petId)).limit(1);
-    if (!pet || pet.deletedAt || pet.mergedIntoPetId) return null;
+    if (!pet || pet.deletedAt) return null;
+    // Authorise before the merged branch below discloses the surviving id.
     await this.assertPetAccess(pet.ownerUserId, pet.householdId, userId, { resourceType: "pet", resourceId: petId });
+    if (pet.mergedIntoPetId) throw mergedRecordException("pet", pet.mergedIntoPetId);
     // SHARE-001 "optional message" — same reasoning as ListsService.listDetail.
     const sharedNote = (await this.isOwnerOrHousehold(pet.ownerUserId, pet.householdId, userId)) ? null : await this.sharing.grantMessage("pet", petId, userId);
     const [vaccinationRows, maintenance, refillReminders, bills] = await Promise.all([

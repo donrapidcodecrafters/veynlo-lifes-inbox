@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,9 @@ export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { data, error: fetchError, isLoading, mutate } = useSWR<VehicleDetail | null>(`/v1/vehicles/${id}`, swrFetcher);
+  // A merged record is not a missing one — its history moved. Send the user where it went rather than
+  // rendering "not found" for something that still exists under another id.
+  useMergeRedirect(fetchError, (survivingId) => `/life/vehicles/${survivingId}`);
   const [addingRecord, setAddingRecord] = useState(false);
   const [description, setDescription] = useState("");
   const [cost, setCost] = useState("");

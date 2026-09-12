@@ -65,6 +65,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code,
         message: isRateLimited ? RATE_LIMITED_MESSAGE : ((structured.message as string) ?? "Request failed."),
         fieldErrors: structured.fieldErrors ?? undefined,
+        // A merged record's 404 names the record it was merged into, so the client can send the user there
+        // instead of reporting a record that still exists as missing.
+        //
+        // Named explicitly rather than spreading `structured`: this allow-list is the reason an exception
+        // thrown deep in a service cannot accidentally put an internal field on the wire, and widening it
+        // to "whatever the thrower attached" would trade that guarantee for one feature's convenience. The
+        // routes that raise this check the caller's access to the merged record BEFORE attaching the id —
+        // see common/merged-record.ts.
+        mergedIntoId: typeof structured.mergedIntoId === "string" ? structured.mergedIntoId : undefined,
         retryable: status >= 500,
         traceId,
       });

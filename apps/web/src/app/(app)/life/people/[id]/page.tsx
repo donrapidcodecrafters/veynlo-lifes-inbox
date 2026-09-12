@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -751,6 +752,9 @@ export default function PersonDetailPage() {
   const router = useRouter();
   const { user } = useSession();
   const { data, error: fetchError, isLoading, mutate } = useSWR<PersonDetail | null>(`/v1/people/${id}`, swrFetcher);
+  // A merged record is not a missing one — its history moved. Send the user where it went rather than
+  // rendering "not found" for something that still exists under another id.
+  useMergeRedirect(fetchError, (survivingId) => `/life/people/${survivingId}`);
   const { data: organizations } = useSWR<OrganizationRow[]>("/v1/organizations", swrFetcher);
   const { data: people } = useSWR<PersonListRow[]>("/v1/people", swrFetcher);
   const { data: households } = useSWR<MyHouseholdRow[]>("/v1/households", swrFetcher);
