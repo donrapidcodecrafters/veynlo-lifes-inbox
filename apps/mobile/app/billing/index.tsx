@@ -207,6 +207,9 @@ export default function BillingScreen() {
                       return (
                         <Pressable accessibilityRole="button"
                           key={interval}
+                          // Named from the same expression that renders the visible text below, so the
+                          // spoken name cannot drift from what is on screen.
+                          accessibilityLabel={interval === "month" ? "Monthly billing" : "Annual billing"}
                           onPress={() => setIntervalByPlan((prev) => ({ ...prev, [planKey]: interval }))}
                           accessibilityState={{ selected: active }}
                           style={{
