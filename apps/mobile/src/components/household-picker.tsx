@@ -102,18 +102,19 @@ export function HouseholdPicker(props: HouseholdPickerProps) {
     borderRadius: 999,
     backgroundColor: selected ? theme.colors.brandDefault : theme.colors.bgSubtle,
   });
-  const chipTextStyle = (selected: boolean) => ({ fontSize: 13, fontWeight: "600" as const, color: selected ? "#fff" : theme.colors.textSecondary });
+  const chipTextStyle = (selected: boolean) => ({ fontSize: 13, fontWeight: "600" as const, color: selected ? theme.colors.textOnBrand : theme.colors.textSecondary });
 
   return (
     <View style={{ gap: 6 }}>
       <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>{props.label ?? "Share with"}</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        <Pressable accessibilityRole="button" onPress={() => select(null)} disabled={saving} style={chipStyle(props.value === null)}>
+        <Pressable accessibilityRole="button" accessibilityState={{ selected: props.value === null, disabled: saving }} onPress={() => select(null)} disabled={saving} style={chipStyle(props.value === null)}>
           <Text style={chipTextStyle(props.value === null)}>Just me</Text>
         </Pressable>
         {households.map((h) => (
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ selected: props.value === h.household.id, disabled: saving }}
             key={h.household.id}
             onPress={() => select(h.household.id)}
             disabled={saving}

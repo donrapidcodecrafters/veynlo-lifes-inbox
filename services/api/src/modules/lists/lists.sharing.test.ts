@@ -6,6 +6,7 @@ import { ListsService } from "./lists.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
 import type { MemoriesService } from "../memories/memories.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 // None of this file's fixtures create a smart list, so ListsService never calls into this — see
 // lists.service.test.ts's identical stub for why an unimplemented-but-typed stub is enough.
@@ -51,8 +52,7 @@ describe("ListsService object sharing", () => {
         { id: strangerUserId, email: `list-share-stranger-${strangerUserId}@example.com`, displayName: "Stranger" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping list sharing tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "list sharing tests");
     }
   });
 

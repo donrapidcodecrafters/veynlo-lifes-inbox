@@ -7,9 +7,11 @@ import { I18nProvider } from "@/lib/i18n-provider";
 import { AppThemeProvider, useAppTheme } from "@/lib/theme-context";
 import { BiometricLockProvider } from "@/lib/biometric-lock-context";
 import { FinancialPrivacyProvider } from "@/lib/financial-privacy-context";
+import { PersonalizationProvider } from "@/lib/use-personalization";
 import { LockGate } from "@/components/lock-gate";
 import { DeletionPendingGate } from "@/components/deletion-pending-gate";
 import { PushRegistration } from "@/components/push-registration";
+import { PushNavigation } from "@/components/push-navigation";
 import { NotificationCaptureDrain } from "@/components/notification-capture-drain";
 import { AndroidShareIntentDrain } from "@/components/android-share-intent-drain";
 import { OfflineMutationQueueDrain } from "@/components/offline-mutation-queue-drain";
@@ -25,6 +27,7 @@ function ThemedStack() {
     <>
       <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
       <PushRegistration />
+      <PushNavigation />
       <NotificationCaptureDrain />
       <AndroidShareIntentDrain />
       <OfflineMutationQueueDrain />
@@ -45,9 +48,14 @@ export default function RootLayout() {
           <AuthProvider>
             <I18nProvider>
               <BiometricLockProvider>
-                <FinancialPrivacyProvider>
-                  <ThemedStack />
-                </FinancialPrivacyProvider>
+                {/* Above FinancialPrivacyProvider, which reads the preference it owns. One copy for the
+                    whole app: while every caller held its own, toggling financial privacy mode updated the
+                    privacy screen and left the provider that does the masking on its startup value. */}
+                <PersonalizationProvider>
+                  <FinancialPrivacyProvider>
+                    <ThemedStack />
+                  </FinancialPrivacyProvider>
+                </PersonalizationProvider>
               </BiometricLockProvider>
             </I18nProvider>
           </AuthProvider>

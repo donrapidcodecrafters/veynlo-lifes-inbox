@@ -12,6 +12,22 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
+
+/**
+ * Every date below is relative to now, never pinned.
+ *
+ * The paths these tests exercise compare an event's date against the clock — reschedule reconciliation
+ * only looks at still-upcoming events, the subscription state machine advances anything whose date has
+ * passed — so a hardcoded date stops testing the behaviour and starts testing the window, silently, on a
+ * date nobody chose. ingestion.dedup.test.ts did exactly that: pinned to 2026-09-10, green for months,
+ * then failing on 2026-09-11 against a commit that touched nothing near it.
+ *
+ * A month out, so every scenario here is comfortably upcoming, and offsets preserve the relative spacing
+ * each scenario depends on.
+ */
+const DATE_ANCHOR = Date.now() + 30 * 86_400_000;
+const day = (offsetDays: number) => new Date(DATE_ANCHOR + offsetDays * 86_400_000).toISOString().slice(0, 10);
 
 /**
  * §27 "Health Logistics (Non-Diagnostic)" (HLTH-001) — real end-to-end coverage of
@@ -47,8 +63,7 @@ describe("IngestionService.extractHealthAppointment", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `hlth-ingest-${ownerUserId}@example.com`, displayName: "Health Ingest Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService.extractHealthAppointment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService.extractHealthAppointment tests");
     }
   });
 
@@ -71,7 +86,7 @@ describe("IngestionService.extractHealthAppointment", () => {
       fakeExtraction({
         providerName: "Dr. Chen",
         appointmentType: "dental",
-        startDate: { iso_date: "2026-10-20", approximate_text: null },
+        startDate: { iso_date: day(0), approximate_text: null },
         startTime: "09:30",
         timezone: "America/Los_Angeles",
         location: "456 Oak St",
@@ -111,7 +126,7 @@ describe("IngestionService.extractHealthAppointment", () => {
       fakeExtraction({
         providerName: "Quest Diagnostics",
         appointmentType: "lab work",
-        startDate: { iso_date: "2026-11-02", approximate_text: null },
+        startDate: { iso_date: day(13), approximate_text: null },
         startTime: null,
         timezone: null,
         location: null,
@@ -143,7 +158,7 @@ describe("IngestionService.extractHealthAppointment", () => {
         fakeExtraction({
           providerName: "Dr. Patel",
           appointmentType: "primary care",
-          startDate: { iso_date: "2026-12-05", approximate_text: null },
+          startDate: { iso_date: day(46), approximate_text: null },
           startTime: "14:00",
           timezone: "America/New_York",
           location,
@@ -169,7 +184,7 @@ describe("IngestionService.extractHealthAppointment", () => {
     ai.enqueue("domain_classifier_v1", fakeExtraction({ domains: ["health_appointment"] }));
     ai.enqueue(
       "health_appointment_extraction_v1",
-      fakeExtraction({ providerName: "Should not be filed", appointmentType: null, startDate: { iso_date: "2026-12-25", approximate_text: null }, startTime: null, timezone: null, location: null, prepInstructions: null, confidenceNotes: "" }),
+      fakeExtraction({ providerName: "Should not be filed", appointmentType: null, startDate: { iso_date: day(66), approximate_text: null }, startTime: null, timezone: null, location: null, prepInstructions: null, confidenceNotes: "" }),
     );
     await ingestion.ingestManualText({ ownerUserId, householdId: null, subject: "Appointment", bodyText: "body" });
 

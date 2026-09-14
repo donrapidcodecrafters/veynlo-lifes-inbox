@@ -15,6 +15,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §52.1 "voice note" transcription — real Postgres integration test proving a captured voice note
@@ -80,8 +81,7 @@ describe("IngestionService voice note transcription", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `voice-note-test-${ownerUserId}@example.com`, displayName: "Voice Note Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping voice-note transcription tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "voice-note transcription tests");
     }
   });
 

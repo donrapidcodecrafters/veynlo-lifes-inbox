@@ -151,6 +151,9 @@ function LinkedEventsCard({ linkedEvents, onOpen }: { linkedEvents: EventDetail[
       {linkedEvents.map(({ event: linked, evidence: linkedEvidence }) => (
         <Pressable accessibilityRole="button"
           key={linked.id}
+          // The row's whole purpose is to open that event, and its title is the only thing distinguishing
+          // one linked row from another — without it every linked event announces identically.
+          accessibilityLabel={`Open linked event: ${linked.title}`}
           onPress={() => onOpen(linked.id)}
           style={{ borderWidth: 1, borderColor: theme.colors.borderSubtle, borderRadius: theme.radius.lg, padding: 10, gap: 6 }}
         >
@@ -197,6 +200,8 @@ function ReminderCard({ event, onSaved }: { event: EventDetail["event"]; onSaved
         {REMINDER_OPTIONS.map((opt) => (
           <Pressable accessibilityRole="button"
             key={opt.value}
+            accessibilityLabel={`Reminder: ${opt.label}`}
+            accessibilityState={{ selected: value === opt.value, disabled: saving }}
             onPress={() => save(opt.value)}
             disabled={saving}
             style={{
@@ -284,6 +289,8 @@ function WriteBackCard({ event, targets, onPushed }: { event: EventDetail["event
         {targets.map((t) => (
           <Pressable accessibilityRole="button"
             key={t.id}
+            accessibilityLabel={`Calendar: ${PROVIDER_LABEL[t.provider] ?? t.provider}`}
+            accessibilityState={{ selected: connectionId === t.id }}
             onPress={() => setConnectionId(t.id)}
             style={{
               paddingHorizontal: 10,

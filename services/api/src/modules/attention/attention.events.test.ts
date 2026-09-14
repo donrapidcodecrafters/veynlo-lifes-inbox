@@ -6,6 +6,7 @@ import { AttentionService } from "./attention.service";
 import { EventBusService } from "../../events/event-bus.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -45,8 +46,7 @@ describe("AttentionService — real event-bus emission", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `attention-events-${ownerUserId}@example.com`, displayName: "Attention Events Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService event-bus tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService event-bus tests");
     }
   });
 

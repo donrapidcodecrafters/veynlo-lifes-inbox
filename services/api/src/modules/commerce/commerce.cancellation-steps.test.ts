@@ -6,6 +6,7 @@ import { CommerceService } from "./commerce.service";
 import { resolveMerchantCancellationSteps } from "./merchant-cancellation-steps";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * SUB-004 "Cancellation assistant ... shows known steps/link/evidence" — real-DB proof of the three cases
@@ -38,8 +39,7 @@ describe("SUB-004 merchant cancellation-steps resolution and subscription-detail
         { id: otherUserId, email: `cancel-steps-${otherUserId}@example.com`, displayName: "Cancellation Steps Test Other User" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping SUB-004 cancellation-steps tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "SUB-004 cancellation-steps tests");
     }
   });
 

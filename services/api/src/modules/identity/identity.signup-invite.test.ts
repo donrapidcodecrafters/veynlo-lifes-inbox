@@ -17,6 +17,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * "Pre-launch private testing distribution" (docs/ROADMAP.md) — real integration tests against real
@@ -46,8 +47,7 @@ describe("Invite-gated sign-up (SIGNUP_REQUIRES_INVITE=true)", () => {
     try {
       await db.select().from(schema.users).limit(1);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping invite-gated sign-up tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "invite-gated sign-up tests");
       return;
     }
 

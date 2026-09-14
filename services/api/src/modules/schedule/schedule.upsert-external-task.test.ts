@@ -6,6 +6,7 @@ import { ScheduleService } from "./schedule.service";
 import { ConflictService } from "./conflict.service";
 import type { HouseholdService } from "../household/household.service";
 import type { AssetsService } from "../assets/assets.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "tasks/reminders integrations" — `upsertExternalTask` is what
@@ -38,8 +39,7 @@ describe("ScheduleService.upsertExternalTask", () => {
         { id: otherUserId, email: `upsert-task-other-${otherUserId}@example.com`, displayName: "Upsert Task Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping upsertExternalTask tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "upsertExternalTask tests");
     }
   });
 

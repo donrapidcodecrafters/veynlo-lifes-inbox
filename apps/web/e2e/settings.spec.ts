@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { expectNoAccessibilityViolations } from "./support/a11y";
-import { createOnboardedUser } from "./support/api";
+import { createSignedInUser } from "./support/api";
 
 /**
  * Settings hub navigation — Settings fans out into several sub-pages (Privacy, Security, Household,
@@ -9,12 +9,7 @@ import { createOnboardedUser } from "./support/api";
  */
 test.describe("Settings", () => {
   test.beforeEach(async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "settings");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    const user = await createSignedInUser(page, "settings");
   });
 
   test("Settings loads and links into Privacy and Security and back", async ({ page }) => {

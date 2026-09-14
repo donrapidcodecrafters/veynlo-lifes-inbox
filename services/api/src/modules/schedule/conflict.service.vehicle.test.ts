@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { ConflictService } from "./conflict.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubHouseholds = { activeHouseholdIds: async () => [] } as unknown as HouseholdService;
 
@@ -45,8 +46,7 @@ describe("ConflictService.vehicleConflicts", () => {
         { id: otherVehicleId, ownerUserId: ownerAUserId, householdId, label: "Dad's Truck" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ConflictService.vehicleConflicts tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ConflictService.vehicleConflicts tests");
     }
   });
 

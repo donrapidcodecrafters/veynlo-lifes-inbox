@@ -51,7 +51,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       </aside>
 
-      <div className="flex min-h-dvh flex-1 flex-col">
+      {/* `min-w-0` is load-bearing here. This is the flex child of the `md:flex` shell above, and a flex
+          item defaults to min-width:auto — it refuses to shrink below its content's min-content width. So
+          any page containing something intrinsically wide (a long unbroken document title, a wide table)
+          pushed the ENTIRE shell past the viewport instead of letting the content truncate inside it.
+          Found at 768px on /timeline with a real seeded document title: main measured 663px inside 609px
+          of available space, overflowing by 54px. The child's own `truncate` could not help — truncation
+          only clips once an ancestor actually constrains the width, which is why adding min-w-0 further
+          down the tree had no effect. Fixing it here protects every route, not just that one. */}
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <main className="flex-1 pb-20 md:pb-0">
           <div className="mx-auto w-full max-w-[var(--width-panel)] px-4 py-6 md:px-8 md:py-8">{children}</div>
         </main>

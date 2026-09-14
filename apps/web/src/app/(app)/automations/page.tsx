@@ -168,10 +168,31 @@ export default function AutomationsPage() {
   const [runActionError, setRunActionError] = useState<string | null>(null);
   const [preparedActionError, setPreparedActionError] = useState<string | null>(null);
   const [preparedActionBusyId, setPreparedActionBusyId] = useState<string | null>(null);
+  const [killSwitchError, setKillSwitchError] = useState<string | null>(null);
 
   async function toggleKillSwitch(paused: boolean) {
+    // The optimistic update has to be rolled back on failure, and this one especially. Without the catch,
+    // a rejected PUT (offline, 429, an expired session) left the SWR cache holding the optimistic value
+    // with nothing to correct it — this key has no refreshInterval, unlike runs/preparedActions — so the
+    // switch stayed rendered as "on" AND the banner below rendered "Automations are paused. No rule will
+    // run until you turn this back on." while the server had never paused anything and every rule kept
+    // firing. A safety control that fails to the unsafe state while telling the user it is safe, with the
+    // rejection unhandled so nothing appeared anywhere.
+    //
+    // Same bug class the comment above this component's error state already describes for approve/reject,
+    // in the same file — this toggle was simply never brought along.
+    const previous = killSwitch;
+    setKillSwitchError(null);
     mutateKillSwitch({ paused }, false);
-    await api.put("/v1/automation/kill-switch", { paused });
+    try {
+      await api.put("/v1/automation/kill-switch", { paused });
+    } catch (err) {
+      mutateKillSwitch(previous, false);
+      setKillSwitchError(
+        err instanceof ApiError ? err.message : "Couldn't change the kill switch. It has been left as it was.",
+      );
+      return;
+    }
     mutateKillSwitch();
   }
 
@@ -331,6 +352,12 @@ export default function AutomationsPage() {
           />
         </CardBody>
       </Card>
+
+      {killSwitchError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {killSwitchError}
+        </p>
+      )}
 
       {killSwitch?.paused && (
         <p className="rounded-lg bg-warning-subtle px-3 py-2 text-sm text-warning-subtle-text">

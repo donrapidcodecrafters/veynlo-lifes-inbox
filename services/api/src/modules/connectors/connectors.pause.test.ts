@@ -7,6 +7,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { PlaidAdapter } from "./plaid.adapter";
 import type { CredentialVault } from "../../common/credential-vault";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubQueue = {} as unknown as QueueProducer;
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
@@ -32,8 +33,7 @@ describe("ConnectorsService — pause excludes a connection from incremental sca
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `pause-test-${ownerUserId}@example.com`, displayName: "Pause Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ConnectorsService pause tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ConnectorsService pause tests");
     }
   });
 

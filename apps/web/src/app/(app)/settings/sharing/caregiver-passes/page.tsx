@@ -58,6 +58,7 @@ export default function CaregiverDayPassesPage() {
   const [passcode, setPasscode] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const [newLinkUrl, setNewLinkUrl] = useState<string | null>(null);
 
   function toggleScope(scope: DayPassScope) {
@@ -91,12 +92,27 @@ export default function CaregiverDayPassesPage() {
   async function revoke(passId: string, passLabel: string) {
     if (!householdId) return;
     if (!window.confirm(`End "${passLabel}" now? Anyone using it loses access immediately.`)) return;
-    await api.delete(`/v1/caregiver-day-passes/${householdId}/${passId}`);
-    mutate();
+    setRevokeError(null);
+    try {
+      await api.delete(`/v1/caregiver-day-passes/${householdId}/${passId}`);
+    } catch (err) {
+      setRevokeError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't end "${passLabel}". It is still active — please try again.`,
+      );
+    } finally {
+      mutate();
+    }
   }
 
   return (
     <div className="space-y-6">
+      {revokeError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {revokeError}
+        </p>
+      )}
       <header className="space-y-1">
         <Link href="/settings/sharing" className="text-sm text-tertiary hover:text-primary">
           ← Sharing
@@ -119,8 +135,11 @@ export default function CaregiverDayPassesPage() {
             <CardBody>
               <form onSubmit={createPass} className="space-y-4">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-secondary">Label</label>
+                  <label htmlFor="caregiver-label" className="mb-1 block text-xs font-medium text-secondary">
+                    Label
+                  </label>
                   <input
+                    id="caregiver-label"
                     type="text"
                     placeholder="e.g. Saturday night sitter"
                     value={label}
@@ -130,12 +149,23 @@ export default function CaregiverDayPassesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-secondary">What to include</label>
-                  <div className="flex flex-wrap gap-2">
+                  <label id="daypass-scopes-label" className="mb-1 block text-xs font-medium text-secondary">
+                    What to include
+                  </label>
+                  {/* Multi-select toggles, so each needs `aria-pressed`. Without it the ONLY signal that a
+                      scope was selected was the brand colour in the class list: assistive tech announced
+                      all five identically as plain buttons, leaving a screen-reader user no way to tell
+                      what a caregiver pass actually grants before creating it. Colour-only state is also
+                      explicitly disallowed by the project's accessibility rules. Verified by DOM
+                      inspection rather than assumed — aria-pressed and role were both null while the
+                      class updated correctly on click, so the control worked and only its state was
+                      unreadable. */}
+                  <div className="flex flex-wrap gap-2" role="group" aria-labelledby="daypass-scopes-label">
                     {SCOPE_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
+                        aria-pressed={scopes.includes(opt.value)}
                         onClick={() => toggleScope(opt.value)}
                         className={`rounded-full border px-3 py-1 text-xs ${
                           scopes.includes(opt.value) ? "border-brand-default bg-brand-subtle text-brand-subtle-text" : "border-border-default text-tertiary"
@@ -148,8 +178,14 @@ export default function CaregiverDayPassesPage() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-secondary">Expires in</label>
+                    {/* These labels were adjacent but never ASSOCIATED — no htmlFor, and the control is
+                        not nested inside them — so axe reported the select as unnamed and the passcode
+                        input as unlabelled, both critical. Visually identical; now actually connected. */}
+                    <label htmlFor="caregiver-expires-in" className="mb-1 block text-xs font-medium text-secondary">
+                      Expires in
+                    </label>
                     <select
+                      id="caregiver-expires-in"
                       value={expiresInHours}
                       onChange={(e) => setExpiresInHours(e.target.value)}
                       className="h-9 rounded-lg border border-border-default bg-surface px-2 text-sm text-primary"
@@ -162,8 +198,11 @@ export default function CaregiverDayPassesPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-secondary">Optional passcode</label>
+                    <label htmlFor="caregiver-passcode" className="mb-1 block text-xs font-medium text-secondary">
+                      Optional passcode
+                    </label>
                     <input
+                      id="caregiver-passcode"
                       type="text"
                       value={passcode}
                       onChange={(e) => setPasscode(e.target.value)}

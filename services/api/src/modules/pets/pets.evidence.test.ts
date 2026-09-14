@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { PetsService } from "./pets.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -35,8 +36,7 @@ describe("PetsService.detail — evidence citation for discovered vaccinations",
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `pet-evidence-${ownerUserId}@example.com`, displayName: "Pet Evidence Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PetsService evidence test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PetsService evidence test");
     }
   });
 

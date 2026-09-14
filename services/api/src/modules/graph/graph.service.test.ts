@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { GraphService } from "./graph.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -47,8 +48,7 @@ describe("GraphService.traverseFrom — multi-hop reasoning", () => {
         { id: otherUserId, email: `graph-traverse-other-${otherUserId}@example.com`, displayName: "Graph Traverse Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping GraphService.traverseFrom tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "GraphService.traverseFrom tests");
       return;
     }
 
@@ -190,8 +190,7 @@ describe("GraphService.resolveEntityForQuery", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `graph-resolve-${ownerUserId}@example.com`, displayName: "Graph Resolve Owner" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping GraphService.resolveEntityForQuery tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "GraphService.resolveEntityForQuery tests");
       return;
     }
     entityId = generateId("entity");

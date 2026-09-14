@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
@@ -175,15 +175,37 @@ export default function DocumentsPage() {
     }
   }
 
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
+
   async function toggleHousehold(doc: DocumentRow) {
     if (!myHousehold) return;
-    await api.put(`/v1/documents/${doc.id}/household`, { householdId: doc.householdId ? null : myHousehold.household.id });
-    revalidateAllFilters();
+    setVisibilityError(null);
+    try {
+      await api.put(`/v1/documents/${doc.id}/household`, { householdId: doc.householdId ? null : myHousehold.household.id });
+    } catch (err) {
+      setVisibilityError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't change who can see "${doc.title}". It is unchanged — please try again.`,
+      );
+    } finally {
+      revalidateAllFilters();
+    }
   }
 
   async function toggleBinder(doc: DocumentRow) {
-    await api.put(`/v1/documents/${doc.id}/emergency-binder`, { isEmergencyBinderItem: !doc.isEmergencyBinderItem });
-    revalidateAllFilters();
+    setVisibilityError(null);
+    try {
+      await api.put(`/v1/documents/${doc.id}/emergency-binder`, { isEmergencyBinderItem: !doc.isEmergencyBinderItem });
+    } catch (err) {
+      setVisibilityError(
+        err instanceof ApiError
+          ? err.message
+          : `Couldn't update the emergency binder for "${doc.title}". It is unchanged — please try again.`,
+      );
+    } finally {
+      revalidateAllFilters();
+    }
   }
 
   // §40.3 Document state machine's "verified"/"archived" — the two single-click user actions this vault
@@ -319,6 +341,9 @@ export default function DocumentsPage() {
       }
       return;
     }
+    // No catch here on purpose: this is one of the 42 unguarded action handlers that ActionFailureBanner
+    // now covers app-wide. Found here first — forcing this request to 500 produced no dialog, no new tab
+    // and no change on the page — but fixing it only here would have left the other 41 silent.
     const { url } = await api.get<{ url: string }>(`/v1/documents/${id}/download-url`);
     window.open(url, "_blank", "noopener,noreferrer");
   }
@@ -402,6 +427,12 @@ export default function DocumentsPage() {
       {stateActionError && (
         <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
           {stateActionError}
+        </p>
+      )}
+
+      {visibilityError && (
+        <p role="alert" className="rounded-lg bg-critical-subtle px-3 py-2 text-sm text-critical-subtle-text">
+          {visibilityError}
         </p>
       )}
 
@@ -592,11 +623,11 @@ export default function DocumentsPage() {
                   )}
                   {myHousehold && (
                     <div className="flex items-center gap-3 border-t border-border-subtle pt-2 text-xs">
-                      <button onClick={() => toggleHousehold(doc)} className="font-medium text-brand hover:underline">
+                      <button onClick={() => toggleHousehold(doc)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium text-brand">
                         {doc.householdId ? `Shared with ${myHousehold.household.name}` : `Share with ${myHousehold.household.name}`}
                       </button>
                       {doc.householdId && (
-                        <button onClick={() => toggleBinder(doc)} className="font-medium text-brand hover:underline">
+                        <button onClick={() => toggleBinder(doc)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium text-brand">
                           {doc.isEmergencyBinderItem ? "Remove from emergency binder" : "Add to emergency binder"}
                         </button>
                       )}

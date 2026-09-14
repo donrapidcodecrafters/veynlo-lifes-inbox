@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, Res, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { SignJWT, jwtVerify } from "jose";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -307,7 +307,17 @@ export class IdentityController {
   @Post("sessions/:sessionId/revoke")
   @UseGuards(AuthGuard)
   async revokeSession(@CurrentUser() user: AuthenticatedUser, @Param("sessionId") sessionId: string) {
-    await this.identity.revokeSessionById(sessionId, user.userId);
+    // 404 rather than a silent `{ success: true }` when nothing matched — mirrors removePasskey in this
+    // same module, which already distinguishes the two. Deliberately 404 for both "no such session" and
+    // "not yours", never 403: session ids are opaque, and a distinct 403 would confirm to one account
+    // that another account's session id exists.
+    const revoked = await this.identity.revokeSessionById(sessionId, user.userId);
+    if (!revoked) {
+      throw new NotFoundException({
+        code: "SESSION_NOT_FOUND",
+        message: "That session doesn't exist, is already signed out, or isn't yours.",
+      });
+    }
     return { success: true };
   }
 }

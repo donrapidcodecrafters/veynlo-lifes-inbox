@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createOnboardedUser, isAiConfigured } from "./support/api";
+import { createSignedInUser, isAiConfigured } from "./support/api";
 
 /**
  * "Add manually" capture (CaptureForm in inbox/page.tsx) — the most important capture path that needs no
@@ -18,12 +18,7 @@ import { createOnboardedUser, isAiConfigured } from "./support/api";
  */
 test.describe("Manual capture", () => {
   test.beforeEach(async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "capture");
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
+    const user = await createSignedInUser(page, "capture");
   });
 
   test("submitting a manual capture succeeds, and the Inbox reflects the real backend outcome", async ({ page, request }) => {

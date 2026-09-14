@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §40.3 "Representative state machines" — Return: `eligible → initiated → label/dropoff ready → in
@@ -34,8 +35,7 @@ describe("CommerceService §40.3 Return state machine", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `return-lifecycle-${ownerUserId}@example.com`, displayName: "Return Lifecycle Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping Return state machine tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "Return state machine tests");
     }
   });
 

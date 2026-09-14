@@ -11,6 +11,7 @@ import type { VinDecodeService } from "../assets/vin-decode.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * TASK-003 "Recurrence engine" + CAL-003 "Conflict detection" wiring — real integration test against a
@@ -50,8 +51,7 @@ describe("ScheduleService recurrence + conflict wiring", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `recurrence-test-${ownerUserId}@example.com`, displayName: "Recurrence Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ScheduleService recurrence tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ScheduleService recurrence tests");
     }
   });
 
@@ -185,8 +185,7 @@ describe("ScheduleService mileage recurrence (VEH-007)", () => {
       vehicleId = generateId("vehicle");
       await db.insert(schema.vehicleProfiles).values({ id: vehicleId, ownerUserId, label: "Mileage Test Civic", make: "Honda", model: "Civic", year: 2020 });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ScheduleService mileage recurrence tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ScheduleService mileage recurrence tests");
     }
   });
 
@@ -342,8 +341,7 @@ describe("ScheduleService mileage_or_calendar recurrence (VEH-003)", () => {
       vehicleId = generateId("vehicle");
       await db.insert(schema.vehicleProfiles).values({ id: vehicleId, ownerUserId, label: "Mileage-Or-Calendar Test CR-V", make: "Honda", model: "CR-V", year: 2021 });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ScheduleService mileage_or_calendar recurrence tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ScheduleService mileage_or_calendar recurrence tests");
     }
   });
 

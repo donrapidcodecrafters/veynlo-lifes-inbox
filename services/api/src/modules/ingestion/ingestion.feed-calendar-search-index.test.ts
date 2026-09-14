@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Found live via manual QA: `IngestionService.ingestFeedCalendarEvent` (the write path every provider/device
@@ -60,8 +61,7 @@ describe("IngestionService.ingestFeedCalendarEvent — search-index wiring", () 
         new SearchIndexService(db), // searchIndex — the dependency this test actually exercises
       );
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping feed-calendar search-index test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "feed-calendar search-index test");
     }
   });
 

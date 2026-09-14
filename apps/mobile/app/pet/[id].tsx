@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -65,12 +66,18 @@ export default function PetDetailScreen() {
   // comment explains — a bare .then with no .catch on a mount-time fetch becomes an unhandled promise
   // rejection that crashes the whole app on React Native Web (confirmed live on the identical vehicle
   // screen this mirrors).
+  // The raw error, kept alongside the message: a merged record's 404 carries the id it was merged
+  // into, and mapping straight to a string threw that away.
+  const [fetchError, setFetchError] = useState<unknown>(null);
+  useMergeRedirect(fetchError, (survivingId) => `/pet/${survivingId}`);
+
   const load = useCallback(() => {
     setError(null);
     api
       .get<PetDetail | null>(`/v1/pets/${id}`)
       .then(setData)
       .catch((err) => {
+        setFetchError(err);
         if (err instanceof ApiError && err.status === 404) {
           setData(null);
         } else {
@@ -172,8 +179,15 @@ export default function PetDetailScreen() {
   // toggle. `PATCH /v1/pets/{id}` already existed but didn't accept `householdId` from any UI; `null`
   // explicitly means "make private again".
   async function saveHousehold(householdId: string | null) {
-    await api.patch(`/v1/pets/${id}`, { householdId });
-    load();
+    setActionError(null);
+    try {
+      await api.patch(`/v1/pets/${id}`, { householdId });
+      load();
+    } catch (err) {
+      // Without this the failed write threw uncaught and `load()` never ran, so the row simply stayed on
+      // its old value — visually identical to a tap that was ignored.
+      setActionError(err instanceof ApiError ? err.message : "Couldn't change who this is shared with.");
+    }
   }
 
   // Guarded on `data === undefined` (not just `error` alone) so a refetch that fails after this screen

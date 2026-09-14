@@ -8,6 +8,7 @@ import type { HouseholdService } from "../household/household.service";
 import type { RecallMonitorService } from "./recall-monitor.service";
 import type { VinDecodeService } from "./vin-decode.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "object sharing" (spec SHARE-001/SHARE-002), generalized off documents onto properties —
@@ -55,8 +56,7 @@ describe("AssetsService property sharing", () => {
         { id: strangerUserId, email: `property-share-stranger-${strangerUserId}@example.com`, displayName: "Stranger" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping property sharing tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "property sharing tests");
     }
   });
 

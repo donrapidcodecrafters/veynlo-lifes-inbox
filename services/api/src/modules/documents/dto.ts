@@ -46,3 +46,10 @@ export type LinkDocumentToEntityDto = z.infer<typeof LinkDocumentToEntityDtoSche
  * doc comment for what each value excludes/includes. */
 export const DocumentListFilterSchema = z.enum(["active", "archived", "superseded", "all"]).default("active");
 export type DocumentListFilter = z.infer<typeof DocumentListFilterSchema>;
+
+/** Both took a single field via @Body("..."), so neither reached a validation pipe. */
+export const SetDocumentHouseholdDtoSchema = z.object({ householdId: z.string().min(1).nullable() });
+export type SetDocumentHouseholdDto = z.infer<typeof SetDocumentHouseholdDtoSchema>;
+
+export const SetEmergencyBinderItemDtoSchema = z.object({ isEmergencyBinderItem: z.boolean() });
+export type SetEmergencyBinderItemDto = z.infer<typeof SetEmergencyBinderItemDtoSchema>;

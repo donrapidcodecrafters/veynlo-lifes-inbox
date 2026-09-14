@@ -7,6 +7,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { PlaidAdapter } from "./plaid.adapter";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubQueue = { enqueueConnectorSync: async () => {}, enqueueConnectionDataDeletion: async () => {} } as unknown as QueueProducer;
 const stubIdentity = { verifyStepUpPassword: async () => {} } as unknown as IdentityService;
@@ -36,8 +37,7 @@ describe("ConnectorsService.disconnect — credential vault wipe", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `disconnect-wipe-${ownerUserId}@example.com`, displayName: "Disconnect Wipe Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ConnectorsService.disconnect credential-wipe tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ConnectorsService.disconnect credential-wipe tests");
     }
   });
 

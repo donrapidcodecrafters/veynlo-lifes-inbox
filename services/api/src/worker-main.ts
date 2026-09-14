@@ -4,9 +4,10 @@ import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Logger as PinoLogger } from "nestjs-pino";
 import { Worker } from "bullmq";
-import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, isNull, lte, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
+import { deleteConnectionData } from "./modules/connectors/connection-data-deletion";
 import { AppModule } from "./app.module";
 import { DATABASE } from "./database/database.module";
 import { getRedisConnection } from "./queue/redis-connection";
@@ -33,6 +34,8 @@ import {
   type ResurfacingScanJobData,
   type LegacyReleaseInactivityScanJobData,
   type DataIntegrityScanJobData,
+  type ExpectedEventScanJobData,
+  type SearchIndexBackfillJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
@@ -63,6 +66,7 @@ import { CaregiverDayPassService } from "./modules/sharing/caregiver-day-pass.se
 import { recordConnectorSyncFailure, providerFamilyFor } from "./modules/connectors/connection-health.util";
 import { LegacyReleaseService } from "./modules/sharing/legacy-release.service";
 import { DataIntegrityService } from "./modules/data-integrity/data-integrity.service";
+import { SearchBackfillService } from "./modules/search/search-backfill.service";
 
 const logger = new Logger("Worker");
 
@@ -109,6 +113,7 @@ async function bootstrap() {
   const caregiverDayPasses = appContext.get(CaregiverDayPassService);
   const legacyRelease = appContext.get(LegacyReleaseService);
   const dataIntegrity = appContext.get(DataIntegrityService);
+  const searchBackfill = appContext.get(SearchBackfillService);
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -300,78 +305,12 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
-  /**
-   * PRIV-002 — the actual deletion half of "disconnect and delete" (ConnectorsService.disconnect marks
-   * the connection disconnected synchronously; this does the real work). Only two domain tables trace
-   * back to a connection directly (purchases.sourceEventId); bills/warranties/calendar_events/shipments
-   * have no such column, so they're found indirectly via inbox_items — every successful extraction files
-   * one (IngestionService.fileInboxItem), and nothing in the app hard-deletes an inbox_item, so that
-   * mapping is reliable. Deletes purchases first so return_cases/shipments/purchase_lines that FK to them
-   * cascade away automatically; captures purchaseLines.ownerAssetEntityId beforehand since
-   * canonical_entities has no matching cascade and would otherwise orphan. Also clears any attention_item
-   * pointing at something about to be deleted, so "Needs You" never shows a card for data that no longer
-   * exists. Documents are deliberately out of scope — they're user-uploaded (documents.service.ts's
-   * upload()), not connector-derived, so a connection has none to delete.
-   */
+  // PRIV-002 "disconnect and delete". The body lives in connection-data-deletion.ts so it can be tested
+  // against a real database; it was inline here, and untestable, which is why its search-index gap survived.
   const connectionDataDeletionWorker = new Worker<ConnectionDataDeletionJobData>(
     QUEUE_NAMES.connectionDataDeletion,
     async (job) => {
-      const { connectionId, ownerUserId } = job.data;
-      const sourceEventRows = await db
-        .select({ id: schema.sourceEvents.id })
-        .from(schema.sourceEvents)
-        .where(eq(schema.sourceEvents.connectionId, connectionId));
-      const sourceEventIds = sourceEventRows.map((r) => r.id);
-      if (sourceEventIds.length === 0) return;
-
-      const purchases = await db.select({ id: schema.purchases.id }).from(schema.purchases).where(inArray(schema.purchases.sourceEventId, sourceEventIds));
-      const purchaseIds = purchases.map((p) => p.id);
-      if (purchaseIds.length > 0) {
-        const lines = await db
-          .select({ ownerAssetEntityId: schema.purchaseLines.ownerAssetEntityId })
-          .from(schema.purchaseLines)
-          .where(inArray(schema.purchaseLines.purchaseId, purchaseIds));
-        const entityIds = lines.map((l) => l.ownerAssetEntityId).filter((id): id is string => id != null);
-        await db.delete(schema.purchases).where(inArray(schema.purchases.id, purchaseIds));
-        if (entityIds.length > 0) await db.delete(schema.canonicalEntities).where(inArray(schema.canonicalEntities.id, entityIds));
-      }
-
-      const inboxRows = await db
-        .select({ linkedResourceType: schema.inboxItems.linkedResourceType, linkedResourceId: schema.inboxItems.linkedResourceId })
-        .from(schema.inboxItems)
-        .where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
-      const idsFor = (type: string) => inboxRows.filter((r) => r.linkedResourceType === type && r.linkedResourceId).map((r) => r.linkedResourceId as string);
-      const billIds = idsFor("bill");
-      const warrantyIds = idsFor("warranty");
-      const calendarEventIds = idsFor("calendar_event");
-      const shipmentIds = idsFor("shipment");
-      // MAIL-008 audit fix: store credits were the one extractor-produced domain object this worker never
-      // purged — extractStoreCredit (ingestion.service.ts) writes a real sourceEventId onto storeCredits
-      // exactly like bills/warranties do, but nothing here ever deleted it, so "Disconnect & delete data"
-      // silently left store-credit rows (and their attention items) behind for this connection.
-      const storeCreditIds = idsFor("store_credit");
-      if (billIds.length > 0) await db.delete(schema.bills).where(inArray(schema.bills.id, billIds));
-      if (warrantyIds.length > 0) await db.delete(schema.warranties).where(inArray(schema.warranties.id, warrantyIds));
-      if (calendarEventIds.length > 0) await db.delete(schema.calendarEvents).where(inArray(schema.calendarEvents.id, calendarEventIds));
-      if (shipmentIds.length > 0) await db.delete(schema.shipments).where(inArray(schema.shipments.id, shipmentIds));
-      if (storeCreditIds.length > 0) await db.delete(schema.storeCredits).where(inArray(schema.storeCredits.id, storeCreditIds));
-
-      const allLinkedIds = [...purchaseIds, ...billIds, ...warrantyIds, ...calendarEventIds, ...shipmentIds, ...storeCreditIds];
-      if (allLinkedIds.length > 0) await db.delete(schema.attentionItems).where(inArray(schema.attentionItems.linkedResourceId, allLinkedIds));
-
-      await db.delete(schema.inboxItems).where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
-      await db.delete(schema.sourceEvents).where(inArray(schema.sourceEvents.id, sourceEventIds));
-
-      await db.insert(schema.auditEvents).values({
-        id: generateId("auditEvent"),
-        actorType: "user",
-        actorId: ownerUserId,
-        action: "connection.delete_derived_data",
-        resourceType: "connection",
-        resourceId: connectionId,
-        beforeJson: { sourceEventCount: sourceEventIds.length, purchaseCount: purchaseIds.length },
-        result: "success",
-      });
+      await deleteConnectionData(db, job.data);
     },
     { connection: getRedisConnection(), concurrency: 2 },
   );
@@ -557,6 +496,28 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /** Expected-event monitor — restored with the service method; see PROJECT_AUDIT.md DEF-082. Concurrency
+   * 1: the scan advances nextExpectedDate as it files, so two overlapping ticks could file the same missed
+   * cycle twice. */
+  const expectedEventScanWorker = new Worker<ExpectedEventScanJobData>(
+    QUEUE_NAMES.expectedEventScan,
+    async () => {
+      await attention.scanForMissingExpectedEvents();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
+  /** §44.3 "search documents ... deleted/reindexed with canonical data" — see SearchBackfillService for
+   * why a forward-only index needs a reconciliation pass at all. Concurrency 1: two overlapping full
+   * reindexes would do identical work twice and contend on the same rows for no benefit. */
+  const searchIndexBackfillWorker = new Worker<SearchIndexBackfillJobData>(
+    QUEUE_NAMES.searchIndexBackfill,
+    async () => {
+      await searchBackfill.run();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   /** §29.1 SAVE-001/002 — see queue-names.ts's MemoryClassificationJobData doc comment for why this moved
    * off the synchronous save request. */
   const memoryClassificationWorker = new Worker<MemoryClassificationJobData>(
@@ -577,7 +538,7 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
-  for (const worker of [
+  const workers = [
     connectorSyncWorker,
     connectorScanWorker,
     notificationDispatchWorker,
@@ -597,9 +558,13 @@ async function bootstrap() {
     caregiverDayPassScanWorker,
     legacyReleaseInactivityScanWorker,
     dataIntegrityScanWorker,
+    expectedEventScanWorker,
+    searchIndexBackfillWorker,
     memoryClassificationWorker,
     resurfacingScanWorker,
-  ]) {
+  ];
+
+  for (const worker of workers) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
   }
@@ -616,9 +581,16 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringCaregiverDayPassScan();
   await queueProducer.scheduleRecurringLegacyReleaseInactivityScan();
   await queueProducer.scheduleRecurringDataIntegrityScan();
+  await queueProducer.scheduleRecurringExpectedEventScan();
+  await queueProducer.scheduleRecurringSearchIndexBackfill();
 
+  // Derived from `workers`, never retyped. This line used to be a hardcoded string listing 20 queue
+  // names while the process actually ran 21 — data-integrity-scan was added with a real worker, wired
+  // into this array and into the shutdown path, but the log was left untouched. Anyone reading the
+  // startup output to confirm what a worker process is handling would have concluded the orphan-link
+  // scan was not running. A stale operational log is worse than no log: it answers the question wrongly.
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, inbound-email-ingest, document-ocr, voice-transcription, school-source-sync, school-source-scan, recall-check, recall-scan, caregiver-day-pass-scan, legacy-release-inactivity-scan, memory-classification, resurfacing-scan",
+    `Veynlo worker process started — processing ${workers.length} queues: ${workers.map((w) => w.name).join(", ")}`,
   );
 
   const shutdown = async () => {
@@ -643,14 +615,31 @@ async function bootstrap() {
       caregiverDayPassScanWorker.close(),
       legacyReleaseInactivityScanWorker.close(),
       dataIntegrityScanWorker.close(),
+      expectedEventScanWorker.close(),
+      searchIndexBackfillWorker.close(),
       memoryClassificationWorker.close(),
       resurfacingScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);
   };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  // Wrapped, not passed directly: `shutdown` is async, so a rejecting worker.close() would become an
+  // unhandled rejection and `process.exit(0)` would never run — the worker would sit there until whatever
+  // sent the signal gave up and SIGKILLed it, which is the opposite of a graceful shutdown. Exit either
+  // way, and say what went wrong on the way out.
+  const onSignal = (signal: string) => {
+    shutdown().catch((err) => {
+      logger.error(`Shutdown after ${signal} failed: ${String(err)}`);
+      process.exit(1);
+    });
+  };
+  process.on("SIGTERM", () => onSignal("SIGTERM"));
+  process.on("SIGINT", () => onSignal("SIGINT"));
 }
 
-bootstrap();
+// Same reasoning as apps' main.ts: an unhandled rejection here is "the worker process never started" with
+// no explanation attached.
+bootstrap().catch((err) => {
+  console.error("Veynlo worker process failed to start:", err);
+  process.exit(1);
+});

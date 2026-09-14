@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Linking, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, Linking, Text, View, type AppStateStatus } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
@@ -46,6 +46,14 @@ interface IdentityRecordDetail {
  * `reveal(withPassword)` shape (try with no password first — a no-op for an OAuth-only account, prompt only
  * if the server asks) — same pattern health-appointment/[id].tsx's DocumentsPanel already uses. Copies to
  * the clipboard via expo-clipboard rather than a native "select all" gesture on a masked field. */
+/**
+ * How long a copied document number is left on the system clipboard.
+ *
+ * Long enough to paste somewhere, short enough that it is not still sitting in a system-wide buffer any
+ * installed app can read hours later. The clipboard is only cleared if it still holds what we put there.
+ */
+const CLIPBOARD_CLEAR_MS = 60_000;
+
 function RevealDocumentNumberPanel({ recordId }: { recordId: string }) {
   const { theme } = useAppTheme();
   const [revealed, setRevealed] = useState<string | null>(null);
@@ -54,6 +62,25 @@ function RevealDocumentNumberPanel({ recordId }: { recordId: string }) {
   const [passwordPromptOpen, setPasswordPromptOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // Re-hide the decrypted number when the app leaves the foreground, matching emergency-binder.tsx's own
+  // AppState listener. Without it the number stayed on screen through a home-button press or an app
+  // switch, which is when the OS captures the thumbnail it shows in the recents list — a copy of a
+  // passport number the user never chose to create. Navigation focus/blur does NOT fire for that case,
+  // which is why this is an AppState listener and not useFocusEffect.
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (appStateRef.current === "active" && next !== "active") {
+        setRevealed(null);
+        setPassword("");
+        setPasswordPromptOpen(false);
+        setCopied(false);
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
 
   async function reveal(withPassword?: string) {
     setBusy(true);
@@ -76,8 +103,18 @@ function RevealDocumentNumberPanel({ recordId }: { recordId: string }) {
 
   async function copy() {
     if (!revealed) return;
-    await Clipboard.setStringAsync(revealed);
+    const value = revealed;
+    await Clipboard.setStringAsync(value);
     setCopied(true);
+    // Also resets the button label, which previously said "Copied" permanently — connections.tsx:1225
+    // already does that with the same shape.
+    setTimeout(() => setCopied(false), CLIPBOARD_CLEAR_MS);
+    setTimeout(() => {
+      // Only clear what we put there. Overwriting whatever the user copied since would be its own bug.
+      void Clipboard.getStringAsync().then((current) => {
+        if (current === value) void Clipboard.setStringAsync("");
+      });
+    }, CLIPBOARD_CLEAR_MS);
   }
 
   return (
@@ -185,14 +222,19 @@ function ReminderLeadTimePanel({ record, onSaved }: { record: IdentityRecordDeta
   const [days, setDays] = useState(String(record.reminderLeadDays));
   const [busy, setBusy] = useState(false);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function save() {
     const parsed = Number(days);
     if (!Number.isInteger(parsed) || parsed < 1) return;
     setBusy(true);
+    setActionError(null);
     try {
       await api.put(`/v1/identity-records/${record.id}`, { reminderLeadDays: parsed });
       setEditing(false);
       onSaved();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't save that lead time. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -201,6 +243,7 @@ function ReminderLeadTimePanel({ record, onSaved }: { record: IdentityRecordDeta
   return (
     <Card style={{ gap: 8 }}>
       <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Reminder lead time</Text>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       {!editing ? (
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <Text style={{ fontSize: 13, color: theme.colors.textTertiary, flex: 1 }}>You&apos;ll be reminded {record.reminderLeadDays} days before this expires.</Text>

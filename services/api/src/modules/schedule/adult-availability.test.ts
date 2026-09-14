@@ -6,6 +6,7 @@ import { householdAdultBusyIntervals, isAdultFreeDuring } from "./adult-availabi
 import { HouseholdService } from "../household/household.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Household adult-availability heuristic (§25 "Family Transport Conflicts" gap, closed by
@@ -77,8 +78,7 @@ describe("householdAdultBusyIntervals", () => {
         guardianUserIds: [ownerUserId],
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping householdAdultBusyIntervals tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "householdAdultBusyIntervals tests");
     }
   });
 

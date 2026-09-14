@@ -6,6 +6,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * "Pre-launch private testing distribution" (docs/ROADMAP.md) — SIGNUP_REQUIRES_INVITE defaults to false
@@ -32,8 +33,7 @@ describe("Sign-up with SIGNUP_REQUIRES_INVITE left at its default (off)", () => 
     try {
       await db.select().from(schema.users).limit(1);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping flag-off sign-up test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "flag-off sign-up test");
     }
   });
 

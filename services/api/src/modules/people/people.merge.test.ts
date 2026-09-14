@@ -8,9 +8,10 @@ import { SharingService } from "../sharing/sharing.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 
 /**
@@ -47,8 +48,7 @@ describe("PeopleService — merge candidates and reversible merge/unmerge", () =
         { id: otherOwnerUserId, email: `peo-merge-other-${otherOwnerUserId}@example.com`, displayName: "Other Owner" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PeopleService merge tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PeopleService merge tests");
     }
   });
 
@@ -120,9 +120,15 @@ describe("PeopleService — merge candidates and reversible merge/unmerge", () =
 
     const [mergedRow] = await db.select().from(schema.people).where(eq(schema.people.id, mergedId));
     expect(mergedRow!.mergedIntoPersonId).toBe(survivorId);
-    // Merged-away person is excluded from ordinary list/detail queries but not hard-deleted.
+    // Merged-away person is excluded from ordinary list queries but not hard-deleted.
     expect(mergedRow!.deletedAt).toBeNull();
-    await expect(people.detail(mergedId, ownerUserId)).rejects.toMatchObject({ response: { code: "PERSON_NOT_FOUND" } });
+    // The detail route reports the merge and names the survivor, rather than reporting the person as
+    // missing: their history moved, it did not disappear, and an old link or notification must be able to
+    // lead somewhere. Asserting the id too, not just the code — a redirect that names the WRONG record
+    // would be worse than the dead end it replaces.
+    await expect(people.detail(mergedId, ownerUserId)).rejects.toMatchObject({
+      response: { code: "PERSON_MERGED", mergedIntoId: survivorId },
+    });
     const list = await people.list(ownerUserId);
     expect(list.map((p) => p.id)).not.toContain(mergedId);
     expect(list.map((p) => p.id)).toContain(survivorId);

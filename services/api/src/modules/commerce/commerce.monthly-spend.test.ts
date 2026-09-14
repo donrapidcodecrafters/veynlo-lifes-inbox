@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "safe-spend awareness" — real DB test for the cadence-normalization math and cap
@@ -47,8 +48,7 @@ describe("CommerceService.monthlySpendSummary", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `spend-test-${ownerUserId}@example.com`, displayName: "Spend Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping monthlySpendSummary tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "monthlySpendSummary tests");
     }
   });
 

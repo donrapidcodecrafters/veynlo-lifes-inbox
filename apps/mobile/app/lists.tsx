@@ -113,6 +113,7 @@ export default function ListsScreen() {
               <Pressable accessibilityRole="button"
                 key={k.value}
                 onPress={() => setKind(k.value)}
+                          accessibilityState={{ selected: active }}
                 style={{
                   paddingVertical: 6,
                   paddingHorizontal: 12,
@@ -120,7 +121,7 @@ export default function ListsScreen() {
                   backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{k.label}</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{k.label}</Text>
               </Pressable>
             );
           })}
@@ -130,7 +131,9 @@ export default function ListsScreen() {
           <>
             <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Share with</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {/* Its sibling chip below already announced its selected state; this one did not. */}
               <Pressable accessibilityRole="button"
+                accessibilityState={{ selected: householdId === null }}
                 onPress={() => setHouseholdId(null)}
                 style={{
                   paddingVertical: 6,
@@ -139,7 +142,7 @@ export default function ListsScreen() {
                   backgroundColor: householdId === null ? theme.colors.brandDefault : theme.colors.bgSubtle,
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: householdId === null ? "#fff" : theme.colors.textSecondary }}>Just me</Text>
+                <Text style={{ fontSize: 13, fontWeight: "600", color: householdId === null ? theme.colors.textOnBrand : theme.colors.textSecondary }}>Just me</Text>
               </Pressable>
               {households.map((h) => {
                 const active = householdId === h.household.id;
@@ -147,6 +150,7 @@ export default function ListsScreen() {
                   <Pressable accessibilityRole="button"
                     key={h.household.id}
                     onPress={() => setHouseholdId(h.household.id)}
+                          accessibilityState={{ selected: active }}
                     style={{
                       paddingVertical: 6,
                       paddingHorizontal: 12,
@@ -154,7 +158,7 @@ export default function ListsScreen() {
                       backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
                     }}
                   >
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{h.household.name}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{h.household.name}</Text>
                   </Pressable>
                 );
               })}

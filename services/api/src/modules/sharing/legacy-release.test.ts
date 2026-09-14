@@ -123,8 +123,13 @@ describe("LegacyReleaseService — §35 SHARE-006", () => {
     expect(finalized.status).toBe("released");
     expect(finalized.token).toBeTruthy();
 
-    // Once released, revoke must refuse — the whole point of this status being terminal.
-    await expect(legacyRelease.revoke(id, ownerId)).rejects.toThrow();
+    // A finalized release now carries an expiry rather than being permanent.
+    const [afterFinalize] = await db
+      .select({ releaseExpiresAt: schema.legacyReleaseConfigs.releaseExpiresAt })
+      .from(schema.legacyReleaseConfigs)
+      .where(eq(schema.legacyReleaseConfigs.id, id));
+    expect(afterFinalize?.releaseExpiresAt).toBeInstanceOf(Date);
+    expect(afterFinalize!.releaseExpiresAt!.getTime()).toBeGreaterThan(Date.now());
 
     // Redemption returns exactly the selected category, nothing else.
     const packet = await legacyRelease.access(finalized.token);
@@ -302,5 +307,114 @@ describe("LegacyReleaseService — automatic inactivity trigger (scanInactivity)
     // The owner's own cancel-anytime escape hatch still works on an auto-initiated pending release.
     const cancelled = await legacyRelease.cancelPendingRelease(armedConfigId, ownerId);
     expect(cancelled.status).toBe("armed");
+  });
+});
+
+
+/**
+ * The owner's way back, and the bound on the recipient's window.
+ *
+ * Before this, a finalized release was permanent AND unrevocable: `access` checked only
+ * `status === "released"`, `revoke` threw ALREADY_RELEASED, and nothing ever cleared
+ * `releaseTokenHash`. The emailed link reached household roster, vehicles, properties, pets, identity
+ * records, documents, medications and emergency instructions — the set the emergency binder puts behind a
+ * step-up password — forever, unauthenticated, with no way for the owner to close it even while
+ * demonstrably alive and using the app.
+ *
+ * The recipient's access is deliberately NOT short-lived: settling an estate takes months. It is bounded
+ * rather than infinite, and the owner can always end it.
+ */
+describe("LegacyReleaseService — a released config expires, and the owner can still revoke it", () => {
+  let db: Database;
+  let legacyRelease: LegacyReleaseService;
+  let ownerId: string;
+  let dbAvailable = true;
+  const ownerPassword = "correct-horse-battery-staple";
+
+  async function releasedConfig() {
+    const { id } = await legacyRelease.create(ownerId, {
+      trustedContactEmail: "trusted@example.com",
+      categories: ["identity_records"],
+      waitingPeriodDays: 30,
+    } as Parameters<LegacyReleaseService["create"]>[1]);
+    await legacyRelease.confirm(id, ownerId, ownerPassword);
+    await legacyRelease.initiateRelease(id, "admin_1");
+    await db.update(schema.legacyReleaseConfigs).set({ releaseEligibleAt: new Date(Date.now() - 1000) }).where(eq(schema.legacyReleaseConfigs.id, id));
+    const finalized = await legacyRelease.finalizeRelease(id, "superadmin_1");
+    return { id, token: finalized.token as string };
+  }
+
+  beforeAll(async () => {
+    db = createDbClient(DATABASE_URL);
+    const identity = new IdentityService(db, stubQueue, stubMailer, stubOnboarding, stubAnalytics);
+    legacyRelease = new LegacyReleaseService(db, identity, new SharingService(db), {} as unknown as NotificationDeliveryService);
+    try {
+      ownerId = generateId("user");
+      await db.insert(schema.users).values({ id: ownerId, email: `legacy-expiry-${ownerId}@example.com`, passwordHash: await argon2.hash(ownerPassword), displayName: "Expiry Owner" });
+      await db.insert(schema.identityRecords).values({ id: generateId("identityRecord"), ownerUserId: ownerId, recordType: "passport", label: "US Passport" });
+    } catch {
+      dbAvailable = false;
+    }
+  });
+
+  afterAll(async () => {
+    if (dbAvailable) await db.delete(schema.users).where(eq(schema.users.id, ownerId));
+  });
+
+  it("stops resolving once the expiry has passed", async () => {
+    if (!dbAvailable) return;
+    const { id, token } = await releasedConfig();
+
+    // Works first — otherwise "stops working" proves nothing.
+    await expect(legacyRelease.access(token)).resolves.toHaveProperty("identityRecords");
+
+    await db.update(schema.legacyReleaseConfigs).set({ releaseExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.legacyReleaseConfigs.id, id));
+    await expect(legacyRelease.access(token)).rejects.toThrow();
+  });
+
+  it("treats a missing expiry as expired rather than as unlimited", async () => {
+    if (!dbAvailable) return;
+    // Migration 0068 backfills every released row, so a null here means a row that never went through
+    // finalizeRelease. Defaulting that to unlimited access is the hole this closes.
+    const { id, token } = await releasedConfig();
+    await db.update(schema.legacyReleaseConfigs).set({ releaseExpiresAt: null }).where(eq(schema.legacyReleaseConfigs.id, id));
+    await expect(legacyRelease.access(token)).rejects.toThrow();
+  });
+
+  it("lets the owner revoke a config that has already been released, and the link dies immediately", async () => {
+    if (!dbAvailable) return;
+    const { id, token } = await releasedConfig();
+    await expect(legacyRelease.access(token)).resolves.toHaveProperty("identityRecords");
+
+    const revoked = await legacyRelease.revoke(id, ownerId);
+    expect(revoked.status).toBe("revoked");
+
+    await expect(legacyRelease.access(token)).rejects.toThrow();
+
+    // The token hash is CLEARED, not merely bypassed by a status check — nothing is left in the row to
+    // redeem, so the link cannot come back if the status is ever changed again.
+    const [row] = await db
+      .select({ hash: schema.legacyReleaseConfigs.releaseTokenHash, expires: schema.legacyReleaseConfigs.releaseExpiresAt, revokedAt: schema.legacyReleaseConfigs.revokedAt })
+      .from(schema.legacyReleaseConfigs)
+      .where(eq(schema.legacyReleaseConfigs.id, id));
+    expect(row?.hash).toBeNull();
+    expect(row?.expires).toBeNull();
+    expect(row?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it("still refuses to revoke twice", async () => {
+    if (!dbAvailable) return;
+    const { id } = await releasedConfig();
+    await legacyRelease.revoke(id, ownerId);
+    await expect(legacyRelease.revoke(id, ownerId)).rejects.toThrow();
+  });
+
+  it("still refuses to revoke someone else's config", async () => {
+    if (!dbAvailable) return;
+    const { id } = await releasedConfig();
+    const strangerId = generateId("user");
+    await db.insert(schema.users).values({ id: strangerId, email: `stranger-${strangerId}@example.com`, displayName: "Stranger" });
+    await expect(legacyRelease.revoke(id, strangerId)).rejects.toThrow();
+    await db.delete(schema.users).where(eq(schema.users.id, strangerId));
   });
 });

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,7 @@ function AddVaccinationForm({ petId, onAdded }: { petId: string; onAdded: () => 
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a vaccination/license
       </button>
     );
@@ -100,7 +101,7 @@ function VaccinationRow({ vaccination }: { vaccination: PetDetail["vaccinations"
           <span className="text-primary">{vaccination.label}</span>
           {vaccination.source === "evidence_sourced" && <span className="ml-2 text-xs text-tertiary">(awaiting confirmation in Inbox)</span>}
           {vaccination.evidence && (
-            <button onClick={() => setShowEvidence((v) => !v)} className="ml-2 text-xs font-medium text-brand hover:underline">
+            <button onClick={() => setShowEvidence((v) => !v)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle ml-2 text-xs font-medium text-brand">
               {showEvidence ? "Hide why" : "Why am I seeing this?"}
             </button>
           )}
@@ -128,7 +129,7 @@ function AddRefillReminderForm({ petId, onAdded }: { petId: string; onAdded: () 
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a refill reminder
       </button>
     );
@@ -229,6 +230,9 @@ export default function PetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { data, error: fetchError, isLoading, mutate } = useSWR<PetDetail | null>(`/v1/pets/${id}`, swrFetcher);
+  // A merged record is not a missing one — its history moved. Send the user where it went rather than
+  // rendering "not found" for something that still exists under another id.
+  useMergeRedirect(fetchError, (survivingId) => `/life/pets/${survivingId}`);
   const [addingRecord, setAddingRecord] = useState(false);
   const [description, setDescription] = useState("");
   const [cost, setCost] = useState("");
@@ -316,7 +320,12 @@ export default function PetDetailPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" onClick={() => setEditingDetails((s) => !s)}>
             Edit details
           </Button>
@@ -459,7 +468,7 @@ export default function PetDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Vet visits &amp; service history</p>
             {!addingRecord && (
-              <button onClick={() => setAddingRecord(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingRecord(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a record
               </button>
             )}

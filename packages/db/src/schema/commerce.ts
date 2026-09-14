@@ -236,6 +236,20 @@ export const bills = pgTable(
     // convention elsewhere in this same table rather than a DB-level enum migration for a value set that
     // may still grow.
     billerCategory: text("biller_category"),
+    /**
+     * How the biller identifies the account — "Account ending 4321", "Acct #****8812".
+     *
+     * Extracted from bill emails since the extractor was written, and until now discarded: the schema
+     * asked for it and this table had nowhere to put it, so every bill dropped it. Found by the test that
+     * asks which extraction fields nothing reads — the same question that found DEF-102.
+     *
+     * Encrypted, and stored only when it is a LABEL rather than a number. An account identifier is the
+     * kind of value a biller prints in full, and what makes this safe to keep is that anything carrying a
+     * long run of digits is refused outright rather than trimmed — see looksLikeFullNumber. Not displayed
+     * anywhere yet: it is captured so a bill can later be matched to a specific account at a biller a
+     * household has two of.
+     */
+    accountLabel: encryptedText("account_label"),
     amountDueMinorUnits: integer("amount_due_minor_units"),
     amountDueCurrency: text("amount_due_currency"),
     dueDate: jsonb("due_date").$type<TemporalValue>().notNull(),

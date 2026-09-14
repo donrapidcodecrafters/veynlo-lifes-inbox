@@ -11,10 +11,16 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<Variant, string> = {
-  primary: "bg-brand text-on-brand hover:bg-brand-hover active:bg-brand-active shadow-xs",
+  primary: "bg-brand text-on-brand border border-brand hover:bg-brand-hover active:bg-brand-active shadow-xs",
   secondary: "bg-surface text-primary border border-border-default hover:bg-subtle",
-  ghost: "bg-transparent text-primary hover:bg-subtle",
-  critical: "bg-critical text-white hover:brightness-95",
+  // Every button carries a visible outline. Ghost previously rendered as bare text, so nothing told a
+  // user it was a control — a "Dismiss" under a card read as a caption. The other variants get a
+  // border in their own fill colour so the box geometry matches across variants in a shared row.
+  ghost: "bg-transparent text-primary border border-border-default hover:bg-subtle",
+  // Not literal white: --text-on-brand is white in light and near-black in dark, which is what a
+  // saturated fill needs in each theme. Hard-coded white measured 3.82:1 against the corrected dark
+  // critical red; the token measures 4.64:1 there and 4.91:1 in light.
+  critical: "bg-critical text-on-brand border border-critical hover:brightness-95",
 };
 
 const sizeClasses: Record<Size, string> = {

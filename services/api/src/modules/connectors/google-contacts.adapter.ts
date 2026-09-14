@@ -130,18 +130,50 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
 
   /** Upserts one Google contact into `people`/`aliases`/`contactSources` — see this class's own doc comment
    * on why this never alias-matches into an existing person at import time. */
-  private async upsertContact(connection: typeof schema.connections.$inferSelect, connectionId: string, contact: ParsedContact): Promise<boolean> {
-    const [existingSource] = await this.db
+  /**
+   * Indexes for the two lookups this sync needs, built ONCE per sync from decrypted rows.
+   *
+   * Both used to be SQL predicates on columns that are encrypted at rest — `contactSources
+   * .providerContactId` and `organizations.name`. Drizzle only decrypts on the way out
+   * (`fromDriver`), and `encryptField` uses a fresh random IV per write, so those comparisons matched
+   * a plaintext string against ciphertext and could never be true. Proven against the real database
+   * inside a rolled-back transaction: insert a row, read it back by id and its decrypted
+   * providerContactId is exactly the value written; query for that same value and it returns 0 rows.
+   *
+   * The consequence was not a missing feature, it was compounding corruption: `existingSource` was
+   * always undefined, so every sync took the "new contact" branch and inserted another person row and
+   * another contact-source row for every contact in the address book, every time. The update branch
+   * (refresh displayName, bump syncedAt) was unreachable, so a renamed contact spawned a duplicate
+   * instead of updating; the deletion branch was unreachable, so a removed contact was never marked;
+   * and `return !existingSource` was always true, reporting the entire address book as newly
+   * discovered on every run. Organizations duplicated the same way.
+   *
+   * Built once and mutated as rows are inserted, so duplicates inside a single sync are caught too.
+   * One query each, rather than one per contact — matching in JS after decryption is the only way to
+   * compare these columns, and doing it per contact would be quadratic on a large address book.
+   */
+  private async syncIndexes(connection: typeof schema.connections.$inferSelect, connectionId: string) {
+    const sourceRows = await this.db
       .select()
       .from(schema.contactSources)
-      .where(
-        and(
-          eq(schema.contactSources.connectionId, connectionId),
-          eq(schema.contactSources.provider, "google"),
-          eq(schema.contactSources.providerContactId, contact.providerContactId),
-        ),
-      )
-      .limit(1);
+      .where(and(eq(schema.contactSources.connectionId, connectionId), eq(schema.contactSources.provider, "google")));
+    const organizationRows = await this.db
+      .select()
+      .from(schema.organizations)
+      .where(eq(schema.organizations.ownerUserId, connection.ownerUserId));
+    return {
+      sources: new Map(sourceRows.filter((r) => r.providerContactId).map((r) => [r.providerContactId as string, r])),
+      organizations: new Map(organizationRows.map((r) => [r.name, r.id])),
+    };
+  }
+
+  private async upsertContact(
+    connection: typeof schema.connections.$inferSelect,
+    connectionId: string,
+    contact: ParsedContact,
+    indexes: Awaited<ReturnType<GoogleContactsAdapter["syncIndexes"]>>,
+  ): Promise<boolean> {
+    const existingSource = indexes.sources.get(contact.providerContactId);
 
     if (contact.deleted) {
       // Contact sources remain evidence of what was once synced; the canonical Person row (and any notes/
@@ -170,25 +202,27 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
         // just because it came from a household-linked connection.
         visibility: "private",
       });
-      await this.db.insert(schema.contactSources).values({
-        id: generateId("contactSource"),
+      const contactSourceId = generateId("contactSource");
+      const inserted = {
+        id: contactSourceId,
         personId,
         ownerUserId: connection.ownerUserId,
-        provider: "google",
+        provider: "google" as const,
         connectionId,
         providerContactId: contact.providerContactId,
         syncedAt: new Date(),
-      });
+      };
+      await this.db.insert(schema.contactSources).values(inserted);
+      indexes.sources.set(contact.providerContactId, inserted as (typeof indexes.sources) extends Map<string, infer V> ? V : never);
     }
 
     if (contact.organizationName) {
-      const [org] = await this.db
-        .select()
-        .from(schema.organizations)
-        .where(and(eq(schema.organizations.ownerUserId, connection.ownerUserId), eq(schema.organizations.name, contact.organizationName)))
-        .limit(1);
-      const organizationId = org?.id ?? generateId("organization");
-      if (!org) await this.db.insert(schema.organizations).values({ id: organizationId, ownerUserId: connection.ownerUserId, name: contact.organizationName });
+      const existingOrganizationId = indexes.organizations.get(contact.organizationName);
+      const organizationId = existingOrganizationId ?? generateId("organization");
+      if (!existingOrganizationId) {
+        await this.db.insert(schema.organizations).values({ id: organizationId, ownerUserId: connection.ownerUserId, name: contact.organizationName });
+        indexes.organizations.set(contact.organizationName, organizationId);
+      }
       await this.db.update(schema.people).set({ organizationId }).where(eq(schema.people.id, personId));
     }
 
@@ -209,6 +243,8 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
     try {
       const { connection, people } = await this.client(connectionId);
 
+      // Built once per sync, not per contact — see syncIndexes.
+      const indexes = await this.syncIndexes(connection, connectionId);
       let itemCount = 0;
       let pageToken: string | undefined;
       let nextSyncToken: string | null | undefined;
@@ -223,7 +259,7 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
         for (const person of list.data.connections ?? []) {
           const parsed = parsePerson(person);
           if (!parsed) continue;
-          if (await this.upsertContact(connection, connectionId, parsed)) itemCount += 1;
+          if (await this.upsertContact(connection, connectionId, parsed, indexes)) itemCount += 1;
         }
         pageToken = list.data.nextPageToken ?? undefined;
         if (list.data.nextSyncToken) nextSyncToken = list.data.nextSyncToken;
@@ -251,6 +287,8 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
     const { connection, people } = await this.client(connectionId);
     if (!connection.cursor) return this.initialSync(connectionId);
 
+    // Built once per sync, not per contact — see syncIndexes.
+    const indexes = await this.syncIndexes(connection, connectionId);
     let itemCount = 0;
     let pageToken: string | undefined;
     let nextSyncToken: string | null | undefined;
@@ -266,7 +304,7 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
         for (const person of list.data.connections ?? []) {
           const parsed = parsePerson(person);
           if (!parsed) continue;
-          if (await this.upsertContact(connection, connectionId, parsed)) itemCount += 1;
+          if (await this.upsertContact(connection, connectionId, parsed, indexes)) itemCount += 1;
         }
         pageToken = list.data.nextPageToken ?? undefined;
         if (list.data.nextSyncToken) nextSyncToken = list.data.nextSyncToken;

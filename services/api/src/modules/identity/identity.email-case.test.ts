@@ -6,6 +6,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real bug found via live audit: sign-up stored whatever case the caller sent, and sign-in compared raw
@@ -35,8 +36,7 @@ describe("IdentityService email case-insensitivity", () => {
     try {
       await db.select().from(schema.users).limit(1);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IdentityService email-case tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IdentityService email-case tests");
     }
   });
 

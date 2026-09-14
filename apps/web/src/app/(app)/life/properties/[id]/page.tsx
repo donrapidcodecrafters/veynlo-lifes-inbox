@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -89,6 +90,9 @@ export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { data, error: fetchError, isLoading, mutate } = useSWR<PropertyDetail | null>(`/v1/properties/${id}`, swrFetcher);
+  // A merged record is not a missing one — its history moved. Send the user where it went rather than
+  // rendering "not found" for something that still exists under another id.
+  useMergeRedirect(fetchError, (survivingId) => `/life/properties/${survivingId}`);
   const [addingRecord, setAddingRecord] = useState(false);
   const [description, setDescription] = useState("");
   const [cost, setCost] = useState("");
@@ -301,7 +305,12 @@ export default function PropertyDetailPage() {
             {moveIn && `Moved in ${moveIn}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" onClick={() => setSharing((s) => !s)}>
             Share
           </Button>
@@ -338,7 +347,7 @@ export default function PropertyDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Home assets</p>
             {!addingAsset && (
-              <button onClick={() => setAddingAsset(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingAsset(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add an asset
               </button>
             )}
@@ -356,10 +365,10 @@ export default function PropertyDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {openAssetRecalls.length > 0 && <Badge tone="critical">{openAssetRecalls.length} recall{openAssetRecalls.length === 1 ? "" : "s"}</Badge>}
-                    <button onClick={() => checkAssetRecalls(a.id)} disabled={checkingAssetId === a.id} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                    <button aria-label={`Check for recalls: ${a.label}`} aria-busy={checkingAssetId === a.id} onClick={() => checkAssetRecalls(a.id)} disabled={checkingAssetId === a.id} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                       {checkingAssetId === a.id ? "Checking…" : "Check for recalls"}
                     </button>
-                    <button onClick={() => removeAsset(a.id, a.label)} className="text-xs font-medium text-tertiary hover:underline">
+                    <button aria-label={`Remove ${a.label}`} onClick={() => removeAsset(a.id, a.label)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary">
                       Remove
                     </button>
                   </div>
@@ -377,10 +386,10 @@ export default function PropertyDetailPage() {
                         {r.source === "seeded_generic_guidance" && r.confidenceNote && <p className="text-xs italic text-tertiary">{r.confidenceNote}</p>}
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        <button onClick={() => completeAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                        <button aria-label={`Mark done: ${r.label}`} onClick={() => completeAssetRule(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                           Mark done
                         </button>
-                        <button onClick={() => deleteAssetRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                        <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteAssetRule(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary disabled:opacity-50">
                           Remove
                         </button>
                       </div>
@@ -418,11 +427,12 @@ export default function PropertyDetailPage() {
                   </div>
                 ) : (
                   <button
+                    aria-label={`Add maintenance rule to ${a.label}`}
                     onClick={() => {
                       setAddingRuleForAsset(a.id);
                       void loadAssetRuleTemplates(a.id);
                     }}
-                    className="ml-2 text-xs font-medium text-brand hover:underline"
+                    className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle ml-2 text-xs font-medium text-brand"
                   >
                     + Add maintenance rule
                   </button>
@@ -437,11 +447,11 @@ export default function PropertyDetailPage() {
                     {r.status !== "closed_or_repaired" && (
                       <div className="flex gap-2">
                         {r.status === "potential_match_verify_vin" && (
-                          <button onClick={() => confirmAssetRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
+                          <button aria-label={`This affects my unit: ${r.component ?? "Recall"}`} onClick={() => confirmAssetRecall(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
                             This affects my unit
                           </button>
                         )}
-                        <button onClick={() => resolveAssetRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
+                        <button aria-label={`Mark repaired: ${r.component ?? "Recall"}`} onClick={() => resolveAssetRecall(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary">
                           Mark repaired
                         </button>
                       </div>
@@ -502,7 +512,7 @@ export default function PropertyDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Maintenance history</p>
             {!addingRecord && (
-              <button onClick={() => setAddingRecord(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingRecord(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a record
               </button>
             )}

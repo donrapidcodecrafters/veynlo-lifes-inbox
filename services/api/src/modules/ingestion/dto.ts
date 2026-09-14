@@ -20,7 +20,7 @@ export type IngestUrlDto = z.infer<typeof IngestUrlDtoSchema>;
 /** A single EventKit/local-calendar event pushed from the mobile app — see IngestionService.ingestFeedCalendarEvent, the same "already a calendar event, no AI needed" write path the ICS/Google/Microsoft calendar connectors share. */
 export const DeviceCalendarEventDtoSchema = z.object({
   uid: z.string().min(1).max(500),
-  title: z.string().min(1).max(500),
+  title: z.string().trim().min(1).max(500),
   startIso: z.string().min(1),
   endIso: z.string().nullable(),
   isAllDay: z.boolean(),
@@ -36,7 +36,7 @@ export type IngestDeviceCalendarDto = z.infer<typeof IngestDeviceCalendarDtoSche
  * from the mobile app. See IngestionService.ingestDeviceReminder. */
 export const DeviceReminderDtoSchema = z.object({
   uid: z.string().min(1).max(500),
-  title: z.string().min(1).max(500),
+  title: z.string().trim().min(1).max(500),
   dueIso: z.string().nullable(),
   notes: z.string().max(2000).nullable(),
   completed: z.boolean(),

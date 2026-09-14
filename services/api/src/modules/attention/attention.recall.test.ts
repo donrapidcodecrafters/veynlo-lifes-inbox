@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { AttentionService } from "./attention.service";
 import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -45,8 +46,7 @@ describe("AttentionService.scanAndFileDeadlines — recall matches", () => {
       homeAssetId = generateId("homeAsset");
       await db.insert(schema.homeAssets).values({ id: homeAssetId, ownerUserId, propertyProfileId: propertyId, label: "Attention Test Dryer", make: "Whirlpool" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AttentionService recall tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AttentionService recall tests");
     }
   });
 

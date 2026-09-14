@@ -13,6 +13,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §AI-003 kill switch — the single most safety-relevant piece of this session's work: a real,
@@ -54,8 +55,7 @@ describe("IngestionService §AI-003 ai_extraction_paused kill switch", () => {
       // this suite starts so the first assertion below is trustworthy.
       await featureFlags.setEnabled(AI_EXTRACTION_PAUSED_FLAG_KEY, false, "test setup");
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService AI kill-switch tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService AI kill-switch tests");
     }
   });
 

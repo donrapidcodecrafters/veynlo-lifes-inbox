@@ -36,7 +36,6 @@ const LIFE_TABS = [
   { value: "health", label: "Health" },
   { value: "documents", label: "Documents" },
 ] as const;
-type LifeTab = (typeof LIFE_TABS)[number]["value"];
 
 /** TASK-003 — a short, human summary of a recurrence rule for list rows ("Repeats weekly", "Repeats every 3 days"). */
 function describeRecurrence(rule: RecurrenceRule): string {
@@ -400,7 +399,7 @@ function AddStoreCreditForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a store credit
       </button>
     );
@@ -455,7 +454,7 @@ function AddTaskForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a reminder
       </button>
     );
@@ -522,7 +521,7 @@ function AddEventForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add an event
       </button>
     );
@@ -627,7 +626,7 @@ function AddPropertyForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a property
       </button>
     );
@@ -707,7 +706,7 @@ function AddVehicleForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a vehicle
       </button>
     );
@@ -885,7 +884,7 @@ function AddSchoolSourceForm({ householdId, onAdded }: { householdId: string; on
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Subscribe to a school/team calendar feed
       </button>
     );
@@ -1117,7 +1116,7 @@ function AddPetForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a pet
       </button>
     );
@@ -1236,7 +1235,7 @@ function AddPersonForm({ organizations, onAdded }: { organizations: Organization
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a person
       </button>
     );
@@ -1494,7 +1493,7 @@ function AddHealthAppointmentForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add an appointment
       </button>
     );
@@ -1569,7 +1568,7 @@ function AddRefillReminderForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a refill reminder
       </button>
     );
@@ -1749,7 +1748,10 @@ export default function LifePage() {
           <h1 className="text-2xl font-semibold tracking-tight text-primary">Life</h1>
           <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows you own, owe, and are due back.</p>
         </div>
-        <div className="flex gap-2">
+        {/* flex-wrap is load-bearing here: five fixed-width chips do not fit a 390px viewport, and
+            without wrapping the last one ("Trips →") pushes the whole page 28px wider than the screen.
+            The earlier DEF-006 fix wrapped a different row on this page and missed this one. */}
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/timeline"
             className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
@@ -1795,11 +1797,21 @@ export default function LifePage() {
         <FetchError what="some sections of this page" message="One or more sections below may be incomplete." onRetry={retryAllSections} />
       )}
 
-      {conflicts && conflicts.length > 0 && (
+      {/* §19 — a scheduling conflict is Schedule context, not every context. This banner sat above every
+          show* gate, so it appeared on Family, Health, Home & Vehicles and Documents too. Exactly the same
+          defect as the money cards below, and it survived that fix because schedule_conflicts was empty at
+          the time — the banner could not render for anyone to notice. Now seeded, so it shows.
+          transportConflicts is NOT this: it lives inside the School & Activities section and is already
+          scoped by that section's own gate. */}
+      {showSchedule && conflicts && conflicts.length > 0 && (
         <ConflictBanner conflicts={conflicts} events={events} onResolved={() => mutateConflicts()} />
       )}
 
-      {savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
+      {/* §19 — money metrics belong to the Money context, not every context. These two cards sat ABOVE the
+          first show* gate, so picking Family to check a child's school events opened the screen with
+          subscription spend and store-credit totals instead. Gated on showMoney like every other money
+          section on this screen ("all" still shows them, which is the overview case §18 asks for). */}
+      {showMoney && savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
         <Card>
           <CardBody className="flex flex-wrap gap-6">
             <div>
@@ -1818,7 +1830,7 @@ export default function LifePage() {
         </Card>
       )}
 
-      {monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={() => mutateMonthlySpend()} />}
+      {showMoney && monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={() => mutateMonthlySpend()} />}
 
       {showSchedule && (
       <Section title="Appointments">

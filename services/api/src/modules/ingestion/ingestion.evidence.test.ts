@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Found while auditing this session's own work: `facts.evidenceIds` and the `evidence_refs` table it's
@@ -42,8 +43,7 @@ describe("IngestionService knowledge-graph evidence citations", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `evidence-test-${ownerUserId}@example.com`, displayName: "Evidence Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping evidence citation tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "evidence citation tests");
     }
   });
 

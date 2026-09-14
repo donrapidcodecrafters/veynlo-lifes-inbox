@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Inject, Param, Post, Put, UseGuards, UsePipes } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
@@ -76,6 +77,9 @@ export class IdentityRecordsController {
 
   // §28.9 step-up gate — "reveal/copy protected field." Same PASSWORD_REQUIRED/INVALID_CREDENTIALS error
   // shape as every other step-up action in this app.
+  // Reveals a raw passport/licence number behind a step-up password. Per-IP ceiling on top of the
+  // per-account counter in verifyStepUpPassword.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post(":id/reveal-document-number")
   @UsePipes(new ZodValidationPipe(RevealDocumentNumberDtoSchema))
   reveal(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: RevealDocumentNumberDto) {

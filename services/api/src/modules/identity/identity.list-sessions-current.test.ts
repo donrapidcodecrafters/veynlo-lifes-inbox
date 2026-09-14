@@ -7,6 +7,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { AnalyticsService } from "../analytics/analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Round-3 audit finding: the `/settings/security` page's whole purpose is "sign out of a device you don't
@@ -46,8 +47,7 @@ describe("IdentityService.listSessions — isCurrent", () => {
         { id: sessionBId, userId, refreshTokenHash: `hash-b-${sessionBId}`, expiresAt },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IdentityService.listSessions isCurrent tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IdentityService.listSessions isCurrent tests");
     }
   });
 

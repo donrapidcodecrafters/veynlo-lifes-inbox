@@ -57,6 +57,15 @@ export class NotificationDeliveryService {
     title: string;
     body: string;
     linkedAttentionItemId?: string | null;
+    /**
+     * Where a tap on this notification should land. Supply both or neither. Omit for anything with no
+     * single target resource (the daily and weekly briefs), which correctly opens Home.
+     *
+     * These are stored rather than derived because the target is NOT recoverable from the row otherwise:
+     * dedupeKey's "<category>:<resource-id>" convention carries the id but never the type.
+     */
+    linkedResourceType?: string | null;
+    linkedResourceId?: string | null;
     channel?: "push" | "email" | "desktop" | "in_app";
   }): Promise<{ notificationId: string } | { skipped: "duplicate" }> {
     const [existing] = await this.db
@@ -81,6 +90,8 @@ export class NotificationDeliveryService {
       title: params.title,
       body: params.body,
       linkedAttentionItemId: params.linkedAttentionItemId ?? null,
+      linkedResourceType: params.linkedResourceType ?? null,
+      linkedResourceId: params.linkedResourceId ?? null,
       state: "queued",
       scheduledFor: new Date(),
     });
@@ -147,7 +158,15 @@ export class NotificationDeliveryService {
         .orderBy(desc(schema.devices.lastActiveAt))
         .limit(1);
       if (device?.pushToken) {
-        const sent = await this.push.send(device.pushToken, notification.title, notification.body);
+        // Without this payload a tap cold-launches to the Home tab no matter what the notification was
+        // about. resourceType/resourceId are spread in only when both are present: a half-populated
+        // target is worse than none, because the device would route on type with no id to open.
+        const sent = await this.push.send(device.pushToken, notification.title, notification.body, {
+          notificationId,
+          ...(notification.linkedResourceType && notification.linkedResourceId
+            ? { resourceType: notification.linkedResourceType, resourceId: notification.linkedResourceId }
+            : {}),
+        });
         if (sent) {
           await this.db
             .update(schema.notifications)

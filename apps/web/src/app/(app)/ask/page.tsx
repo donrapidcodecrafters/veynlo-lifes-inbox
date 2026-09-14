@@ -253,6 +253,7 @@ export default function AskPage() {
         {(["ask", "search"] as const).map((m) => (
           <button
             key={m}
+            aria-pressed={mode === m}
             onClick={() => setMode(m)}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               mode === m ? "bg-surface text-primary shadow-sm" : "text-tertiary hover:text-secondary"
@@ -270,7 +271,17 @@ export default function AskPage() {
           placeholder={mode === "ask" ? "When does my warranty expire?" : "Search by merchant, order number, biller, title…"}
           className="flex-1"
         />
-        <Button type="submit" loading={mode === "ask" ? loading : searchLoading}>
+        {/* Both `ask` and `runSearch` bail on an empty question, so with the button always enabled a user
+            could press "Ask" on an empty box and get nothing at all — no message, no error, no sign the
+            press registered. Submitting empty/invalid/valid on every form in the app turned this up as the
+            one form that says nothing about empty input. Disabling until there is something to send is the
+            pattern three other forms here already use (/lists "Create list", /saved "Save",
+            /automations "Create rule"), and it makes "nothing will happen" visible instead of silent. */}
+        <Button
+          type="submit"
+          loading={mode === "ask" ? loading : searchLoading}
+          disabled={(mode === "ask" ? question : searchQuery).trim().length === 0}
+        >
           {mode === "ask" ? "Ask" : "Search"}
         </Button>
       </form>

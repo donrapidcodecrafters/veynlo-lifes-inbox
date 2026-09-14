@@ -178,7 +178,7 @@ function TransactionHistoryDisclosure({ transactionId, currency }: { transaction
 
   return (
     <div className="mt-1">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs font-medium text-brand hover:underline">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
         {open ? "Hide history" : "History"}
       </button>
       {open && (
@@ -552,10 +552,22 @@ export default function ConnectionsPage() {
                   </p>
                 )}
                 {accountToggleError && <FieldError>{accountToggleError}</FieldError>}
+                {/* An excluded account used to be de-emphasised with `opacity-50`, which dropped this row's
+                    text to 2.62:1 in dark and 2.08:1 in light — well under WCAG AA's 4.5:1, measured rather
+                    than guessed. No opacity value passes in both themes (0.8 clears dark at 4.65:1 and still
+                    fails light at 3.65:1), so opacity is the wrong mechanism for de-emphasising text. The row
+                    already says "(excluded)" in words, which is the accessible signal and does not depend on
+                    contrast at all. */}
                 {financialAccounts.map((account) => (
-                  <div key={account.id} className={`space-y-1 ${account.isIncluded ? "" : "opacity-50"}`}>
+                  <div key={account.id} className="space-y-1">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate text-primary">
+                      {/* Truncation with no tooltip clipped real account names at 390px ("Rewards Card
+                          ····1187(excluded)" showed 154 of 208px), leaving no way to tell two similarly
+                          named accounts apart. Same `title` affordance documents/page.tsx already uses. */}
+                      <span
+                        className="min-w-0 truncate text-primary"
+                        title={`${account.name}${account.mask ? ` ····${account.mask}` : ""}${account.isIncluded ? "" : " (excluded)"}`}
+                      >
                         {account.name}
                         {account.mask && <span className="text-tertiary"> ····{account.mask}</span>}
                         {!account.isIncluded && <span className="ml-1.5 text-xs font-medium text-tertiary">(excluded)</span>}
@@ -599,7 +611,10 @@ export default function ConnectionsPage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Recurring income detected</p>
                 {incomeStreams.map((stream) => (
                   <div key={stream.id} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate text-primary">
+                    <span
+                      className="min-w-0 truncate text-primary"
+                      title={`~${formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every ${stream.cadenceLabel} from ${stream.description}`}
+                    >
                       ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every {stream.cadenceLabel} from {stream.description}
                     </span>
                     <Button variant="ghost" size="sm" onClick={() => dismissIncomeStream(stream.id)}>
@@ -615,7 +630,7 @@ export default function ConnectionsPage() {
                 {financialTransactions.slice(0, 15).map((txn) => (
                   <div key={txn.id} className="text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="min-w-0 truncate text-primary">
+                      <span className="min-w-0 truncate text-primary" title={txn.merchantName ?? txn.name}>
                         {txn.merchantName ?? txn.name}
                         {txn.pending && <span className="ml-1.5 text-xs text-tertiary">(pending)</span>}
                         {(txn.matchedPurchaseId || txn.matchedBillId) && <span className="ml-1.5 text-xs text-positive-subtle-text">matched</span>}
@@ -738,8 +753,11 @@ export default function ConnectionsPage() {
                       <p className="mt-1 break-all text-xs text-tertiary">Granted access: {c.scopes.join(", ")}</p>
                     )}
                   </div>
+                  {/* The button row is intentionally NOT shrink-0: these three buttons total ~390px, so
+                      pinning them to one unshrinkable row pushed "Disconnect & delete data" 15px past a
+                      390px viewport. Wrapping stacks them on narrow screens, inline on wide ones. */}
                   {confirmingDeleteId !== c.id && (
-                    <div className="flex shrink-0 gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -779,7 +797,7 @@ export default function ConnectionsPage() {
                       <button
                         type="button"
                         onClick={() => setAiProcessing(c, null)}
-                        className="text-sm font-medium text-brand hover:underline"
+                        className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand"
                       >
                         Go back to following the account-wide setting
                       </button>
@@ -974,7 +992,7 @@ function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         <Input id="ics-name" value={feedName} onChange={(e) => setFeedName(e.target.value)} placeholder="e.g. Kid's soccer schedule" />
       </div>
       {!showAuth ? (
-        <button type="button" onClick={() => setShowAuth(true)} className="text-sm font-medium text-brand hover:underline">
+        <button type="button" onClick={() => setShowAuth(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
           This feed needs a username and password
         </button>
       ) : (
@@ -1039,7 +1057,7 @@ function ForwardingAddress({ address, onRotate }: { address: string; onRotate: (
         </Button>
       </div>
       {!confirmingRotate ? (
-        <button type="button" onClick={() => setConfirmingRotate(true)} className="text-sm font-medium text-brand hover:underline">
+        <button type="button" onClick={() => setConfirmingRotate(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
           Generate a new address
         </button>
       ) : (
@@ -1100,7 +1118,7 @@ function ExclusionsManager({ connectionId, open, onToggle }: { connectionId: str
 
   return (
     <div>
-      <button type="button" onClick={onToggle} className="text-sm font-medium text-brand hover:underline">
+      <button type="button" onClick={onToggle} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         {open ? "Hide excluded senders" : "Exclude specific senders from this connection"}
       </button>
       {open && (

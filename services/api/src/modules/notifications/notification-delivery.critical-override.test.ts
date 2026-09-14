@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { NotificationDeliveryService } from "./notification-delivery.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { EmailProvider, PushProvider } from "./notification-provider.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -79,8 +80,7 @@ describe("NotificationDeliveryService.deliver — critical quiet-hours override 
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `critical-override-${ownerUserId}@example.com`, displayName: "Critical Override Test User", timezone: "UTC" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping NotificationDeliveryService critical-override tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "NotificationDeliveryService critical-override tests");
     }
   });
 

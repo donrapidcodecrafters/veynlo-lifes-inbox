@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §40.3 "Representative state machines" — Purchase: `candidate → confirmed → fulfilled/partially
@@ -34,8 +35,7 @@ describe("CommerceService §40.3 Purchase state machine", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `purchase-lifecycle-${ownerUserId}@example.com`, displayName: "Purchase Lifecycle Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping Purchase state machine tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "Purchase state machine tests");
     }
   });
 

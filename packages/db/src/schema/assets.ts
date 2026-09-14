@@ -26,6 +26,17 @@ export const propertyProfiles = pgTable(
     address: encryptedText("address"),
     moveInDate: jsonb("move_in_date").$type<TemporalValue>(),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
+    // INERT for this table, deliberately recorded rather than removed. Nothing sets it (no DTO exposes it,
+    // no UI offers it) and no read path consults it: AssetsService/PetsService decide access with
+    // `ownerOrDelegatedHousehold` — owner, active household member, or a matching delegation scope — the
+    // same way whatever this column says. The "household" default is therefore cosmetic and grants nothing
+    // that membership does not already grant.
+    //
+    // The trap it sets: adding a "make this private" toggle that writes here would appear to work and would
+    // change nothing, because no query reads it. Contrast health_appointments and calendar_events, which
+    // genuinely filter on `visibility <> 'private'`. Note also that packages/core's
+    // DEFAULT_VISIBILITY_BY_SENSITIVITY maps every tier to "private" and has no callers — so the constant
+    // and these defaults disagree, and neither is load-bearing today.
     visibility: visibilityEnum("visibility").notNull().default("household"),
     // §40.1/40.2 "Property ... normalized full address + user property identity" / reversible merge —
     // mirrors people.mergedIntoPersonId exactly (plain text, no self-referencing FK — see that column's own
@@ -85,6 +96,17 @@ export const vehicleProfiles = pgTable(
     vinDecodedAt: timestamp("vin_decoded_at", { withTimezone: true }),
     vinDecodeAttributes: jsonb("vin_decode_attributes").$type<VinDecodedAttributes>(),
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
+    // INERT for this table, deliberately recorded rather than removed. Nothing sets it (no DTO exposes it,
+    // no UI offers it) and no read path consults it: AssetsService/PetsService decide access with
+    // `ownerOrDelegatedHousehold` — owner, active household member, or a matching delegation scope — the
+    // same way whatever this column says. The "household" default is therefore cosmetic and grants nothing
+    // that membership does not already grant.
+    //
+    // The trap it sets: adding a "make this private" toggle that writes here would appear to work and would
+    // change nothing, because no query reads it. Contrast health_appointments and calendar_events, which
+    // genuinely filter on `visibility <> 'private'`. Note also that packages/core's
+    // DEFAULT_VISIBILITY_BY_SENSITIVITY maps every tier to "private" and has no callers — so the constant
+    // and these defaults disagree, and neither is load-bearing today.
     visibility: visibilityEnum("visibility").notNull().default("household"),
     // §40.1 "Vehicle ... VIN [is the] auto-merge standard" / §40.2 reversible merge — mirrors
     // people.mergedIntoPersonId exactly (see that column's own schema doc comment).
@@ -175,6 +197,17 @@ export const petProfiles = pgTable(
     insurancePolicyNumber: encryptedText("insurance_policy_number"),
     lifecycleStatus: text("lifecycle_status").notNull().default("active"), // "active" | "deceased" | "transferred"
     sensitivity: sensitivityTierEnum("sensitivity").notNull().default("sensitive"),
+    // INERT for this table, deliberately recorded rather than removed. Nothing sets it (no DTO exposes it,
+    // no UI offers it) and no read path consults it: AssetsService/PetsService decide access with
+    // `ownerOrDelegatedHousehold` — owner, active household member, or a matching delegation scope — the
+    // same way whatever this column says. The "household" default is therefore cosmetic and grants nothing
+    // that membership does not already grant.
+    //
+    // The trap it sets: adding a "make this private" toggle that writes here would appear to work and would
+    // change nothing, because no query reads it. Contrast health_appointments and calendar_events, which
+    // genuinely filter on `visibility <> 'private'`. Note also that packages/core's
+    // DEFAULT_VISIBILITY_BY_SENSITIVITY maps every tier to "private" and has no callers — so the constant
+    // and these defaults disagree, and neither is load-bearing today.
     visibility: visibilityEnum("visibility").notNull().default("household"),
     // §40.2 reversible merge — pets have no VIN-equivalent unique identifier (see PetsService.
     // findPetMergeCandidates' own doc comment on the precision-first key used instead); mirrors

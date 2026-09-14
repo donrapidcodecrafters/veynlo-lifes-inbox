@@ -25,6 +25,8 @@ import {
   type CaregiverDayPassScanJobData,
   type LegacyReleaseInactivityScanJobData,
   type DataIntegrityScanJobData,
+  type ExpectedEventScanJobData,
+  type SearchIndexBackfillJobData,
 } from "./queue-names";
 
 /**
@@ -98,6 +100,13 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly dataIntegrityScanQueue = new Queue<DataIntegrityScanJobData>(QUEUE_NAMES.dataIntegrityScan, {
+    connection: getRedisConnection(),
+  });
+
+  private readonly expectedEventScanQueue = new Queue<ExpectedEventScanJobData>(QUEUE_NAMES.expectedEventScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly searchIndexBackfillQueue = new Queue<SearchIndexBackfillJobData>(QUEUE_NAMES.searchIndexBackfill, {
     connection: getRedisConnection(),
   });
 
@@ -369,6 +378,27 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     await this.dataIntegrityScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-integrity-scan" });
   }
 
+  /**
+   * §44.3 "search documents ... deleted/reindexed with canonical data" — reconciles search_documents
+   * against the canonical tables (see SearchBackfillService). Daily for the same reason as the orphan
+   * scan above: divergence only appears when something wrote around a domain service, which is rare, so
+   * polling harder buys nothing but load.
+   */
+  /**
+   * Notifications backlog "expected-event monitor" (absent paycheck / missing bill detection) — finds
+   * essential recurring streams whose nextExpectedDate has passed and files attention items for them
+   * (AttentionService.scanForMissingExpectedEvents). Every 6 hours rather than attentionScan’s hourly
+   * cadence: this only ever fires after a multi-day grace window has already passed, so polling more
+   * often buys nothing but load.
+   */
+  async scheduleRecurringExpectedEventScan(): Promise<void> {
+    await this.expectedEventScanQueue.add("scan", {}, { repeat: { every: 6 * 60 * 60 * 1000 }, jobId: "expected-event-scan" });
+  }
+
+  async scheduleRecurringSearchIndexBackfill(): Promise<void> {
+    await this.searchIndexBackfillQueue.add("backfill", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "search-index-backfill" });
+  }
+
   /** All queues by name, for read-only inspection (AdminService's queue-health endpoint) — every
    * `enqueue*`/`scheduleRecurring*` method above adds to exactly one of these, kept in the same order. */
   private get queuesByName(): Record<string, Queue> {
@@ -394,6 +424,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       [QUEUE_NAMES.caregiverDayPassScan]: this.caregiverDayPassScanQueue,
       [QUEUE_NAMES.legacyReleaseInactivityScan]: this.legacyReleaseInactivityScanQueue,
       [QUEUE_NAMES.dataIntegrityScan]: this.dataIntegrityScanQueue,
+      [QUEUE_NAMES.expectedEventScan]: this.expectedEventScanQueue,
+      [QUEUE_NAMES.searchIndexBackfill]: this.searchIndexBackfillQueue,
     };
   }
 
@@ -444,6 +476,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       this.caregiverDayPassScanQueue.close(),
       this.legacyReleaseInactivityScanQueue.close(),
       this.dataIntegrityScanQueue.close(),
+      this.expectedEventScanQueue.close(),
+      this.searchIndexBackfillQueue.close(),
     ]);
   }
 }

@@ -7,6 +7,7 @@ import { IdentityService } from "../identity/identity.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §48 "Product Analytics, Experimentation & Growth" — real Postgres coverage for
@@ -39,8 +40,7 @@ describe("AdminService.analyticsSummary — §48 admin product-analytics aggrega
         { id: userB, email: `analytics-summary-b-${userB}@example.com`, displayName: "Analytics Summary B" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AdminService.analyticsSummary tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AdminService.analyticsSummary tests");
     }
   });
 

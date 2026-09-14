@@ -15,7 +15,7 @@ export const PasskeyRegistrationVerifyDtoSchema = z.object({
   challengeToken: z.string().min(1),
   // A user-facing nickname for this credential (e.g. "Chrome on MacBook"), derived client-side from the
   // browser/OS at registration time — optional, since a browser that can't infer one just omits it.
-  label: z.string().max(200).nullable().optional(),
+  label: z.string().trim().max(200).nullable().optional(),
 });
 export type PasskeyRegistrationVerifyDto = z.infer<typeof PasskeyRegistrationVerifyDtoSchema>;
 

@@ -295,7 +295,11 @@ export class ConnectorsService {
           isNull(schema.connections.disconnectedAt),
           eq(schema.connections.paused, false),
         ),
-      );
+      )
+      // Least-recently-synced first. Unordered, a tick enqueued in whatever order the scan returned, so a
+      // connection could keep losing its slot to the same neighbours; this makes the rota fair and the
+      // tick reproducible. NULLs (never synced) sort first, which is the right priority anyway.
+      .orderBy(asc(schema.connections.lastSuccessfulSyncAt), asc(schema.connections.id));
   }
 
   async assertOwnership(connectionId: string, userId: string) {

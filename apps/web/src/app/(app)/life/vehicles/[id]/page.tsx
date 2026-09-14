@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, swrFetcher, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,9 @@ export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { data, error: fetchError, isLoading, mutate } = useSWR<VehicleDetail | null>(`/v1/vehicles/${id}`, swrFetcher);
+  // A merged record is not a missing one — its history moved. Send the user where it went rather than
+  // rendering "not found" for something that still exists under another id.
+  useMergeRedirect(fetchError, (survivingId) => `/life/vehicles/${survivingId}`);
   const [addingRecord, setAddingRecord] = useState(false);
   const [description, setDescription] = useState("");
   const [cost, setCost] = useState("");
@@ -168,6 +172,10 @@ export default function VehicleDetailPage() {
   const [odometerReading, setOdometerReading] = useState("");
   const [odometerError, setOdometerError] = useState<string | null>(null);
   const [addingTire, setAddingTire] = useState(false);
+  // Distinct from addingTire, which is "the add form is open". This is "a create is in flight" —
+  // without it the Add button stayed live through the POST while the fields still held their values, so a
+  // double-click wrote two identical tires (DEF-071).
+  const [addingTireBusy, setAddingTireBusy] = useState(false);
   const [tireBrand, setTireBrand] = useState("");
   const [tireModel, setTireModel] = useState("");
   const [tireSize, setTireSize] = useState("");
@@ -327,6 +335,8 @@ export default function VehicleDetailPage() {
   }
 
   async function addTire() {
+    if (addingTireBusy) return;
+    setAddingTireBusy(true);
     setTireError(null);
     const validationErrors = validateTireFields();
     if (validationErrors) {
@@ -362,6 +372,8 @@ export default function VehicleDetailPage() {
         setTireFieldErrors(Object.fromEntries(Object.entries(err.fieldErrors).map(([k, v]) => [k, v[0] ?? ""])));
       }
       setTireError(err instanceof ApiError ? err.message : "Couldn't add that tire.");
+    } finally {
+      setAddingTireBusy(false);
     }
   }
 
@@ -549,7 +561,12 @@ export default function VehicleDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap: these header actions are a fixed row of buttons over a 390px viewport. Without it
+            the row runs off the right edge — measured at 27px on the pet page, where Edit details / Share /
+            Remove total 261px. Same defect class as DEF-013 (/life nav chips) and DEF-014 (/connections
+            buttons). Applied to all four detail pages rather than only the one that overflowed today: they
+            share this exact row, and the others differ only in having fewer buttons rendered right now. */}
+        <div className="flex flex-wrap items-center gap-2">
           {vehicle.vin && (
             <Button variant="ghost" onClick={decodeVin} loading={decodingVin}>
               Decode VIN
@@ -617,11 +634,11 @@ export default function VehicleDetailPage() {
               {r.status !== "closed_or_repaired" && (
                 <div className="flex gap-2 pt-1">
                   {r.status === "potential_match_verify_vin" && (
-                    <button onClick={() => confirmRecall(r.id)} className="text-xs font-medium text-brand hover:underline">
+                    <button aria-label={`This affects my VIN: ${r.component ?? "Recall"}`} onClick={() => confirmRecall(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
                       This affects my VIN
                     </button>
                   )}
-                  <button onClick={() => resolveRecall(r.id)} className="text-xs font-medium text-tertiary hover:underline">
+                  <button aria-label={`Mark repaired / not applicable: ${r.component ?? "Recall"}`} onClick={() => resolveRecall(r.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary">
                     Mark repaired / not applicable
                   </button>
                 </div>
@@ -653,7 +670,7 @@ export default function VehicleDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Odometer</p>
             {!addingOdometer && (
-              <button onClick={() => setAddingOdometer(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingOdometer(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a reading
               </button>
             )}
@@ -692,7 +709,7 @@ export default function VehicleDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Tires</p>
             {!addingTire && (
-              <button onClick={() => setAddingTire(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingTire(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add tires
               </button>
             )}
@@ -725,10 +742,10 @@ export default function VehicleDetailPage() {
                   </div>
                   {t.status === "active" && (
                     <div className="flex shrink-0 gap-3">
-                      <button onClick={() => rotateTire(t.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                      <button aria-label={`Log rotation: ${label}`} onClick={() => rotateTire(t.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                         Log rotation
                       </button>
-                      <button onClick={() => replaceTire(t.id)} disabled={busy} className="text-xs font-medium text-critical hover:underline disabled:opacity-50">
+                      <button aria-label={`Replace ${label}`} onClick={() => replaceTire(t.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-critical disabled:opacity-50">
                         Replace
                       </button>
                     </div>
@@ -738,7 +755,7 @@ export default function VehicleDetailPage() {
                   <div className="mt-1">
                     <button
                       onClick={() => setExpandedTireId(expanded ? null : t.id)}
-                      className="text-xs font-medium text-tertiary hover:underline"
+                      className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary"
                     >
                       {expanded ? "Hide" : "Show"} rotation history ({t.rotationHistory.length})
                     </button>
@@ -822,7 +839,9 @@ export default function VehicleDetailPage() {
                 />
               )}
               <div className="flex gap-2">
-                <Button onClick={addTire}>Add</Button>
+                <Button onClick={addTire} loading={addingTireBusy}>
+                  Add
+                </Button>
                 <Button
                   variant="secondary"
                   onClick={() => {
@@ -859,7 +878,7 @@ export default function VehicleDetailPage() {
                   setAddingRule(true);
                   void loadRuleTemplates();
                 }}
-                className="text-sm font-medium text-brand hover:underline"
+                className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand"
               >
                 + Add a rule
               </button>
@@ -881,10 +900,10 @@ export default function VehicleDetailPage() {
                     {r.source === "seeded_generic_guidance" && r.confidenceNote && <p className="text-xs text-tertiary italic">{r.confidenceNote}</p>}
                   </div>
                   <div className="flex shrink-0 gap-3">
-                    <button onClick={() => completeRule(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                    <button aria-label={`Mark done: ${r.label}`} onClick={() => completeRule(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                       Mark done
                     </button>
-                    <button onClick={() => deleteRule(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                    <button aria-label={`Remove maintenance rule: ${r.label}`} onClick={() => deleteRule(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary disabled:opacity-50">
                       Remove
                     </button>
                   </div>
@@ -962,7 +981,7 @@ export default function VehicleDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Registration &amp; inspection</p>
             {!addingRegistration && (
-              <button onClick={() => setAddingRegistration(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingRegistration(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a deadline
               </button>
             )}
@@ -984,10 +1003,10 @@ export default function VehicleDetailPage() {
                 <div className="flex shrink-0 items-center gap-2">
                   {r.status === "expired" && <Badge tone="critical">Expired</Badge>}
                   {r.status === "active" && days != null && <Badge tone={days <= 14 ? "warning" : "neutral"}>{days}d left</Badge>}
-                  <button onClick={() => renewRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-brand hover:underline disabled:opacity-50">
+                  <button aria-label={`Renewed: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} onClick={() => renewRegistrationRecord(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand disabled:opacity-50">
                     Renewed
                   </button>
-                  <button onClick={() => deleteRegistrationRecord(r.id)} disabled={busy} className="text-xs font-medium text-tertiary hover:underline disabled:opacity-50">
+                  <button aria-label={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`} onClick={() => deleteRegistrationRecord(r.id)} disabled={busy} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-tertiary disabled:opacity-50">
                     Remove
                   </button>
                 </div>
@@ -1039,7 +1058,7 @@ export default function VehicleDetailPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Maintenance history</p>
             {!addingRecord && (
-              <button onClick={() => setAddingRecord(true)} className="text-sm font-medium text-brand hover:underline">
+              <button onClick={() => setAddingRecord(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
                 + Add a record
               </button>
             )}

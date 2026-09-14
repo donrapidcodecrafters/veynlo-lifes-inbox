@@ -25,7 +25,7 @@ export type IdentityRecordStatus = (typeof IDENTITY_RECORD_STATUSES)[number];
  * never returns from a normal read — see identity-records.util.ts's `identityRecordSafeColumns`. */
 export const CreateIdentityRecordDtoSchema = z.object({
   recordType: z.enum(IDENTITY_RECORD_TYPES),
-  label: z.string().min(1).max(200),
+  label: z.string().trim().min(1).max(200),
   issuingAuthority: z.string().max(200).nullable().optional(),
   documentNumber: z.string().max(200).nullable().optional(),
   issuedIso: z.string().nullable().optional(),
@@ -42,7 +42,7 @@ export type CreateIdentityRecordDto = z.infer<typeof CreateIdentityRecordDtoSche
  * is; see that method's own doc comment on IdentityRecordsService for why editing and revealing get
  * different gates, same posture `vehicleProfiles.vin` already has). */
 export const UpdateIdentityRecordDtoSchema = z.object({
-  label: z.string().min(1).max(200).optional(),
+  label: z.string().trim().min(1).max(200).optional(),
   issuingAuthority: z.string().max(200).nullable().optional(),
   documentNumber: z.string().max(200).nullable().optional(),
   issuedIso: z.string().nullable().optional(),
@@ -58,7 +58,7 @@ export type UpdateIdentityRecordDto = z.infer<typeof UpdateIdentityRecordDtoSche
 /** ID-001..005 "attach new version"/"mark renewed" — omitted fields simply carry over unchanged from the
  * record being renewed (see IdentityRecordsService.renewRecord). */
 export const RenewIdentityRecordDtoSchema = z.object({
-  label: z.string().min(1).max(200).optional(),
+  label: z.string().trim().min(1).max(200).optional(),
   issuingAuthority: z.string().max(200).nullable().optional(),
   documentNumber: z.string().max(200).nullable().optional(),
   issuedIso: z.string().nullable().optional(),
@@ -85,7 +85,7 @@ export const SetJurisdictionLinkDtoSchema = z.object({
   recordType: z.enum(IDENTITY_RECORD_TYPES),
   jurisdiction: z.string().min(1).max(20),
   url: z.string().url().max(2000),
-  label: z.string().min(1).max(200),
+  label: z.string().trim().min(1).max(200),
   sourceNote: z.string().max(1000).nullable().optional(),
 });
 export type SetJurisdictionLinkDto = z.infer<typeof SetJurisdictionLinkDtoSchema>;

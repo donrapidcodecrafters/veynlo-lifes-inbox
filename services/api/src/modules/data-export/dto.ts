@@ -14,6 +14,28 @@ export const EXPORT_CATEGORIES = [
   "documents",
   "inboxItems",
   "notifications",
+  // Everything below was missing. The nine above are what "export everything" used to mean, which left
+  // most of the Life tab — Home, Vehicles, Pets, People, Places, Trips, Lists, Saved, Identity, Finance —
+  // out of a file the user was told contained all their data. See DataExportService.buildManifest.
+  "lists",
+  "savedItems",
+  "people",
+  "pets",
+  "home",
+  "vehicles",
+  "places",
+  "trips",
+  "identityRecords",
+  "finance",
+  "storeCredits",
+  "school",
+  "healthAppointments",
+  "automations",
+  "attentionItems",
+  "notes",
+  "senderRules",
+  "entities",
+  "connections",
 ] as const;
 export type ExportCategory = (typeof EXPORT_CATEGORIES)[number];
 

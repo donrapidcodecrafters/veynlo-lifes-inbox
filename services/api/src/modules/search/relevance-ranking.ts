@@ -48,7 +48,17 @@ export function scoreRelevance(question: string, text: string): number {
   return matched / questionWords.size;
 }
 
-/** Sorts candidates by relevance to `question` (highest first) and keeps the top `limit`. Ties keep their original relative order (a stable sort), which matters when many items score 0 and there's no other signal to break ties on. */
+/**
+ * Sorts candidates by relevance to `question` (highest first) and keeps the top `limit`. Ties keep their
+ * original relative order (a stable sort), which matters when many items score 0 and there is no other
+ * signal to break ties on.
+ *
+ * IT DOES NOT FILTER. A candidate scoring 0 is still returned if it lands inside `limit`, so this ranks a
+ * known-relevant set — it does not decide relevance. MemoriesService.search used it as if it did, and so
+ * answered every query, including `zzznonsensequery12345`, with the first 30 rows of the account. Any
+ * caller facing a user-typed query wants `scoreRelevance` with an explicit `score > 0` filter instead;
+ * both call sites in this repo now do that.
+ */
 export function rankByRelevance<T>(question: string, items: T[], getText: (item: T) => string, limit: number): T[] {
   return items
     .map((item, index) => ({ item, index, score: scoreRelevance(question, getText(item)) }))

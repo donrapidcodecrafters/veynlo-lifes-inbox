@@ -1,5 +1,5 @@
 import { forwardRef, ForbiddenException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or } from "drizzle-orm";
 import { generateId, type AutomationRunState } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -42,6 +42,18 @@ import {
  * Reminders list, the unified calendar). Chosen as a fixed product decision, not configurable per rule.
  */
 export const UNDO_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * How many recent runs `listRuns` returns, on top of the ones a user still has to act on.
+ *
+ * This query used to return EVERY run the account had ever produced, ordered newest-first, with no bound —
+ * and the Automations page polls it every 15 seconds while displaying `pastRuns.slice(0, 20)`. Runs
+ * accumulate on every rule firing, so the response grew without limit while the client only ever wanted
+ * twenty of them.
+ *
+ * 50 rather than 20 so the page keeps headroom over what it renders.
+ */
+const RECENT_RUNS_LIMIT = 50;
 
 /** Only these two action kinds create a Veynlo-internal row (`tasks`/`calendar_events`) that can be
  * cleanly deleted. `notify` is deliberately excluded — by the time a run reaches "succeeded" its
@@ -160,6 +172,23 @@ export class AutomationService {
    * opposite: enabled, but always starting in the conservative `confirm_each_time` approval mode (see
    * `UpdateRuleDto` for how a user opts a specific rule into `auto_low_risk` afterward). */
   async createRuleFromText(userId: string, dto: CreateRuleFromTextDto) {
+    // Checked BEFORE the model call, both because a request that cannot succeed should not spend one and
+    // because this is an authorization boundary and belongs at the top.
+    //
+    // A rule carries its householdId onto everything it later creates: executeRun writes tasks and
+    // prepared_actions with rule.householdId, and both are read back by household (schedule.service's task
+    // list, attention.service's Needs You, household.service's open-task count). So a rule created with a
+    // household the author does not belong to injects rows into that household's shared lists every time
+    // it fires. Household ids are not guessable, but anyone who has ever seen one keeps it - a removed
+    // member is the obvious case, and "removed from the household" should end exactly this.
+    //
+    // Every sibling service that accepts a caller-supplied householdId already checks this - lists, people,
+    // identity-records, health-logistics, location and assets all do. This one did not. The gap was half
+    // known: executeRun's add_calendar_event branch notes that routing through ScheduleService.createEvent
+    // gained the membership check "the raw insert never checked", and calls a rule whose owner is no longer
+    // a member "exactly the kind of state a rule should stop acting on". That reasoning was applied to one
+    // of the three action branches and never carried back to where the household is chosen.
+    if (dto.householdId) await this.assertHouseholdMember(dto.householdId, userId);
     if (!this.ai.isConfigured()) {
       throw new ServiceUnavailableException({
         code: "AI_NOT_CONFIGURED",
@@ -261,6 +290,16 @@ export class AutomationService {
     return rule;
   }
 
+  /** Same check, same wording and same status as AssetsService's, which is the existing precedent for it. */
+  private async assertHouseholdMember(householdId: string, userId: string): Promise<void> {
+    const [membership] = await this.db
+      .select({ id: schema.householdMemberships.id })
+      .from(schema.householdMemberships)
+      .where(and(eq(schema.householdMemberships.householdId, householdId), eq(schema.householdMemberships.userId, userId), eq(schema.householdMemberships.status, "active")))
+      .limit(1);
+    if (!membership) throw new ForbiddenException({ code: "NOT_HOUSEHOLD_MEMBER", message: "You're not an active member of that household." });
+  }
+
   async updateRule(ruleId: string, userId: string, dto: UpdateRuleDto) {
     const rule = await this.ownedRule(ruleId, userId);
     // §34.1 L2 "prepare_cancellation" is spec AUTO-003's "prepare by default" posture — staging real
@@ -288,16 +327,44 @@ export class AutomationService {
     const rules = await this.db.select({ id: schema.automationRules.id, name: schema.automationRules.name }).from(schema.automationRules).where(eq(schema.automationRules.ownerUserId, userId));
     if (rules.length === 0) return [];
     const ruleNameById = new Map(rules.map((r) => [r.id, r.name]));
-    const runs = await this.db
-      .select()
-      .from(schema.automationRuns)
-      .where(
-        inArray(
-          schema.automationRuns.ruleId,
-          rules.map((r) => r.id),
-        ),
-      )
-      .orderBy(desc(schema.automationRuns.createdAt));
+    const ruleIds = rules.map((r) => r.id);
+    const undoCutoff = new Date(Date.now() - UNDO_WINDOW_MS);
+
+    // Bounded, but NOT a plain limit — that would have been the wrong fix. The Automations page derives
+    // its pending-approval list from this same response (`runs.filter(r => r.state === "approval_required")`),
+    // and an approval can sit unactioned indefinitely. Truncating to the newest N would silently hide an
+    // old pending approval, leaving the user no way to ever approve it: a correctness bug traded for a
+    // performance one.
+    //
+    // So two reads, merged. Everything the user still has to act on or can still act on, in full:
+    // approvals awaiting them, and successes still inside their undo window (`canUndo` below requires
+    // both, so those are recent by construction). Plus the newest RECENT_RUNS_LIMIT of everything, which
+    // is what "Recent activity" actually shows.
+    const [recent, stillActionable] = await Promise.all([
+      this.db
+        .select()
+        .from(schema.automationRuns)
+        .where(inArray(schema.automationRuns.ruleId, ruleIds))
+        .orderBy(desc(schema.automationRuns.createdAt))
+        .limit(RECENT_RUNS_LIMIT),
+      this.db
+        .select()
+        .from(schema.automationRuns)
+        .where(
+          and(
+            inArray(schema.automationRuns.ruleId, ruleIds),
+            or(
+              eq(schema.automationRuns.state, "approval_required"),
+              and(eq(schema.automationRuns.state, "succeeded"), gt(schema.automationRuns.updatedAt, undoCutoff)),
+            ),
+          ),
+        )
+        .orderBy(desc(schema.automationRuns.createdAt)),
+    ]);
+
+    const byId = new Map(recent.map((r) => [r.id, r]));
+    for (const run of stillActionable) byId.set(run.id, run);
+    const runs = [...byId.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     const now = Date.now();
     return runs.map((run) => {
       const action = run.commandsJson as ActionDescriptor | null;
@@ -458,6 +525,8 @@ export class AutomationService {
       await this.notifications.createAndEnqueue({
         ownerUserId: event.ownerUserId,
         dedupeKey: `automation-approval:${runId}`,
+        linkedResourceType: "automation_run",
+        linkedResourceId: runId,
         priority: "useful",
         title: `"${rule.name}" is ready to run`,
         body: "Review and approve this automation in Veynlo.",
@@ -533,6 +602,8 @@ export class AutomationService {
         await this.notifications.createAndEnqueue({
           ownerUserId,
           dedupeKey: `automation-run:${runId}`,
+          linkedResourceType: "automation_run",
+          linkedResourceId: runId,
           priority: "useful",
           title: rule.name,
           body: action.message ?? `Your automation "${rule.name}" just ran.`,

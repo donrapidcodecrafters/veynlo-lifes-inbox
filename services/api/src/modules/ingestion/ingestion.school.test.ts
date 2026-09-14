@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §25 SCH-001/006/007 — real integration test against a real Postgres, mirroring ingestion.dedup.test.ts's
@@ -49,8 +50,7 @@ describe("IngestionService.extractSchool", () => {
       householdId = generateId("household");
       await db.insert(schema.households).values({ id: householdId, name: "Test Household", billingOwnerUserId: ownerUserId });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService.extractSchool tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService.extractSchool tests");
     }
   });
 

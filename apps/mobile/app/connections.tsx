@@ -229,6 +229,7 @@ export default function ConnectionsScreen() {
   const [financialTransactions, setFinancialTransactions] = useState<FinancialTransaction[]>([]);
   const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null);
   const [incomeStreams, setIncomeStreams] = useState<IncomeStream[]>([]);
+  const [incomeStreamError, setIncomeStreamError] = useState<string | null>(null);
   const [accountToggleBusyId, setAccountToggleBusyId] = useState<string | null>(null);
   const [accountToggleError, setAccountToggleError] = useState<string | null>(null);
   const [inboundAlias, setInboundAlias] = useState<InboundAliasInfo | null>(null);
@@ -509,8 +510,15 @@ export default function ConnectionsScreen() {
 
   /** FIN-003 "confirm recurring stream / dismiss" — a user's "not income" correction. */
   async function dismissIncomeStream(id: string) {
-    await api.post(`/v1/finance/income-streams/${id}/dismiss`);
-    await load();
+    setIncomeStreamError(null);
+    try {
+      await api.post(`/v1/finance/income-streams/${id}/dismiss`);
+      await load();
+    } catch (err) {
+      // Uncaught, the failure skipped `load()` entirely: the stream stayed in the list looking exactly as
+      // if "Not income" had not been pressed.
+      setIncomeStreamError(err instanceof ApiError ? err.message : "Couldn't dismiss that. Please try again.");
+    }
   }
 
   /**
@@ -745,6 +753,7 @@ export default function ConnectionsScreen() {
                   </Button>
                 </View>
               ))}
+              {incomeStreamError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{incomeStreamError}</Text>}
             </View>
           )}
           {financialTransactions.length > 0 && (

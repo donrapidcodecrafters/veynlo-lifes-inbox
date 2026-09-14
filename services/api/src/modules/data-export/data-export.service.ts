@@ -66,7 +66,16 @@ export class DataExportService {
   }
 
   /**
-   * The actual data-gathering half — called by worker-main.ts's dataExportWorker. Covers every
+   * The actual data-gathering half — called by worker-main.ts's dataExportWorker.
+   *
+   * This comment already claimed to cover "every user-visible domain surfaced on Life/Timeline/Inbox/
+   * Settings". It did not, and had not: the manifest read 9 domains out of the ~28 the user can see, so
+   * a request for everything returned a file with no Home, Vehicles, Pets, People, Places, Trips, Lists,
+   * Saved items, Identity records, Finance, School, store credits, automations or health appointments in
+   * it — most of the Life tab — while `notIncluded` disclosed only document blobs, OAuth tokens and other
+   * members' rows. A user reading that file had no way to know what was absent.
+   *
+   * Now covers every
    * user-visible domain surfaced on Life/Timeline/Inbox/Settings; deliberately excludes document blob
    * bytes (a separate, much larger download the manifest points at instead via signed URLs the caller can
    * fetch on demand — see NOT_INCLUDED below), connector OAuth credentials, and other household members'
@@ -118,10 +127,114 @@ export class DataExportService {
             createdAt: schema.documents.createdAt,
           })
           .from(schema.documents)
-          .where(eq(schema.documents.ownerUserId, userId))
+          // Soft-deleted documents stay out: a user who deleted one and then exports should not get it
+          // back in the file. Every other domain in this manifest already filtered deletedAt; documents,
+          // personNotes, personImportantDates, maintenanceRules and registrationRecords did not.
+          .where(and(eq(schema.documents.ownerUserId, userId), isNull(schema.documents.deletedAt)))
       : [];
     const inboxItems = wants("inboxItems") ? await this.db.select().from(schema.inboxItems).where(eq(schema.inboxItems.ownerUserId, userId)) : [];
     const notifications = wants("notifications") ? await this.db.select().from(schema.notifications).where(eq(schema.notifications.ownerUserId, userId)) : [];
+
+    // ── Domains that "export everything" used to leave out entirely ────────────────────────────────────
+    // Owner-scoped exactly like the sections above. Soft-deleted rows are excluded throughout: a user
+    // asking for their data means what the app would show them, not its tombstones.
+    const ownLists = wants("lists") ? await this.db.select().from(schema.lists).where(and(eq(schema.lists.ownerUserId, userId), isNull(schema.lists.archivedAt))) : [];
+    const listIdSet = new Set(ownLists.map((l) => l.id));
+    const listItems = ownLists.length ? (await this.db.select().from(schema.savedItems)).filter((i) => listIdSet.has(i.listId)) : [];
+
+    const savedMemories = wants("savedItems") ? await this.db.select().from(schema.savedMemories).where(eq(schema.savedMemories.ownerUserId, userId)) : [];
+
+    const people = wants("people") ? await this.db.select().from(schema.people).where(and(eq(schema.people.ownerUserId, userId), isNull(schema.people.deletedAt))) : [];
+    const aliases = wants("people") ? await this.db.select().from(schema.aliases).where(eq(schema.aliases.ownerUserId, userId)) : [];
+    const organizations = wants("people") ? await this.db.select().from(schema.organizations).where(and(eq(schema.organizations.ownerUserId, userId), isNull(schema.organizations.deletedAt))) : [];
+    const personNotes = wants("people") ? await this.db.select().from(schema.personNotes).where(and(eq(schema.personNotes.ownerUserId, userId), isNull(schema.personNotes.deletedAt))) : [];
+    const personImportantDates = wants("people") ? await this.db.select().from(schema.personImportantDates).where(and(eq(schema.personImportantDates.ownerUserId, userId), isNull(schema.personImportantDates.deletedAt))) : [];
+    const personRelationships = wants("people") ? await this.db.select().from(schema.personRelationships).where(eq(schema.personRelationships.ownerUserId, userId)) : [];
+
+    const pets = wants("pets") ? await this.db.select().from(schema.petProfiles).where(and(eq(schema.petProfiles.ownerUserId, userId), isNull(schema.petProfiles.deletedAt))) : [];
+    const petVaccinations = wants("pets") ? await this.db.select().from(schema.petVaccinations).where(eq(schema.petVaccinations.ownerUserId, userId)) : [];
+
+    const properties = wants("home") ? await this.db.select().from(schema.propertyProfiles).where(and(eq(schema.propertyProfiles.ownerUserId, userId), isNull(schema.propertyProfiles.deletedAt))) : [];
+    const homeAssets = wants("home") ? await this.db.select().from(schema.homeAssets).where(and(eq(schema.homeAssets.ownerUserId, userId), isNull(schema.homeAssets.deletedAt))) : [];
+    const maintenanceRecords = wants("home") ? await this.db.select().from(schema.maintenanceRecords).where(eq(schema.maintenanceRecords.ownerUserId, userId)) : [];
+    const maintenanceRules = wants("home") ? await this.db.select().from(schema.maintenanceRules).where(and(eq(schema.maintenanceRules.ownerUserId, userId), isNull(schema.maintenanceRules.deletedAt))) : [];
+
+    const vehicles = wants("vehicles") ? await this.db.select().from(schema.vehicleProfiles).where(and(eq(schema.vehicleProfiles.ownerUserId, userId), isNull(schema.vehicleProfiles.deletedAt))) : [];
+    const odometerObservations = wants("vehicles") ? await this.db.select().from(schema.odometerObservations).where(eq(schema.odometerObservations.ownerUserId, userId)) : [];
+    const tires = wants("vehicles") ? await this.db.select().from(schema.tires).where(eq(schema.tires.ownerUserId, userId)) : [];
+    const registrationRecords = wants("vehicles") ? await this.db.select().from(schema.registrationRecords).where(and(eq(schema.registrationRecords.ownerUserId, userId), isNull(schema.registrationRecords.deletedAt))) : [];
+
+    const ownPlaces = wants("places") ? await this.db.select().from(schema.places).where(and(eq(schema.places.ownerUserId, userId), isNull(schema.places.deletedAt))) : [];
+    const geofences = wants("places") ? await this.db.select().from(schema.geofences).where(eq(schema.geofences.ownerUserId, userId)) : [];
+    const contextRules = wants("places") ? await this.db.select().from(schema.contextRules).where(eq(schema.contextRules.ownerUserId, userId)) : [];
+
+    const ownTrips = wants("trips") ? await this.db.select().from(schema.trips).where(and(eq(schema.trips.ownerUserId, userId), isNull(schema.trips.deletedAt))) : [];
+    const tripIdSet = new Set(ownTrips.map((t) => t.id));
+    const tripSegments = ownTrips.length ? (await this.db.select().from(schema.tripSegments)).filter((s) => tripIdSet.has(s.tripId)) : [];
+    const travelCredits = wants("trips") ? await this.db.select().from(schema.travelCredits).where(eq(schema.travelCredits.ownerUserId, userId)) : [];
+    const travelEstimates = wants("trips") ? await this.db.select().from(schema.travelEstimates).where(eq(schema.travelEstimates.ownerUserId, userId)) : [];
+
+    // `documentNumber` is deliberately omitted — see notIncluded. The app itself only ever reveals it
+    // through IdentityRecordsService.revealDocumentNumber's own separate step-up check, even from inside an
+    // already-unlocked emergency binder; a downloadable file full of passport numbers is not the place to
+    // relax that. Everything else about the record is here.
+    const identityRecords = wants("identityRecords")
+      ? await this.db
+          .select({
+            id: schema.identityRecords.id,
+            recordType: schema.identityRecords.recordType,
+            label: schema.identityRecords.label,
+            issuingAuthority: schema.identityRecords.issuingAuthority,
+            expirationDate: schema.identityRecords.expirationDate,
+            status: schema.identityRecords.status,
+            createdAt: schema.identityRecords.createdAt,
+          })
+          .from(schema.identityRecords)
+          .where(and(eq(schema.identityRecords.ownerUserId, userId), isNull(schema.identityRecords.deletedAt)))
+      : [];
+
+    const financialAccounts = wants("finance") ? await this.db.select().from(schema.financialAccounts).where(eq(schema.financialAccounts.ownerUserId, userId)) : [];
+    const financialTransactions = wants("finance") ? await this.db.select().from(schema.financialTransactions).where(eq(schema.financialTransactions.ownerUserId, userId)) : [];
+    const liabilities = wants("finance") ? await this.db.select().from(schema.liabilities).where(eq(schema.liabilities.ownerUserId, userId)) : [];
+    const detectedIncomeStreams = wants("finance") ? await this.db.select().from(schema.detectedIncomeStreams).where(eq(schema.detectedIncomeStreams.ownerUserId, userId)) : [];
+
+    const storeCredits = wants("storeCredits") ? await this.db.select().from(schema.storeCredits).where(eq(schema.storeCredits.ownerUserId, userId)) : [];
+
+    const schoolEvents = wants("school") ? await this.db.select().from(schema.schoolEvents).where(eq(schema.schoolEvents.ownerUserId, userId)) : [];
+    const permissionForms = wants("school") ? await this.db.select().from(schema.permissionForms).where(eq(schema.permissionForms.ownerUserId, userId)) : [];
+
+    // The health packet (buildHealthLogisticsManifest) is a separate, appointment-scoped download reached
+    // from the health screens. It is not a substitute for appearing here: a user asking for all their data
+    // should not have to know that one domain lives behind a different button.
+    const healthAppointments = wants("healthAppointments")
+      ? await this.db.select().from(schema.healthAppointments).where(and(eq(schema.healthAppointments.ownerUserId, userId), isNull(schema.healthAppointments.deletedAt)))
+      : [];
+    const refillReminders = wants("healthAppointments")
+      ? await this.db.select().from(schema.refillReminders).where(and(eq(schema.refillReminders.ownerUserId, userId), isNull(schema.refillReminders.deletedAt)))
+      : [];
+
+    const automationRules = wants("automations") ? await this.db.select().from(schema.automationRules).where(eq(schema.automationRules.ownerUserId, userId)) : [];
+    const attentionItems = wants("attentionItems") ? await this.db.select().from(schema.attentionItems).where(eq(schema.attentionItems.ownerUserId, userId)) : [];
+    const objectNotes = wants("notes") ? await this.db.select().from(schema.objectNotes).where(eq(schema.objectNotes.ownerUserId, userId)) : [];
+    const senderRules = wants("senderRules") ? await this.db.select().from(schema.senderRules).where(eq(schema.senderRules.ownerUserId, userId)) : [];
+    const entities = wants("entities") ? await this.db.select().from(schema.canonicalEntities).where(eq(schema.canonicalEntities.ownerUserId, userId)) : [];
+
+    // Metadata only. `credentialRef` is the pointer to the vault entry holding the OAuth tokens and is
+    // excluded by column selection, not by trusting a later `delete` — notIncluded already promised this.
+    const connections = wants("connections")
+      ? await this.db
+          .select({
+            id: schema.connections.id,
+            provider: schema.connections.provider,
+            health: schema.connections.health,
+            enabledCategories: schema.connections.enabledCategories,
+            createdAt: schema.connections.createdAt,
+            disconnectedAt: schema.connections.disconnectedAt,
+          })
+          .from(schema.connections)
+          .where(eq(schema.connections.ownerUserId, userId))
+      : [];
+
     const [notificationPreferences] = await this.db
       .select()
       .from(schema.notificationPreferences)
@@ -139,6 +252,7 @@ export class DataExportService {
         "Document file contents (use the app's own download links for those)",
         "Connector OAuth credentials/tokens",
         "Other household members' own private data",
+        "Identity-record document numbers (passport/licence numbers) — the app only ever reveals these behind a separate step-up check",
         ...(selectedCategories ? ["Domains not selected for this export (request a new export to include them)"] : []),
       ],
       profile: {
@@ -166,6 +280,46 @@ export class DataExportService {
       inboxItems,
       notifications,
       notificationPreferences: notificationPreferences ?? null,
+      lists: ownLists.map((l) => ({ ...l, items: listItems.filter((i) => i.listId === l.id) })),
+      savedItems: savedMemories,
+      people,
+      aliases,
+      organizations,
+      personNotes,
+      personImportantDates,
+      personRelationships,
+      pets,
+      petVaccinations,
+      properties,
+      homeAssets,
+      maintenanceRecords,
+      maintenanceRules,
+      vehicles,
+      odometerObservations,
+      tires,
+      registrationRecords,
+      places: ownPlaces,
+      geofences,
+      contextRules,
+      trips: ownTrips.map((t) => ({ ...t, segments: tripSegments.filter((s) => s.tripId === t.id) })),
+      travelCredits,
+      travelEstimates,
+      identityRecords,
+      financialAccounts,
+      financialTransactions,
+      liabilities,
+      detectedIncomeStreams,
+      storeCredits,
+      schoolEvents,
+      permissionForms,
+      healthAppointments,
+      refillReminders,
+      automationRules,
+      attentionItems,
+      objectNotes,
+      senderRules,
+      entities,
+      connections,
     };
   }
 

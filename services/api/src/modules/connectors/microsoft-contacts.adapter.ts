@@ -113,18 +113,50 @@ export class MicrosoftContactsAdapter implements OAuthConnectorAdapter {
     return { connectionId };
   }
 
-  private async upsertContact(connection: typeof schema.connections.$inferSelect, connectionId: string, contact: ParsedContact): Promise<boolean> {
-    const [existingSource] = await this.db
+  /**
+   * Indexes for the two lookups this sync needs, built ONCE per sync from decrypted rows.
+   *
+   * Both used to be SQL predicates on columns that are encrypted at rest — `contactSources
+   * .providerContactId` and `organizations.name`. Drizzle only decrypts on the way out
+   * (`fromDriver`), and `encryptField` uses a fresh random IV per write, so those comparisons matched
+   * a plaintext string against ciphertext and could never be true. Proven against the real database
+   * inside a rolled-back transaction: insert a row, read it back by id and its decrypted
+   * providerContactId is exactly the value written; query for that same value and it returns 0 rows.
+   *
+   * The consequence was not a missing feature, it was compounding corruption: `existingSource` was
+   * always undefined, so every sync took the "new contact" branch and inserted another person row and
+   * another contact-source row for every contact in the address book, every time. The update branch
+   * (refresh displayName, bump syncedAt) was unreachable, so a renamed contact spawned a duplicate
+   * instead of updating; the deletion branch was unreachable, so a removed contact was never marked;
+   * and `return !existingSource` was always true, reporting the entire address book as newly
+   * discovered on every run. Organizations duplicated the same way.
+   *
+   * Built once and mutated as rows are inserted, so duplicates inside a single sync are caught too.
+   * One query each, rather than one per contact — matching in JS after decryption is the only way to
+   * compare these columns, and doing it per contact would be quadratic on a large address book.
+   */
+  private async syncIndexes(connection: typeof schema.connections.$inferSelect, connectionId: string) {
+    const sourceRows = await this.db
       .select()
       .from(schema.contactSources)
-      .where(
-        and(
-          eq(schema.contactSources.connectionId, connectionId),
-          eq(schema.contactSources.provider, "microsoft"),
-          eq(schema.contactSources.providerContactId, contact.providerContactId),
-        ),
-      )
-      .limit(1);
+      .where(and(eq(schema.contactSources.connectionId, connectionId), eq(schema.contactSources.provider, "microsoft")));
+    const organizationRows = await this.db
+      .select()
+      .from(schema.organizations)
+      .where(eq(schema.organizations.ownerUserId, connection.ownerUserId));
+    return {
+      sources: new Map(sourceRows.filter((r) => r.providerContactId).map((r) => [r.providerContactId as string, r])),
+      organizations: new Map(organizationRows.map((r) => [r.name, r.id])),
+    };
+  }
+
+  private async upsertContact(
+    connection: typeof schema.connections.$inferSelect,
+    connectionId: string,
+    contact: ParsedContact,
+    indexes: Awaited<ReturnType<MicrosoftContactsAdapter["syncIndexes"]>>,
+  ): Promise<boolean> {
+    const existingSource = indexes.sources.get(contact.providerContactId);
 
     if (contact.deleted) {
       // See GoogleContactsAdapter.upsertContact's identical doc comment — a deletion signal never destroys
@@ -147,25 +179,27 @@ export class MicrosoftContactsAdapter implements OAuthConnectorAdapter {
         displayName: contact.displayName,
         visibility: "private",
       });
-      await this.db.insert(schema.contactSources).values({
-        id: generateId("contactSource"),
+      const contactSourceId = generateId("contactSource");
+      const inserted = {
+        id: contactSourceId,
         personId,
         ownerUserId: connection.ownerUserId,
-        provider: "microsoft",
+        provider: "microsoft" as const,
         connectionId,
         providerContactId: contact.providerContactId,
         syncedAt: new Date(),
-      });
+      };
+      await this.db.insert(schema.contactSources).values(inserted);
+      indexes.sources.set(contact.providerContactId, inserted as (typeof indexes.sources) extends Map<string, infer V> ? V : never);
     }
 
     if (contact.organizationName) {
-      const [org] = await this.db
-        .select()
-        .from(schema.organizations)
-        .where(and(eq(schema.organizations.ownerUserId, connection.ownerUserId), eq(schema.organizations.name, contact.organizationName)))
-        .limit(1);
-      const organizationId = org?.id ?? generateId("organization");
-      if (!org) await this.db.insert(schema.organizations).values({ id: organizationId, ownerUserId: connection.ownerUserId, name: contact.organizationName });
+      const existingOrganizationId = indexes.organizations.get(contact.organizationName);
+      const organizationId = existingOrganizationId ?? generateId("organization");
+      if (!existingOrganizationId) {
+        await this.db.insert(schema.organizations).values({ id: organizationId, ownerUserId: connection.ownerUserId, name: contact.organizationName });
+        indexes.organizations.set(contact.organizationName, organizationId);
+      }
       await this.db.update(schema.people).set({ organizationId }).where(eq(schema.people.id, personId));
     }
 
@@ -187,6 +221,8 @@ export class MicrosoftContactsAdapter implements OAuthConnectorAdapter {
       const [connection] = await this.db.select().from(schema.connections).where(eq(schema.connections.id, connectionId)).limit(1);
       if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
 
+      // Built once per sync, not per contact — see syncIndexes.
+      const indexes = await this.syncIndexes(connection, connectionId);
       let itemCount = 0;
       let url = `${GRAPH_BASE}/me/contacts/delta?$select=${CONTACT_SELECT}`;
       let deltaLink: string | null = null;
@@ -195,7 +231,7 @@ export class MicrosoftContactsAdapter implements OAuthConnectorAdapter {
         for (const contact of page.value) {
           const parsed = parseContact(contact);
           if (!parsed) continue;
-          if (await this.upsertContact(connection, connectionId, parsed)) itemCount += 1;
+          if (await this.upsertContact(connection, connectionId, parsed, indexes)) itemCount += 1;
         }
         if (page["@odata.deltaLink"]) deltaLink = page["@odata.deltaLink"];
         url = page["@odata.nextLink"] ?? "";
@@ -220,6 +256,8 @@ export class MicrosoftContactsAdapter implements OAuthConnectorAdapter {
     if (!connection || !connection.credentialRef) throw new Error("Connection not found or missing credentials");
     if (!connection.cursor) return this.initialSync(connectionId);
 
+    // Built once per sync, not per contact — see syncIndexes.
+    const indexes = await this.syncIndexes(connection, connectionId);
     let itemCount = 0;
     let url = connection.cursor;
     let latestDeltaLink = connection.cursor;
@@ -229,7 +267,7 @@ export class MicrosoftContactsAdapter implements OAuthConnectorAdapter {
         for (const contact of page.value) {
           const parsed = parseContact(contact);
           if (!parsed) continue;
-          if (await this.upsertContact(connection, connectionId, parsed)) itemCount += 1;
+          if (await this.upsertContact(connection, connectionId, parsed, indexes)) itemCount += 1;
         }
         if (page["@odata.deltaLink"]) latestDeltaLink = page["@odata.deltaLink"];
         url = page["@odata.nextLink"] ?? "";

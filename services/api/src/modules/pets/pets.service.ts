@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { mergedRecordException } from "../../common/merged-record";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { canCreateShareLink, generateId, type SensitivityTier, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -10,6 +11,7 @@ import { SharingService } from "../sharing/sharing.service";
 import type { CreateShareLinkDto, ResourceGrantRight } from "../sharing/dto";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CreatePetProfileDto, UpdatePetProfileDto, CreatePetVaccinationDto, CreateRefillReminderDto } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 function dateOnly(iso: string | null | undefined): TemporalValue | null {
   if (!iso) return null;
@@ -71,13 +73,14 @@ export class PetsService {
     const grantedIds = await this.sharing.grantedResourceIds("pet", userId);
     const baseCondition = await this.ownerOrDelegatedHousehold(userId, schema.petProfiles.ownerUserId, schema.petProfiles.householdId);
     const accessCondition = grantedIds.length > 0 ? or(baseCondition, inArray(schema.petProfiles.id, grantedIds))! : baseCondition;
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.petProfiles)
       // §40.2 — a merged-away pet (mergedIntoPetId set) is excluded from ordinary list queries, same as
       // deletedAt, but never hard-deleted — see mergePets' own doc comment.
-      .where(and(isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId), accessCondition))
-      .orderBy(asc(schema.petProfiles.label));
+      .where(and(isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId), accessCondition));
+    // `label` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.label, (r) => r.id));
   }
 
   async create(userId: string, dto: CreatePetProfileDto): Promise<{ id: string }> {
@@ -112,8 +115,10 @@ export class PetsService {
 
   async detail(petId: string, userId: string) {
     const [pet] = await this.db.select().from(schema.petProfiles).where(eq(schema.petProfiles.id, petId)).limit(1);
-    if (!pet || pet.deletedAt || pet.mergedIntoPetId) return null;
+    if (!pet || pet.deletedAt) return null;
+    // Authorise before the merged branch below discloses the surviving id.
     await this.assertPetAccess(pet.ownerUserId, pet.householdId, userId, { resourceType: "pet", resourceId: petId });
+    if (pet.mergedIntoPetId) throw mergedRecordException("pet", pet.mergedIntoPetId);
     // SHARE-001 "optional message" — same reasoning as ListsService.listDetail.
     const sharedNote = (await this.isOwnerOrHousehold(pet.ownerUserId, pet.householdId, userId)) ? null : await this.sharing.grantMessage("pet", petId, userId);
     const [vaccinationRows, maintenance, refillReminders, bills] = await Promise.all([
@@ -615,9 +620,10 @@ export class PetsService {
   }
 
   private assertPublicLinkAllowed(sensitivity: string): void {
-    // Same gate as AssetsService.assertPublicLinkAllowed — a microchip number at "highly_sensitive"/
-    // "secret" shouldn't get an unauthenticated, internet-reachable link.
-    if (sensitivity === "highly_sensitive" || sensitivity === "secret") {
+    // A microchip number at "highly_sensitive"/"secret" shouldn't get an unauthenticated,
+    // internet-reachable link. Asks the shared rule rather than restating the tier list, so this cannot
+    // drift away from DocumentsService and AssetsService the way it previously could.
+    if (!canCreateShareLink(sensitivity as SensitivityTier)) {
       throw new ForbiddenException({
         code: "SENSITIVITY_BLOCKS_PUBLIC_LINK",
         message: "This pet's sensitivity level doesn't allow public share links. Share it directly with someone's Veynlo account instead.",

@@ -61,11 +61,17 @@ export default function CalendarTrustScreen() {
     }
   }
 
+  // The add path already surfaced its failure through addError; remove never did.
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function removeRule(id: string) {
     setRemovingId(id);
+    setActionError(null);
     try {
       await api.delete(`/v1/inbox/reschedule-trust-rules/${id}`);
       load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't remove that sender. Please try again.");
     } finally {
       setRemovingId(null);
     }
@@ -73,6 +79,7 @@ export default function CalendarTrustScreen() {
 
   return (
     <Screen>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <ScreenHeader
         title="Trusted reschedule senders"
         subtitle="By default, a reschedule email offers the change for you to review instead of applying it automatically. Add a sender here to let future reschedule emails from them apply automatically."

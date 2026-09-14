@@ -11,9 +11,26 @@ export interface EmailProvider {
   send(params: { to: string; subject: string; text: string; html?: string }): Promise<void>;
 }
 
+/**
+ * Data payload carried alongside a push so tapping it can open the thing it is about. Expo delivers this
+ * verbatim to the device, where the response listener maps `resourceType` to a route.
+ *
+ * `resourceType`/`resourceId` are absent for notifications with no single target — the daily and weekly
+ * briefs — which correctly open Home.
+ */
+export interface PushDeepLink {
+  notificationId: string;
+  resourceType?: string;
+  resourceId?: string;
+  // Expo types ExpoPushMessage["data"] as Record<string, unknown>, and an interface without an index
+  // signature is not assignable to one. Declared here rather than widening the field to `any` at the
+  // call site, so the three fields above stay named and checked.
+  [key: string]: unknown;
+}
+
 export interface PushProvider {
   /** Returns whether delivery was accepted — false covers both a malformed token and a provider-side error. */
-  send(pushToken: string, title: string, body: string): Promise<boolean>;
+  send(pushToken: string, title: string, body: string, data?: PushDeepLink): Promise<boolean>;
 }
 
 /** See queue-producer.interface.ts's identical doc comment for why explicit tokens are needed. */

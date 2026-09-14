@@ -328,7 +328,7 @@ function AddSegmentForm({ tripId, onAdded }: { tripId: string; onAdded: () => vo
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a segment
       </button>
     );

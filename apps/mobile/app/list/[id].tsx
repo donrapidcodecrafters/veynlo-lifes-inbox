@@ -6,6 +6,7 @@ import { useOfflineMutationQueue } from "@/lib/offline-mutation-queue";
 import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -319,9 +320,7 @@ export default function ListDetailScreen() {
                   </Pressable>
                 )}
                 {canManage && (
-                  <Pressable onPress={() => deleteItem(item.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove ${item.label}`}>
-                    <Text style={{ fontSize: 13, color: theme.colors.critical }}>Remove</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => deleteItem(item.id)} tone="critical" accessibilityLabel={`Remove ${item.label}`}>Remove</InlineButton>
                 )}
               </View>
               {isAssigning && (
@@ -337,7 +336,7 @@ export default function ListDetailScreen() {
                       backgroundColor: !item.assignedToUserId ? theme.colors.brandDefault : theme.colors.bgSubtle,
                     }}
                   >
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: !item.assignedToUserId ? "#fff" : theme.colors.textSecondary }}>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: !item.assignedToUserId ? theme.colors.textOnBrand : theme.colors.textSecondary }}>
                       Unassigned
                     </Text>
                   </Pressable>
@@ -356,7 +355,7 @@ export default function ListDetailScreen() {
                           backgroundColor: active ? theme.colors.brandDefault : theme.colors.bgSubtle,
                         }}
                       >
-                        <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.colors.textSecondary }}>{memberLabel(m)}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.colors.textOnBrand : theme.colors.textSecondary }}>{memberLabel(m)}</Text>
                       </Pressable>
                     );
                   })}

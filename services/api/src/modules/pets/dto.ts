@@ -6,7 +6,7 @@ import { z } from "zod";
  * guidance; `microchipNumber` is genuinely identifying and stored encrypted (petProfiles.microchipNumber).
  */
 export const CreatePetProfileDtoSchema = z.object({
-  label: z.string().min(1).max(120),
+  label: z.string().trim().min(1).max(120),
   species: z.string().max(60).nullable().optional(),
   breed: z.string().max(60).nullable().optional(),
   birthDateIso: z.string().nullable().optional(),
@@ -26,7 +26,7 @@ export type CreatePetProfileDto = z.infer<typeof CreatePetProfileDtoSchema>;
  * pet's vaccination/vet-visit/insurance history stays queryable (see petProfiles' own schema doc comment).
  */
 export const UpdatePetProfileDtoSchema = z.object({
-  label: z.string().min(1).max(120).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
   species: z.string().max(60).nullable().optional(),
   breed: z.string().max(60).nullable().optional(),
   birthDateIso: z.string().nullable().optional(),
@@ -55,7 +55,7 @@ export type UpdatePetProfileDto = z.infer<typeof UpdatePetProfileDtoSchema>;
  * set server-side, never accepted from the client (see PetsService.addVaccination).
  */
 export const CreatePetVaccinationDtoSchema = z.object({
-  label: z.string().min(1).max(120),
+  label: z.string().trim().min(1).max(120),
   documentId: z.string().nullable().optional(),
   expirationDateIso: z.string().nullable().optional(),
 });

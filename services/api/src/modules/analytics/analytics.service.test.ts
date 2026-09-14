@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { AnalyticsService, sanitizeAnalyticsProperties, toAnalyticsPlatform } from "./analytics.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §48 "Product Analytics, Experimentation & Growth" — real Postgres coverage for the first-party analytics
@@ -32,8 +33,7 @@ describe("AnalyticsService — §48 product-analytics event log", () => {
       householdId = generateId("household");
       await db.insert(schema.households).values({ id: householdId, name: "Analytics Test Household", billingOwnerUserId: userId });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AnalyticsService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AnalyticsService tests");
     }
   });
 

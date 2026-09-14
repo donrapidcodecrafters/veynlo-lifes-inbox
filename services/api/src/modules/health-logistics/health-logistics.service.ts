@@ -201,6 +201,7 @@ export class HealthLogisticsService {
   async deleteAppointment(id: string, userId: string): Promise<void> {
     await this.assertOwnedAppointment(id, userId);
     await this.db.update(schema.healthAppointments).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(schema.healthAppointments.id, id));
+    await this.searchIndex?.markDeleted("health_appointment", id);
   }
 
   async createAppointmentGrant(id: string, userId: string, granteeEmail: string, expiresInDays?: number) {

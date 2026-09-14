@@ -14,6 +14,7 @@ import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { PreferencesService } from "../preferences/preferences.service";
 import type { DocumentsService } from "../documents/documents.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -69,8 +70,7 @@ describe("SearchIndexService — end-to-end wiring through PetsService and Searc
         { id: otherUserId, email: `search-index-other-${otherUserId}@example.com`, displayName: "Search Index Test Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping SearchIndexService wiring tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "SearchIndexService wiring tests");
     }
   });
 

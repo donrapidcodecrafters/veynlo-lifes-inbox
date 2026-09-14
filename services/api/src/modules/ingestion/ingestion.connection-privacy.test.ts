@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -61,8 +62,7 @@ describe("IngestionService — per-connection AI toggle and sender exclusion", (
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `conn-privacy-${ownerUserId}@example.com`, displayName: "Connection Privacy Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping connection-privacy ingestion tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "connection-privacy ingestion tests");
     }
   });
 

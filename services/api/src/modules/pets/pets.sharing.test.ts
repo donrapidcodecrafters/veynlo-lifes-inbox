@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { PetsService } from "./pets.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "object sharing" (spec SHARE-001/SHARE-002), generalized onto pets exactly the way
@@ -44,8 +45,7 @@ describe("PetsService sharing", () => {
         { id: strangerUserId, email: `pet-share-stranger-${strangerUserId}@example.com`, displayName: "Stranger" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping pet sharing tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "pet sharing tests");
     }
   });
 

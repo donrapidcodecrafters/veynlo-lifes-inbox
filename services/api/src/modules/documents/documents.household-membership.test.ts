@@ -10,6 +10,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MalwareScannerService } from "./malware-scanner.service";
 import type { HouseholdService } from "../household/household.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real bug found via a live cross-service audit this session: `ownerOrDelegatedHousehold` (here and in
@@ -76,8 +77,7 @@ describe("DocumentsService household membership visibility", () => {
       });
       await db.update(schema.documents).set({ currentVersionId: versionId }).where(eq(schema.documents.id, documentId));
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping DocumentsService household-membership tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "DocumentsService household-membership tests");
     }
   });
 

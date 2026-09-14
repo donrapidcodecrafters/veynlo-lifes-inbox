@@ -22,7 +22,22 @@ import { DropboxAdapter } from "./dropbox.adapter";
 import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./microsoft-todo.adapter";
 import { PlaidAdapter } from "./plaid.adapter";
-import { IcsConnectDtoSchema, type IcsConnectDto, PlaidExchangeDtoSchema, type PlaidExchangeDto } from "./dto";
+import {
+  IcsConnectDtoSchema,
+  type IcsConnectDto,
+  PlaidExchangeDtoSchema,
+  type PlaidExchangeDto,
+  SetWriteBackDtoSchema,
+  type SetWriteBackDto,
+  DisconnectConnectionDtoSchema,
+  type DisconnectConnectionDto,
+  SetAiProcessingDtoSchema,
+  type SetAiProcessingDto,
+  SetPausedDtoSchema,
+  type SetPausedDto,
+  AddExclusionDtoSchema,
+  type AddExclusionDto,
+} from "./dto";
 
 /**
  * Deliberately no class-level `@UseGuards(AuthGuard)` — the four OAuth `*Callback` routes below must NOT
@@ -271,8 +286,9 @@ export class ConnectorsController {
    * (409); the client is expected to fall back to the reconnect flow above. */
   @Patch(":connectionId/write-back")
   @UseGuards(AuthGuard)
-  async setWriteBack(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body("enabled") enabled: boolean) {
-    await this.connectors.setWriteBack(connectionId, user.userId, Boolean(enabled));
+  @UsePipes(new ZodValidationPipe(SetWriteBackDtoSchema))
+  async setWriteBack(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body() dto: SetWriteBackDto) {
+    await this.connectors.setWriteBack(connectionId, user.userId, dto.enabled);
     return { success: true };
   }
 
@@ -583,13 +599,13 @@ export class ConnectorsController {
 
   @Post(":connectionId/disconnect")
   @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DisconnectConnectionDtoSchema))
   async disconnect(
     @CurrentUser() user: AuthenticatedUser,
     @Param("connectionId") connectionId: string,
-    @Body("deleteDerivedData") deleteDerivedData?: boolean,
-    @Body("password") password?: string,
+    @Body() dto: DisconnectConnectionDto,
   ) {
-    await this.connectors.disconnect(connectionId, user.userId, Boolean(deleteDerivedData), password);
+    await this.connectors.disconnect(connectionId, user.userId, dto.deleteDerivedData ?? false, dto.password);
     return { success: true };
   }
 
@@ -597,21 +613,23 @@ export class ConnectorsController {
    * the account-wide setting; true/false pins this connection. See ConnectorsService.setAiProcessingOverride. */
   @Patch(":connectionId/ai-processing")
   @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(SetAiProcessingDtoSchema))
   async setAiProcessing(
     @CurrentUser() user: AuthenticatedUser,
     @Param("connectionId") connectionId: string,
-    @Body("enabled") enabled: boolean | null,
+    @Body() dto: SetAiProcessingDto,
   ) {
-    await this.connectors.setAiProcessingOverride(connectionId, user.userId, enabled);
-    return { success: true, enabled };
+    await this.connectors.setAiProcessingOverride(connectionId, user.userId, dto.enabled);
+    return { success: true, enabled: dto.enabled };
   }
 
   /** PRIV-001 "pause/resume a connection without disconnecting it." */
   @Patch(":connectionId/pause")
   @UseGuards(AuthGuard)
-  async setPaused(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body("paused") paused: boolean) {
-    await this.connectors.setPaused(connectionId, user.userId, Boolean(paused));
-    return { success: true, paused: Boolean(paused) };
+  @UsePipes(new ZodValidationPipe(SetPausedDtoSchema))
+  async setPaused(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body() dto: SetPausedDto) {
+    await this.connectors.setPaused(connectionId, user.userId, dto.paused);
+    return { success: true, paused: dto.paused };
   }
 
   /** PRIV-001 "exclude specific senders" — simple per-connection list management. */
@@ -623,8 +641,9 @@ export class ConnectorsController {
 
   @Post(":connectionId/exclusions")
   @UseGuards(AuthGuard)
-  async addExclusion(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body("excludedSenderDomain") excludedSenderDomain: string) {
-    return this.connectors.addExclusion(connectionId, user.userId, String(excludedSenderDomain ?? ""));
+  @UsePipes(new ZodValidationPipe(AddExclusionDtoSchema))
+  async addExclusion(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body() dto: AddExclusionDto) {
+    return this.connectors.addExclusion(connectionId, user.userId, dto.excludedSenderDomain);
   }
 
   @Delete(":connectionId/exclusions/:exclusionId")

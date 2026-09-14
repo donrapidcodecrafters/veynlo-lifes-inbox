@@ -26,6 +26,31 @@ describe("isWithinQuietHours", () => {
     expect(isWithinQuietHours(prefs, utcAt(12, 0), "UTC")).toBe(false);
   });
 
+/**
+   * Found by the Mac while testing the Notifications toggles: nothing validated these strings at any layer,
+   * so "notatime" reached the database intact — and this function did not throw or disable quiet hours when
+   * it read it back. `"notatime".split(":").map(Number)` is `[NaN]`, and `NaN ?? 0` is NaN, because nullish
+   * coalescing only catches null and undefined. Every comparison against NaN is false, so the wrap-past-
+   * midnight branch was taken and the window silently became 00:00 to whatever the END time said.
+   *
+   * Silently muting someone's notifications from midnight is worse than either alternative: worse than
+   * rejecting the input, and worse than crashing, because nothing anywhere says it happened.
+   */
+  it("treats an unparseable time as no quiet hours at all, rather than inventing a window from midnight", () => {
+    const garbageStart = { quietHoursStart: "notatime", quietHoursEnd: "07:00" };
+    // 03:00 sits inside the phantom 00:00-07:00 window this used to compute.
+    expect(isWithinQuietHours(garbageStart, utcAt(3, 0), "UTC")).toBe(false);
+    expect(isWithinQuietHours(garbageStart, utcAt(9, 0), "UTC")).toBe(false);
+
+    const garbageEnd = { quietHoursStart: "22:00", quietHoursEnd: "" };
+    expect(isWithinQuietHours(garbageEnd, utcAt(23, 0), "UTC")).toBe(false);
+
+    // Shapes that parse to a number but are not a time of day.
+    expect(isWithinQuietHours({ quietHoursStart: "25:00", quietHoursEnd: "07:00" }, utcAt(3, 0), "UTC")).toBe(false);
+    expect(isWithinQuietHours({ quietHoursStart: "12", quietHoursEnd: "14:00" }, utcAt(13, 0), "UTC")).toBe(false);
+    expect(isWithinQuietHours({ quietHoursStart: "12:99", quietHoursEnd: "14:00" }, utcAt(13, 0), "UTC")).toBe(false);
+  });
+
   it("treats an identical start/end as always-off rather than always-on", () => {
     expect(isWithinQuietHours({ quietHoursStart: "09:00", quietHoursEnd: "09:00" }, utcAt(9, 0), "UTC")).toBe(false);
   });

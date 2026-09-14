@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { mergedRecordException } from "../../common/merged-record";
 import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { generateId, isIdOfKind, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
@@ -17,6 +18,7 @@ import type {
   AddPersonRelationshipDto,
   CreateOrganizationDto,
 } from "./dto";
+import { byDecryptedText } from "../../common/sort-by-decrypted";
 
 /** Suggestion-only, deliberately tiny inference table (PEO-003 "avoid sensitive identity inference beyond
  * product need" / "inferred labels stay candidate unless high-confidence benign context") — maps a
@@ -110,6 +112,26 @@ export class PeopleService {
     return person;
   }
 
+  /**
+   * The read path's version of loadPerson: a merged person is reported as merged, with the id it was
+   * merged into, so the client can redirect rather than showing "Person not found" for a record whose
+   * history simply moved.
+   *
+   * Deliberately separate from loadPerson, which every WRITE on this service uses. You cannot add a phone
+   * number to a record that no longer exists, so those must keep failing outright — merging is not an
+   * invitation to edit the thing that was merged away.
+   */
+  private async loadPersonForRead(personId: string, userId: string): Promise<typeof schema.people.$inferSelect> {
+    const [person] = await this.db.select().from(schema.people).where(eq(schema.people.id, personId)).limit(1);
+    if (!person || person.deletedAt) throw new NotFoundException({ code: "PERSON_NOT_FOUND", message: "Person not found." });
+    if (person.mergedIntoPersonId) {
+      // Authorise against the MERGED record before disclosing where it went.
+      await this.assertAccess(person, userId);
+      throw mergedRecordException("person", person.mergedIntoPersonId);
+    }
+    return person;
+  }
+
   private async assertOwned(personId: string, userId: string, requiredRight: ResourceGrantRight = "edit") {
     const person = await this.loadPerson(personId);
     if (person.ownerUserId === userId) return person;
@@ -123,11 +145,12 @@ export class PeopleService {
 
   async list(userId: string) {
     const access = await this.accessCondition(userId);
-    return this.db
+    const rows = await this.db
       .select()
       .from(schema.people)
-      .where(and(access, isNull(schema.people.deletedAt), isNull(schema.people.mergedIntoPersonId)))
-      .orderBy(asc(schema.people.displayName));
+      .where(and(access, isNull(schema.people.deletedAt), isNull(schema.people.mergedIntoPersonId)));
+    // `displayName` is encrypted at rest, so ORDER BY was sorting ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.displayName, (r) => r.id));
   }
 
   async create(userId: string, dto: CreatePersonDto): Promise<{ id: string }> {
@@ -178,7 +201,7 @@ export class PeopleService {
   }
 
   async detail(personId: string, userId: string) {
-    const person = await this.loadPerson(personId);
+    const person = await this.loadPersonForRead(personId, userId);
     await this.assertAccess(person, userId);
     const sharedNote = (await this.isOwnerOrHousehold(person.ownerUserId, person.householdId, person.visibility, userId))
       ? null
@@ -338,7 +361,12 @@ export class PeopleService {
   // ---------------------------------------------------------------------------------------------------
 
   async listOrganizations(userId: string) {
-    return this.db.select().from(schema.organizations).where(and(eq(schema.organizations.ownerUserId, userId), isNull(schema.organizations.deletedAt))).orderBy(asc(schema.organizations.name));
+    const rows = await this.db
+      .select()
+      .from(schema.organizations)
+      .where(and(eq(schema.organizations.ownerUserId, userId), isNull(schema.organizations.deletedAt)));
+    // `name` is encrypted at rest, so ORDER BY sorted ciphertext — see byDecryptedText.
+    return rows.sort(byDecryptedText((r) => r.name, (r) => r.id));
   }
 
   async createOrganization(userId: string, dto: CreateOrganizationDto): Promise<{ id: string }> {

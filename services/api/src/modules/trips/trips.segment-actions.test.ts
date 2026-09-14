@@ -11,6 +11,7 @@ import type { HouseholdService } from "../household/household.service";
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 import type { AssetsService } from "../assets/assets.service";
 import type { MemoriesService } from "../memories/memories.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -59,8 +60,7 @@ describe("TripsService — segment actions", () => {
       tripId = generateId("trip");
       await db.insert(schema.trips).values({ id: tripId, ownerUserId, label: "Test trip", travelerUserIds: [ownerUserId] });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping TripsService segment-action tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "TripsService segment-action tests");
     }
   });
 

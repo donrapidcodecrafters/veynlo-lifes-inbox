@@ -13,6 +13,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real integration test against a real Postgres, mirroring ingestion.dedup.test.ts's own shape (skips
@@ -50,8 +51,7 @@ describe("IngestionService — real event-bus emission", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `ingestion-events-${ownerUserId}@example.com`, displayName: "Ingestion Events Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IngestionService event-bus tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IngestionService event-bus tests");
     }
   });
 

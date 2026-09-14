@@ -3,7 +3,7 @@ import { z } from "zod";
 /** TRIP-001 "Create trip from connected confirmations or MANUAL SEED" — the fallback path when no
  * ingested segment exists yet (or the user just wants to start planning ahead of any confirmation email). */
 export const CreateTripDtoSchema = z.object({
-  label: z.string().min(1).max(200).nullable().optional(),
+  label: z.string().trim().min(1).max(200).nullable().optional(),
   destinationLabel: z.string().min(1).max(200).nullable().optional(),
   startDateIso: z.string().nullable().optional(),
   endDateIso: z.string().nullable().optional(),
@@ -12,7 +12,7 @@ export const CreateTripDtoSchema = z.object({
 export type CreateTripDto = z.infer<typeof CreateTripDtoSchema>;
 
 export const UpdateTripDtoSchema = z.object({
-  label: z.string().min(1).max(200).optional(),
+  label: z.string().trim().min(1).max(200).optional(),
   status: z.enum(["upcoming", "active", "completed", "cancelled"]).optional(),
 });
 export type UpdateTripDto = z.infer<typeof UpdateTripDtoSchema>;

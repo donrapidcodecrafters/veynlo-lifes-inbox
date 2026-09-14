@@ -6,6 +6,7 @@ import { CommerceService } from "./commerce.service";
 import { resolvePriceAdjustmentPolicy, priceAdjustmentDeadline, daysUntil, DEFAULT_PRICE_ADJUSTMENT_WINDOW_DAYS } from "./price-adjustment-policy";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * RET-004 "Policy engine stores sourced retailer terms with effective dates; deadline calculator" —
@@ -17,6 +18,23 @@ import type { HouseholdService } from "../household/household.service";
  * ingestion.price-adjustment-policy.test.ts; this file is the read/policy-resolution/user-override half.
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
+
+/**
+ * Fixtures pin `effectiveFrom` to a fixed past instant rather than letting the column default to the
+ * database's `now()`. That default is why CI failed intermittently on
+ * "a merchant with a specific commonly_known policy resolves to that window" with `expected 30 to be 14`:
+ *
+ *   effective_from is `timestamp with time zone` at datetime_precision 6 (MICROseconds), defaulting to
+ *   now(). resolvePriceAdjustmentPolicy filters `lte(effectiveFrom, now)` where `now` is a JavaScript
+ *   `new Date()` — MILLIsecond precision. A row written at ...123456 is therefore NOT <= a `now` of
+ *   ...123000, so the policy is skipped and the flat 30-day default returned instead.
+ *
+ * The window is sub-millisecond, which is why it failed roughly one run in ten rather than every time. The
+ * product behaviour is fine — a policy that becomes effective in the future genuinely should not apply —
+ * so the fix belongs in the fixtures, which have no reason to depend on the clock at all.
+ */
+const FIXTURE_EFFECTIVE_FROM = new Date("2020-01-01T00:00:00.000Z");
+
 const stubHouseholds = {
   delegatedHouseholdIds: async () => [],
   activeHouseholdIds: async () => [],
@@ -40,8 +58,7 @@ describe("RET-004 price-adjustment policy resolution and purchase-detail display
         { id: otherUserId, email: `padj-policy-${otherUserId}@example.com`, displayName: "Policy Test Other User" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping RET-004 policy resolution tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "RET-004 policy resolution tests");
     }
   });
 
@@ -63,6 +80,7 @@ describe("RET-004 price-adjustment policy resolution and purchase-detail display
       windowDays: 14,
       confidence: "commonly_known",
       sourceNote: "Test fixture.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     const resolved = await resolvePriceAdjustmentPolicy(db, merchantId, ownerUserId);
@@ -98,6 +116,7 @@ describe("RET-004 price-adjustment policy resolution and purchase-detail display
       windowDays: 30,
       confidence: "assumed",
       sourceNote: "Seeded global guess — not confirmed.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     // Before any correction, both users see the seeded "assumed" fact.
@@ -141,6 +160,7 @@ describe("RET-004 price-adjustment policy resolution and purchase-detail display
       windowDays: 20,
       confidence: "commonly_known",
       sourceNote: "Test fixture: a real 20-day policy.",
+      effectiveFrom: FIXTURE_EFFECTIVE_FROM,
     });
 
     const purchaseId = generateId("purchase");
