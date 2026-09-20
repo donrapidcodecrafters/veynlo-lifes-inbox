@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
-import type { AttentionService } from "../attention/attention.service";
-import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
+import type { HouseholdService } from "../household/household.service";
+import type { SharingService } from "../sharing/sharing.service";
 import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
@@ -16,8 +16,12 @@ import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
  * shipment whose carrier cannot be established gets NO link rather than a wrong one.
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const stubAttention = { fileIfNew: async () => {} } as unknown as AttentionService;
-const stubNotifications = { createAndEnqueue: async () => ({ notificationId: "ntf" }) } as unknown as NotificationDeliveryService;
+// CommerceService takes (db, households, sharing, searchIndex?). The first version of this file passed
+// an AttentionService and a NotificationDeliveryService — which vitest runs perfectly happily, because
+// nothing in these tests calls either one, and only `tsc` ever noticed. Adding a test file and running
+// only the suite and the linter is how a type error reaches a commit.
+const stubHouseholds = {} as unknown as HouseholdService;
+const stubSharing = {} as unknown as SharingService;
 
 describe("shipment tracking links", () => {
   let db: Database;
@@ -29,7 +33,7 @@ describe("shipment tracking links", () => {
   beforeAll(async () => {
     db = createDbClient(DATABASE_URL);
     try {
-      commerce = new CommerceService(db, stubAttention, stubNotifications);
+      commerce = new CommerceService(db, stubHouseholds, stubSharing);
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `tracking-${ownerUserId}@example.com`, displayName: "Tracking Test" });
 
