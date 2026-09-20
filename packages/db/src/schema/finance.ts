@@ -104,7 +104,11 @@ export const detectedIncomeStreams = pgTable(
     // it can be used in a SQL equality lookup/unique index the way encrypted columns can't be.
     streamKey: text("stream_key").notNull(),
     description: encryptedText("description").notNull(),
-    cadence: text("cadence").notNull(), // "weekly" | "biweekly" | "semimonthly" | "monthly"
+    // One of INCOME_CADENCES (services/api/src/modules/finance/finance.service.ts), which is the single
+    // source for this vocabulary and for the phrase each one renders as. Left as free text rather than a
+    // pg enum so an old row outside the set still reads back rather than failing the query — the read path
+    // humanizes anything it does not recognize instead of putting a raw value on screen.
+    cadence: text("cadence").notNull(),
     averageAmountMinorUnits: integer("average_amount_minor_units").notNull(),
     currency: text("currency").notNull().default("USD"),
     occurrenceCount: integer("occurrence_count").notNull(),

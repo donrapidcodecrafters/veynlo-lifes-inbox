@@ -883,7 +883,7 @@ export default function ConnectionsScreen() {
               {incomeStreams.map((stream) => (
                 <View key={stream.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                   <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }} numberOfLines={1}>
-                    ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every {stream.cadenceLabel} from {stream.description}
+                    ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} {stream.cadenceLabel} from {stream.description}
                   </Text>
                   <Button variant="ghost" onPress={() => dismissIncomeStream(stream.id)}>
                     Not income

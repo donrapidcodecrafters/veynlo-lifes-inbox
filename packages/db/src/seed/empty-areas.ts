@@ -131,9 +131,9 @@ export async function seedEmptyAreas(db: Db, ctx: CoverageContext): Promise<void
   await db
     .insert(schema.detectedIncomeStreams)
     .values([
-      { id: "inc_seed_payroll", ownerUserId: userId, accountId: "fac_seed_checking", streamKey: "northwind-payroll", description: "Northwind LLC — semi-monthly payroll", cadence: "semi_monthly", averageAmountMinorUnits: 3_142_88, currency: "USD", occurrenceCount: 14, lastOccurrenceDate: dateOnly(-5) },
+      { id: "inc_seed_payroll", ownerUserId: userId, accountId: "fac_seed_checking", streamKey: "northwind-payroll", description: "Northwind LLC — semi-monthly payroll", cadence: "semimonthly", averageAmountMinorUnits: 3_142_88, currency: "USD", occurrenceCount: 14, lastOccurrenceDate: dateOnly(-5) },
       // Dismissed, so the dismissed/hidden branch has a row too.
-      { id: "inc_seed_side", ownerUserId: userId, accountId: "fac_seed_checking", streamKey: "etsy-payouts", description: "Etsy shop payouts", cadence: "irregular", averageAmountMinorUnits: 96_20, currency: "USD", occurrenceCount: 5, lastOccurrenceDate: dateOnly(-22), dismissedAt: day(-20) },
+      { id: "inc_seed_side", ownerUserId: userId, accountId: "fac_seed_checking", streamKey: "etsy-payouts", description: "Etsy shop payouts", cadence: "monthly", averageAmountMinorUnits: 96_20, currency: "USD", occurrenceCount: 5, lastOccurrenceDate: dateOnly(-22), dismissedAt: day(-20) },
     ])
     .onConflictDoNothing();
 

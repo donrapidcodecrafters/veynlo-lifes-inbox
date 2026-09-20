@@ -733,9 +733,9 @@ export default function ConnectionsPage() {
                   <div key={stream.id} className="flex items-center justify-between gap-3 text-sm">
                     <span
                       className="min-w-0 truncate text-primary"
-                      title={`~${formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every ${stream.cadenceLabel} from ${stream.description}`}
+                      title={`~${formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} ${stream.cadenceLabel} from ${stream.description}`}
                     >
-                      ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every {stream.cadenceLabel} from {stream.description}
+                      ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} {stream.cadenceLabel} from {stream.description}
                     </span>
                     <Button variant="ghost" size="sm" onClick={() => dismissIncomeStream(stream.id)}>
                       Not income

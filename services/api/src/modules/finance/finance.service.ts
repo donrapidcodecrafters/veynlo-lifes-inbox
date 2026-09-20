@@ -64,7 +64,16 @@ function median(values: number[]): number {
  * rather than guessing from the average alone (a biweekly and a semimonthly stream can share almost the
  * same *average* gap while looking very different in consistency).
  */
-function classifyCadence(gapsDays: number[]): "weekly" | "biweekly" | "semimonthly" | "monthly" | null {
+/**
+ * The only cadences this app can detect. `classifyCadence` returns one of these or null — there is
+ * deliberately no "irregular" member, because a stream whose gaps are not consistent is not a detected
+ * stream at all (see classifyCadence's own precision-first note), and storing one would claim a pattern
+ * nothing found.
+ */
+export const INCOME_CADENCES = ["weekly", "biweekly", "semimonthly", "monthly"] as const;
+export type IncomeCadence = (typeof INCOME_CADENCES)[number];
+
+function classifyCadence(gapsDays: number[]): IncomeCadence | null {
   if (gapsDays.length === 0) return null;
   const avg = gapsDays.reduce((sum, g) => sum + g, 0) / gapsDays.length;
   const maxDeviation = Math.max(...gapsDays.map((g) => Math.abs(g - avg)));
@@ -77,12 +86,34 @@ function classifyCadence(gapsDays: number[]): "weekly" | "biweekly" | "semimonth
   return null;
 }
 
-const CADENCE_LABEL: Record<string, string> = {
-  weekly: "week",
-  biweekly: "2 weeks",
+/**
+ * A COMPLETE adverbial phrase per cadence, not a bare noun.
+ *
+ * This used to be a noun map the clients wrapped in "every {label}", which reads correctly for three of
+ * the four and produces "every twice a month" for the fourth. Semi-monthly is not an interval, it is a
+ * frequency, so no single sentence frame fits all four — the server owns the whole phrase instead, and
+ * the clients interpolate it verbatim.
+ *
+ * Typed `Record<IncomeCadence, string>` on purpose: adding a cadence to INCOME_CADENCES without giving
+ * it a phrase is now a compile error rather than a raw enum appearing on someone's screen.
+ */
+const CADENCE_PHRASE: Record<IncomeCadence, string> = {
+  weekly: "every week",
+  biweekly: "every 2 weeks",
   semimonthly: "twice a month",
-  monthly: "month",
+  monthly: "every month",
 };
+
+/**
+ * Rows written before the vocabulary was pinned down can still hold something outside it — the local seed
+ * wrote "semi_monthly" and "irregular", neither of which classifyCadence can produce. The old fallback was
+ * `?? r.cadence`, which put the raw column value on screen: users saw "every semi_monthly from Northwind
+ * LLC". Humanizing is the honest floor here. It cannot invent the right sentence frame for a value nobody
+ * defined, but it will never show an underscore or an enum again.
+ */
+function cadencePhrase(cadence: string): string {
+  return CADENCE_PHRASE[cadence as IncomeCadence] ?? cadence.replace(/_/g, " ");
+}
 
 /**
  * Read side of Phase 2 §52.2's financial aggregator — `PlaidAdapter` (connectors module) owns the
@@ -373,7 +404,7 @@ export class FinanceService {
       .from(schema.detectedIncomeStreams)
       .where(and(eq(schema.detectedIncomeStreams.ownerUserId, userId), isNull(schema.detectedIncomeStreams.dismissedAt)));
     return rows
-      .map((r) => ({ ...r, cadenceLabel: CADENCE_LABEL[r.cadence] ?? r.cadence }))
+      .map((r) => ({ ...r, cadenceLabel: cadencePhrase(r.cadence) }))
       .sort((a, b) => (b.lastOccurrenceDate ?? "").localeCompare(a.lastOccurrenceDate ?? ""));
   }
 
