@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Platform, RefreshControl, Switch, Text, View } from "react-native";
+import { Linking, Platform, Pressable, RefreshControl, Switch, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams, useRootNavigationState } from "expo-router";
 import * as Calendar from "expo-calendar";
 import * as Clipboard from "expo-clipboard";
@@ -287,6 +287,7 @@ export default function ConnectionsScreen() {
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [showImapForm, setShowImapForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -915,6 +916,33 @@ export default function ConnectionsScreen() {
           )}
         </Card>
 
+{/* The six Appendix A email targets that had no path in at all before this. Not in the OAuth
+            connector list above because those are one-tap buttons and this needs a real form. */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Other mailbox (IMAP)</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                Yahoo, iCloud, AOL, Fastmail, or your own domain.
+              </Text>
+            </View>
+            {!showImapForm && (
+              <Button variant="secondary" onPress={() => setShowImapForm(true)}>
+                Connect
+              </Button>
+            )}
+          </View>
+          {showImapForm && (
+            <ImapConnectForm
+              onDone={() => {
+                setShowImapForm(false);
+                load();
+              }}
+              onCancel={() => setShowImapForm(false)}
+            />
+          )}
+        </Card>
+
         <Card style={{ gap: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <View style={{ flex: 1 }}>
@@ -1164,6 +1192,145 @@ export default function ConnectionsScreen() {
         </View>
       )}
     </Screen>
+  );
+}
+
+interface ImapProviderOption {
+  key: string;
+  label: string;
+  host: string;
+  port: number;
+  credentialHint: string;
+  credentialUrl: string | null;
+  unavailableReason?: string;
+}
+
+/**
+ * Connect a mailbox over IMAP.
+ *
+ * Every provider here rejects a normal account password at its IMAP endpoint and wants an app password
+ * instead, and each one hides that setting somewhere different — so the selected provider's own
+ * instruction is shown BEFORE the password field, not after a failure. "Authentication failed" is the
+ * least useful thing this screen could say.
+ *
+ * The provider picker is a row of buttons rather than a native picker: React Native has no cross-platform
+ * <select>, and with eight options a horizontal scroll of real, outlined buttons is both simpler and
+ * consistent with how this app does segmented choices everywhere else.
+ */
+function ImapConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [providers, setProviders] = useState<ImapProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("yahoo");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("993");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.get<{ providers: ImapProviderOption[] }>("/v1/connectors/imap/providers");
+        setProviders(result.providers);
+      } catch {
+        setError("Couldn't load the list of mail providers.");
+      }
+    })();
+  }, []);
+
+  const selected = providers.find((p) => p.key === providerKey);
+  const isCustom = providerKey === "custom";
+  const unavailable = Boolean(selected?.unavailableReason);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/imap/connect", {
+        providerKey,
+        username,
+        password,
+        host: isCustom ? host : undefined,
+        port: isCustom ? Number(port) : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API answers with provider-specific guidance rather than a generic failure — show it as sent.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>Mail provider</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {providers.map((provider) => {
+          const active = provider.key === providerKey;
+          return (
+            <Pressable
+              key={provider.key}
+              onPress={() => setProviderKey(provider.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={provider.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                // Always outlined — a control with no border is not visibly a control.
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? theme.colors.brandDefault : theme.colors.textPrimary }}>
+                {provider.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected && (
+        <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{selected.unavailableReason ?? selected.credentialHint}</Text>
+      )}
+
+      {!unavailable && (
+        <>
+          {isCustom && (
+            <>
+              <TextField label="IMAP server" value={host} onChangeText={setHost} placeholder="imap.example.com" autoCapitalize="none" />
+              <TextField label="Port" value={port} onChangeText={setPort} keyboardType="number-pad" />
+            </>
+          )}
+          <TextField
+            label="Email address"
+            value={username}
+            onChangeText={setUsername}
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+          <TextField label="App password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" />
+        </>
+      )}
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting} disabled={unavailable}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
   );
 }
 

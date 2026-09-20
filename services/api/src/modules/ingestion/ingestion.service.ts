@@ -312,6 +312,52 @@ export class IngestionService {
     });
   }
 
+  /**
+   * IMAP. Unlike Gmail and Outlook there is no provider SDK shape to parse here — `ImapAdapter` has
+   * already turned an RFC822 message into these fields with mailparser, because the parsing belongs next
+   * to the fetch that produced it.
+   *
+   * Everything after this point is identical to the two OAuth mail connectors, deliberately: the same
+   * relevance gate, sender rules, dedup, attachment pipeline and schema.org markup reading. A mailbox
+   * reached over an open standard is not a second-class source.
+   *
+   * Idempotency keys on the mailbox UID, which is stable per (mailbox, UIDVALIDITY) — the adapter detects
+   * a UIDVALIDITY change and restarts rather than letting a renumbered mailbox collide with old keys.
+   */
+  async ingestImapMessage(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    connectionId: string;
+    uid: number;
+    subject: string;
+    fromAddress: string;
+    toAddress: string;
+    dateHeader: string;
+    bodyText: string;
+    bodyHtml: string | null;
+    headers: Record<string, string>;
+    isBackfill?: boolean;
+  }): Promise<void> {
+    await this.ingestParsedEmail({
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      connectionId: params.connectionId,
+      providerPrefix: "imap",
+      providerItemId: String(params.uid),
+      isBackfill: params.isBackfill,
+      parsed: {
+        subject: params.subject,
+        fromAddress: params.fromAddress,
+        toAddress: params.toAddress,
+        dateHeader: params.dateHeader,
+        snippet: params.bodyText.slice(0, 200),
+        bodyText: params.bodyText.slice(0, 20_000),
+        bodyHtml: params.bodyHtml ? params.bodyHtml.slice(0, 100_000) : null,
+        headers: params.headers,
+      },
+    });
+  }
+
   async ingestOutlookMessage(params: IngestOutlookParams): Promise<void> {
     await this.ingestParsedEmail({
       ...params,

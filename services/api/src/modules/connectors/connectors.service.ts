@@ -114,6 +114,12 @@ export class ConnectorsService {
       await this.plaid.revoke(connectionId);
     } else if (GOOGLE_REVOKE_PROVIDERS.has(connection.provider) || DROPBOX_REVOKE_PROVIDERS.has(connection.provider)) {
       await this.revokeProviderToken(connection);
+    } else if (connection.provider === "imap") {
+      // Nothing to revoke upstream, and that is a property of the credential rather than an omission.
+      // IMAP has no token endpoint: the app password is withdrawn by the user in their own provider's
+      // security settings, and nothing this server can call will do it for them. Deleting the stored copy
+      // below is the whole of what this side can do — listed explicitly, for the same reason
+      // MICROSOFT_NO_REVOKE_PROVIDERS is.
     } else if (MICROSOFT_NO_REVOKE_PROVIDERS.has(connection.provider)) {
       // No-op, deliberately — see MICROSOFT_NO_REVOKE_PROVIDERS' own doc comment for why there's nothing
       // to call. Listed explicitly (rather than just falling through the else-if chain unlabeled) so this

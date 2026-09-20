@@ -381,6 +381,7 @@ export default function ConnectionsPage() {
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [showImapForm, setShowImapForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -765,6 +766,36 @@ export default function ConnectionsPage() {
           </CardBody>
         </Card>
 
+        {/* The six Appendix A email targets that previously had no path in at all. Kept next to the ICS
+            card rather than in AVAILABLE_CONNECTORS above, because those are all one-click OAuth buttons
+            and this needs a real form: a provider, an address, and an app password. */}
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Other mailbox (IMAP)</p>
+                <p className="text-sm text-tertiary">
+                  Yahoo, iCloud, AOL, Fastmail, or your own domain — anything that speaks IMAP.
+                </p>
+              </div>
+              {!showImapForm && (
+                <Button variant="secondary" onClick={() => setShowImapForm(true)}>
+                  Connect mailbox
+                </Button>
+              )}
+            </div>
+            {showImapForm && (
+              <ImapConnectForm
+                onDone={() => {
+                  setShowImapForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowImapForm(false)}
+              />
+            )}
+          </CardBody>
+        </Card>
+
         <Card>
           <CardBody className="space-y-3">
             <div className="flex items-center justify-between gap-4">
@@ -1064,6 +1095,142 @@ function PlaidConnectCard({ onConnected }: { onConnected: () => void }) {
       </div>
       {error && <FieldError>{error}</FieldError>}
     </>
+  );
+}
+
+interface ImapProviderOption {
+  key: string;
+  label: string;
+  host: string;
+  port: number;
+  credentialHint: string;
+  credentialUrl: string | null;
+  unavailableReason?: string;
+}
+
+/**
+ * Connect a mailbox over IMAP.
+ *
+ * The provider picker is not decoration. Every one of these providers rejects a normal account password at
+ * the IMAP endpoint and requires an app password instead, and each one puts that setting somewhere
+ * different. "Authentication failed" is the least useful thing this form could say, so the selected
+ * provider's own instructions — and a link to the page that issues the credential — are shown BEFORE the
+ * password field, not after a failure.
+ *
+ * Proton appears in the list and cannot be selected through to a connection: its mail is decrypted by
+ * Proton Bridge on the user's own machine, which no server can reach. The form says so instead of letting
+ * the attempt fail mysteriously.
+ */
+function ImapConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { data } = useSWR<{ providers: ImapProviderOption[] }>("/v1/connectors/imap/providers", swrFetcher);
+  const [providerKey, setProviderKey] = useState("yahoo");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("993");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const providers = data?.providers ?? [];
+  const selected = providers.find((p) => p.key === providerKey);
+  const isCustom = providerKey === "custom";
+  const unavailable = Boolean(selected?.unavailableReason);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/imap/connect", {
+        providerKey,
+        username,
+        password,
+        host: isCustom ? host : undefined,
+        port: isCustom ? Number(port) : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API returns provider-specific guidance here rather than a generic failure — show it verbatim.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="imap-provider">Mail provider</Label>
+        <select
+          id="imap-provider"
+          value={providerKey}
+          onChange={(e) => setProviderKey(e.target.value)}
+          className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+        >
+          {providers.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <p className="text-sm text-tertiary">
+          {selected.unavailableReason ?? selected.credentialHint}
+          {selected.credentialUrl && !selected.unavailableReason && (
+            <>
+              {" "}
+              <a href={selected.credentialUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-brand underline">
+                Open {selected.label} security settings
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {!unavailable && (
+        <>
+          {isCustom && (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label htmlFor="imap-host">IMAP server</Label>
+                <Input id="imap-host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="imap.example.com" required />
+              </div>
+              <div className="w-28">
+                <Label htmlFor="imap-port">Port</Label>
+                <Input id="imap-port" inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} required />
+              </div>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="imap-username">Email address</Label>
+            <Input
+              id="imap-username"
+              type="email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="imap-password">App password</Label>
+            <Input id="imap-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </div>
+        </>
+      )}
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={submitting || unavailable}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

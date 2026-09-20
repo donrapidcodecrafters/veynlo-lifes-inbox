@@ -13,6 +13,24 @@ export const IcsConnectDtoSchema = z.object({
 });
 export type IcsConnectDto = z.infer<typeof IcsConnectDtoSchema>;
 
+/**
+ * IMAP connect. `password` is bounded but otherwise unconstrained — app passwords vary wildly in shape
+ * between providers (Apple's are hyphenated, Fastmail's are not) and rejecting one for looking wrong would
+ * be this app second-guessing the provider that issued it.
+ *
+ * `host`/`port` are only read for the "custom" provider; every other key carries its own verified host,
+ * so a client cannot repoint a known provider at a server of its choosing.
+ */
+export const ImapConnectDtoSchema = z.object({
+  providerKey: z.string().min(1).max(40),
+  username: z.string().min(3).max(320),
+  password: z.string().min(1).max(512),
+  host: z.string().min(1).max(253).optional(),
+  port: z.number().int().min(1).max(65_535).optional(),
+  historyDepthDays: z.number().int().min(0).max(3650).optional(),
+});
+export type ImapConnectDto = z.infer<typeof ImapConnectDtoSchema>;
+
 export const PlaidExchangeDtoSchema = z.object({
   publicToken: z.string().min(1),
   // ONB-002 — optional historical-depth choice from the onboarding flow (or a future Connections-page

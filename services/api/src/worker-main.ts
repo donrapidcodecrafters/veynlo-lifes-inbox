@@ -48,6 +48,7 @@ import { DropboxAdapter } from "./modules/connectors/dropbox.adapter";
 import { GoogleTasksAdapter } from "./modules/connectors/google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./modules/connectors/microsoft-todo.adapter";
 import { PlaidAdapter } from "./modules/connectors/plaid.adapter";
+import { ImapAdapter } from "./modules/connectors/imap.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { OBJECT_STORAGE, type ObjectStorage } from "./modules/documents/object-storage.interface";
@@ -96,6 +97,7 @@ async function bootstrap() {
   const googleTasksAdapter = appContext.get(GoogleTasksAdapter);
   const microsoftToDoAdapter = appContext.get(MicrosoftToDoAdapter);
   const plaidAdapter = appContext.get(PlaidAdapter);
+  const imapAdapter = appContext.get(ImapAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get<ObjectStorage>(OBJECT_STORAGE);
@@ -132,28 +134,30 @@ async function bootstrap() {
           .limit(1);
         if (!connection) throw new Error(`Connection ${connectionId} not found`);
         provider = connection.provider;
-        const adapter =
-          connection.provider === "outlook"
-            ? outlookAdapter
-            : connection.provider === "ics"
-              ? icsAdapter
-              : connection.provider === "google_calendar"
-                ? googleCalendarAdapter
-                : connection.provider === "microsoft_calendar"
-                  ? microsoftCalendarAdapter
-                  : connection.provider === "google_drive"
-                    ? googleDriveAdapter
-                    : connection.provider === "onedrive"
-                      ? oneDriveAdapter
-                      : connection.provider === "dropbox"
-                        ? dropboxAdapter
-                        : connection.provider === "google_tasks"
-                          ? googleTasksAdapter
-                          : connection.provider === "microsoft_todo"
-                            ? microsoftToDoAdapter
-                            : connection.provider === "plaid"
-                              ? plaidAdapter
-                              : gmailAdapter;
+        // A map, not a ternary chain, and deliberately with no default.
+        //
+        // What this replaced ended `: gmailAdapter`, so ANY provider the chain did not name was synced as
+        // Gmail — a new connector whose registration was forgotten would not fail, it would quietly run the
+        // wrong adapter against someone's account and report success. That is the same shape as every other
+        // defect this audit has found: a wrong answer that looks exactly like a right one. Now an
+        // unregistered provider throws, which the job's existing error handling records against the
+        // connection's health where somebody can see it.
+        const adaptersByProvider: Record<string, { initialSync(id: string): Promise<unknown>; incrementalSync(id: string): Promise<unknown> }> = {
+          gmail: gmailAdapter,
+          outlook: outlookAdapter,
+          imap: imapAdapter,
+          ics: icsAdapter,
+          google_calendar: googleCalendarAdapter,
+          microsoft_calendar: microsoftCalendarAdapter,
+          google_drive: googleDriveAdapter,
+          onedrive: oneDriveAdapter,
+          dropbox: dropboxAdapter,
+          google_tasks: googleTasksAdapter,
+          microsoft_todo: microsoftToDoAdapter,
+          plaid: plaidAdapter,
+        };
+        const adapter = adaptersByProvider[connection.provider];
+        if (!adapter) throw new Error(`No sync adapter registered for provider "${connection.provider}"`);
         if (kind === "incremental") {
           await adapter.incrementalSync(connectionId);
         } else {

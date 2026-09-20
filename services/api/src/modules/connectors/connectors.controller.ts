@@ -12,6 +12,8 @@ import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
+import { ImapAdapter } from "./imap.adapter";
+import { listImapProviders } from "./imap-providers";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { GoogleContactsAdapter } from "./google-contacts.adapter";
@@ -25,6 +27,8 @@ import { PlaidAdapter } from "./plaid.adapter";
 import {
   IcsConnectDtoSchema,
   type IcsConnectDto,
+  ImapConnectDtoSchema,
+  type ImapConnectDto,
   PlaidExchangeDtoSchema,
   type PlaidExchangeDto,
   SetWriteBackDtoSchema,
@@ -58,6 +62,7 @@ export class ConnectorsController {
     @Inject(GmailAdapter) private readonly gmail: GmailAdapter,
     @Inject(OutlookAdapter) private readonly outlook: OutlookAdapter,
     @Inject(IcsAdapter) private readonly ics: IcsAdapter,
+    @Inject(ImapAdapter) private readonly imap: ImapAdapter,
     @Inject(GoogleCalendarAdapter) private readonly googleCalendar: GoogleCalendarAdapter,
     @Inject(MicrosoftCalendarAdapter) private readonly microsoftCalendar: MicrosoftCalendarAdapter,
     @Inject(GoogleContactsAdapter) private readonly googleContacts: GoogleContactsAdapter,
@@ -579,6 +584,41 @@ export class ConnectorsController {
       requestedHistoryDepthDays: dto.historyDepthDays,
     });
     return { connectionId };
+  }
+
+  /**
+   * The mailboxes a user can connect over IMAP, and what credential each one needs.
+   *
+   * Deliberately a static capability list with nothing user-specific in it — it is what the Connections
+   * screen renders its provider picker from, including the one entry that exists to say it CANNOT be
+   * connected and why.
+   */
+  @Get("imap/providers")
+  @UseGuards(AuthGuard)
+  imapProviders() {
+    return { providers: listImapProviders() };
+  }
+
+  /**
+   * Connect a mailbox over IMAP — the six Appendix A email targets that previously had no path in at all.
+   *
+   * Unlike every OAuth connector here, this endpoint RECEIVES a password. It is validated by actually
+   * logging in before anything is written, stored encrypted in the vault, and never read back out by any
+   * endpoint. The adapter raises its own errors with provider-specific guidance, so — unlike the ICS route
+   * below — failures are NOT flattened into one generic message: "Yahoo needs an app password" and "that
+   * host does not resolve" are different problems with different fixes, and a user who is told the wrong
+   * one gives up.
+   */
+  @Post("imap/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(ImapConnectDtoSchema))
+  async imapConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: ImapConnectDto) {
+    const result = await this.imap.connect({
+      dto: { ...dto, requestedHistoryDepthDays: dto.historyDepthDays },
+      ownerUserId: user.userId,
+      householdId: null,
+    });
+    return { connectionId: result.connectionId };
   }
 
   @Post("ics/connect")

@@ -103,7 +103,14 @@ export class SafeUrlFetcher {
   }
 }
 
-async function assertHostnameIsPublic(hostname: string): Promise<void> {
+/**
+ * Refuse a hostname that resolves anywhere private, reserved or link-local.
+ *
+ * Exported because the IMAP connector needs exactly this guard and for exactly the same reason: its host
+ * is typed in by the user, so "mail.example.com" and "169.254.169.254" arrive through the same field.
+ * A second implementation of this would be a second thing to get wrong.
+ */
+export async function assertHostnameIsPublic(hostname: string): Promise<void> {
   let addresses: string[];
   try {
     const results = await lookup(hostname, { all: true, verbatim: true });

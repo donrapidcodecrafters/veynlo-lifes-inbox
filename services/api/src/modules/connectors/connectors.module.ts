@@ -14,6 +14,7 @@ import { CalendarWriteBackService } from "./calendar-write-back.service";
 import { GmailAdapter } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
+import { ImapAdapter } from "./imap.adapter";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { GoogleContactsAdapter } from "./google-contacts.adapter";
@@ -29,6 +30,7 @@ const ADAPTERS = [
   GmailAdapter,
   OutlookAdapter,
   IcsAdapter,
+  ImapAdapter,
   GoogleCalendarAdapter,
   MicrosoftCalendarAdapter,
   GoogleContactsAdapter,
