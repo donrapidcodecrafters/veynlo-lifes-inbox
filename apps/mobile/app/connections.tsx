@@ -75,6 +75,42 @@ interface FinanceSummary {
   totalsByCurrency: Array<{ currency: string; totalMinorUnits: number }>;
 }
 
+/** FIN-006 — one position, as GET /v1/finance/holdings returns it. */
+interface Holding {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountMask: string | null;
+  isIncluded: boolean;
+  /** A decimal STRING, not a number — fractional shares never touch a float. See the schema's note. */
+  quantity: string;
+  institutionPrice: string | null;
+  institutionPriceAsOf: string | null;
+  institutionValueMinorUnits: number | null;
+  costBasisMinorUnits: number | null;
+  unrealizedGainMinorUnits: number | null;
+  currency: string;
+  security: {
+    id: string;
+    name: string | null;
+    tickerSymbol: string | null;
+    type: string | null;
+    isCashEquivalent: boolean;
+    closePrice: string | null;
+    closePriceAsOf: string | null;
+  };
+}
+
+interface HoldingsResponse {
+  holdings: Holding[];
+  totalsByCurrency: Array<{
+    currency: string;
+    totalMinorUnits: number;
+    costBasisMinorUnits: number | null;
+    unrealizedGainMinorUnits: number | null;
+  }>;
+}
+
 interface IncomeStream {
   id: string;
   description: string;
@@ -92,6 +128,18 @@ function formatMoney(minorUnits: number, currency: string, locale?: string): str
 
 // FIN-002 "preserve provider transaction ID history and transaction revisions" — mirrors apps/web's
 // identical connections-page disclosure (see that file's own TransactionHistoryDisclosure doc comment).
+/**
+ * FIN-006 — render a share quantity without lying about its precision.
+ *
+ * The API sends an exact decimal string ("12.34567890"). Trailing zeros come from the column's declared
+ * scale rather than anything the institution said, so they are trimmed; the significant digits are never
+ * rounded, because "12" and "12.3456789" are different amounts of money and keeping them distinguishable
+ * is the entire reason the column upstream is NUMERIC rather than an integer.
+ */
+function formatQuantity(quantity: string): string {
+  return quantity.includes(".") ? quantity.replace(/0+$/, "").replace(/\.$/, "") : quantity;
+}
+
 interface TransactionRevision {
   id: string;
   amountMinorUnits: number;
@@ -228,6 +276,7 @@ export default function ConnectionsScreen() {
   const [financialAccounts, setFinancialAccounts] = useState<FinancialAccount[]>([]);
   const [financialTransactions, setFinancialTransactions] = useState<FinancialTransaction[]>([]);
   const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null);
+  const [holdingsData, setHoldingsData] = useState<HoldingsResponse | null>(null);
   const [incomeStreams, setIncomeStreams] = useState<IncomeStream[]>([]);
   const [incomeStreamError, setIncomeStreamError] = useState<string | null>(null);
   const [accountToggleBusyId, setAccountToggleBusyId] = useState<string | null>(null);
@@ -266,6 +315,8 @@ export default function ConnectionsScreen() {
       if (accounts.length > 0) {
         setFinanceSummary(await api.get<FinanceSummary>("/v1/finance/summary"));
         setIncomeStreams(await api.get<IncomeStream[]>("/v1/finance/income-streams"));
+        // FIN-006 — positions behind an investment account's balance.
+        setHoldingsData(await api.get<HoldingsResponse>("/v1/finance/holdings"));
       }
       setLoadError(null);
     } catch (err) {
@@ -737,6 +788,92 @@ export default function ConnectionsScreen() {
               )}
             </View>
           ))}
+          {/* FIN-006 "Investments" — the positions behind an investment account's balance. Plaid's
+              investments product was licensed all along but never requested at Link time, so a brokerage
+              showed a balance with nothing behind it. An EXCLUDED account still lists its positions
+              (excluded means "not counted", not "hidden") but is marked and left out of the total.
+
+              Value and gain are stacked rather than laid out in a third column: at 390px a row of
+              label + $93,827.50 + +$43,827.50 has nowhere to go but off the screen. */}
+          {holdingsData && holdingsData.holdings.length > 0 && (
+            <View style={{ gap: 6, marginTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderDefault, paddingTop: 8 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>
+                  Investments
+                </Text>
+                {holdingsData.totalsByCurrency.map((total) => (
+                  <Text key={total.currency} style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary }}>
+                    {formatMoney(total.totalMinorUnits, total.currency, locale)}
+                    {total.unrealizedGainMinorUnits !== null && (
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: "400",
+                          color:
+                            total.unrealizedGainMinorUnits >= 0
+                              ? theme.colors.positiveSubtleText
+                              : theme.colors.criticalSubtleText,
+                        }}
+                      >
+                        {"  "}
+                        {total.unrealizedGainMinorUnits >= 0 ? "+" : "\u2212"}
+                        {formatMoney(Math.abs(total.unrealizedGainMinorUnits), total.currency, locale)}
+                      </Text>
+                    )}
+                  </Text>
+                ))}
+              </View>
+              {holdingsData.holdings.map((holding) => {
+                const label = holding.security.tickerSymbol ?? holding.security.name ?? "Unnamed holding";
+                const gain = holding.unrealizedGainMinorUnits;
+                return (
+                  <View
+                    key={holding.id}
+                    style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}
+                    accessible
+                    accessibilityLabel={`${holding.security.name ?? label}, ${formatQuantity(holding.quantity)}${
+                      holding.security.isCashEquivalent ? "" : " shares"
+                    }${
+                      holding.institutionValueMinorUnits !== null
+                        ? `, worth ${formatMoney(holding.institutionValueMinorUnits, holding.currency, locale)}`
+                        : ""
+                    }${gain === null ? ", no cost basis reported" : ""}${
+                      holding.isIncluded ? "" : ", excluded from totals"
+                    }`}
+                  >
+                    <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }} numberOfLines={1}>
+                      {label}
+                      <Text style={{ color: theme.colors.textTertiary }}> · {formatQuantity(holding.quantity)}</Text>
+                      {!holding.isIncluded ? <Text style={{ color: theme.colors.textTertiary }}> (excluded)</Text> : null}
+                    </Text>
+                    <View style={{ alignItems: "flex-end" }}>
+                      {holding.institutionValueMinorUnits !== null && (
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary }}>
+                          {formatMoney(holding.institutionValueMinorUnits, holding.currency, locale)}
+                        </Text>
+                      )}
+                      {gain === null ? (
+                        // Withheld, not guessed. An absent cost basis is not a basis of zero, and a
+                        // "+100%" gain derived from nothing would be a fabricated number rendered in the
+                        // same style as a real one.
+                        <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>{"\u2014"}</Text>
+                      ) : (
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: gain >= 0 ? theme.colors.positiveSubtleText : theme.colors.criticalSubtleText,
+                          }}
+                        >
+                          {gain >= 0 ? "+" : "\u2212"}
+                          {formatMoney(Math.abs(gain), holding.currency, locale)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
           {/* FIN-003 "Recurring income/outflow" — read-only detected paycheck streams. */}
           {incomeStreams.length > 0 && (
             <View style={{ gap: 4, marginTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderDefault, paddingTop: 8 }}>

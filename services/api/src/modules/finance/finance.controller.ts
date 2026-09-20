@@ -46,6 +46,16 @@ export class FinanceController {
     return this.finance.transactionRevisions(id, user.userId);
   }
 
+  /**
+   * FIN-006 "Investments" — holdings across every connected brokerage/retirement account, with portfolio
+   * totals. Optional `accountId` narrows to one account, matching `GET /v1/finance/transactions`'s own
+   * query-parameter shape rather than inventing a second convention.
+   */
+  @Get("holdings")
+  holdings(@CurrentUser() user: AuthenticatedUser, @Query("accountId") accountId?: string) {
+    return this.finance.holdings(user.userId, accountId);
+  }
+
   /** FIN-003 — read-only detected paycheck/income streams, recomputed on every request. */
   @Get("income-streams")
   incomeStreams(@CurrentUser() user: AuthenticatedUser) {

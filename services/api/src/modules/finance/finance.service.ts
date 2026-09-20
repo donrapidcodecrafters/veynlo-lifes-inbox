@@ -123,6 +123,91 @@ export class FinanceService {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /**
+   * FIN-006 "Investments" — every position this user holds, joined to its security, with the portfolio
+   * totals a Home/Connections surface needs.
+   *
+   * Totals follow `summary()`'s rule exactly: only accounts the user has left INCLUDED are summed, but
+   * every holding is still returned. Excluding a joint brokerage from your totals should not make its
+   * positions vanish from the list — the spec's own framing of FIN-001 is "excluded from totals", not
+   * hidden — so the row carries `isIncluded` and the caller renders it as not counted.
+   *
+   * Unrealized gain is computed only when BOTH current value and cost basis are present. Plaid omits cost
+   * basis for plenty of institutions, and a "gain" derived from a missing basis would read as a total loss
+   * of the position's entire value — a fabricated number, which is worse than an absent one.
+   */
+  async holdings(userId: string, accountId?: string) {
+    const rows = await this.db
+      .select({
+        holding: schema.investmentHoldings,
+        security: schema.securities,
+        accountName: schema.financialAccounts.name,
+        accountMask: schema.financialAccounts.mask,
+        isIncluded: schema.financialAccounts.isIncluded,
+      })
+      .from(schema.investmentHoldings)
+      .innerJoin(schema.securities, eq(schema.securities.id, schema.investmentHoldings.securityId))
+      .innerJoin(schema.financialAccounts, eq(schema.financialAccounts.id, schema.investmentHoldings.accountId))
+      .where(
+        accountId
+          ? and(eq(schema.investmentHoldings.ownerUserId, userId), eq(schema.investmentHoldings.accountId, accountId))
+          : eq(schema.investmentHoldings.ownerUserId, userId),
+      );
+
+    const holdings = rows
+      .map((r) => ({
+        id: r.holding.id,
+        accountId: r.holding.accountId,
+        accountName: r.accountName,
+        accountMask: r.accountMask,
+        isIncluded: r.isIncluded,
+        quantity: r.holding.quantity,
+        institutionPrice: r.holding.institutionPrice,
+        institutionPriceAsOf: r.holding.institutionPriceAsOf,
+        institutionValueMinorUnits: r.holding.institutionValueMinorUnits,
+        costBasisMinorUnits: r.holding.costBasisMinorUnits,
+        unrealizedGainMinorUnits:
+          r.holding.institutionValueMinorUnits != null && r.holding.costBasisMinorUnits != null
+            ? r.holding.institutionValueMinorUnits - r.holding.costBasisMinorUnits
+            : null,
+        currency: r.holding.currency,
+        security: {
+          id: r.security.id,
+          name: r.security.name,
+          tickerSymbol: r.security.tickerSymbol,
+          type: r.security.type,
+          isCashEquivalent: r.security.isCashEquivalent,
+          closePrice: r.security.closePrice,
+          closePriceAsOf: r.security.closePriceAsOf,
+        },
+      }))
+      // Largest position first — the order somebody actually reads a portfolio in. A holding with no
+      // reported value sorts last rather than being treated as worth zero.
+      .sort((a, b) => (b.institutionValueMinorUnits ?? -1) - (a.institutionValueMinorUnits ?? -1));
+
+    const totals = new Map<string, { totalMinorUnits: number; costBasisMinorUnits: number; hasFullCostBasis: boolean }>();
+    for (const holding of holdings) {
+      if (!holding.isIncluded) continue;
+      const entry = totals.get(holding.currency) ?? { totalMinorUnits: 0, costBasisMinorUnits: 0, hasFullCostBasis: true };
+      entry.totalMinorUnits += holding.institutionValueMinorUnits ?? 0;
+      if (holding.costBasisMinorUnits == null) entry.hasFullCostBasis = false;
+      else entry.costBasisMinorUnits += holding.costBasisMinorUnits;
+      totals.set(holding.currency, entry);
+    }
+
+    return {
+      holdings,
+      totalsByCurrency: Array.from(totals.entries()).map(([currency, entry]) => ({
+        currency,
+        totalMinorUnits: entry.totalMinorUnits,
+        // Withheld entirely when any position in that currency is missing a basis, rather than reported
+        // as a partial sum that silently understates what was paid.
+        costBasisMinorUnits: entry.hasFullCostBasis ? entry.costBasisMinorUnits : null,
+        unrealizedGainMinorUnits: entry.hasFullCostBasis ? entry.totalMinorUnits - entry.costBasisMinorUnits : null,
+      })),
+    };
+  }
+
   async transactions(userId: string, accountId?: string) {
     return this.db
       .select()

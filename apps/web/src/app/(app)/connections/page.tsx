@@ -119,6 +119,42 @@ interface FinanceSummary {
   totalsByCurrency: Array<{ currency: string; totalMinorUnits: number }>;
 }
 
+/** FIN-006 — one position, as GET /v1/finance/holdings returns it. */
+interface Holding {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountMask: string | null;
+  isIncluded: boolean;
+  /** A decimal STRING, not a number — see the schema's note on why fractional shares never touch a float. */
+  quantity: string;
+  institutionPrice: string | null;
+  institutionPriceAsOf: string | null;
+  institutionValueMinorUnits: number | null;
+  costBasisMinorUnits: number | null;
+  unrealizedGainMinorUnits: number | null;
+  currency: string;
+  security: {
+    id: string;
+    name: string | null;
+    tickerSymbol: string | null;
+    type: string | null;
+    isCashEquivalent: boolean;
+    closePrice: string | null;
+    closePriceAsOf: string | null;
+  };
+}
+
+interface HoldingsResponse {
+  holdings: Holding[];
+  totalsByCurrency: Array<{
+    currency: string;
+    totalMinorUnits: number;
+    costBasisMinorUnits: number | null;
+    unrealizedGainMinorUnits: number | null;
+  }>;
+}
+
 interface IncomeStream {
   id: string;
   description: string;
@@ -171,6 +207,18 @@ const REVISION_REASON_LABEL: Record<TransactionRevision["reason"], string> = {
 /** FIN-002 UI surface for `GET /v1/finance/transactions/:id/revisions` — deliberately a lightweight inline
  * disclosure on the existing transaction row (no dedicated transaction detail page exists in this app yet)
  * rather than a new route, matching this page's own existing density. */
+/**
+ * FIN-006 — render a share quantity without lying about its precision.
+ *
+ * The API sends an exact decimal string ("12.34567890"). Trailing zeros are noise from the column's
+ * declared scale rather than anything the institution said, so they are trimmed — but the significant
+ * digits are never rounded away, because "12" and "12.3456789" are different amounts of money and the
+ * whole point of the NUMERIC column upstream was to keep them distinguishable.
+ */
+function formatQuantity(quantity: string): string {
+  return quantity.includes(".") ? quantity.replace(/0+$/, "").replace(/\.$/, "") : quantity;
+}
+
 function TransactionHistoryDisclosure({ transactionId, currency }: { transactionId: string; currency: string }) {
   const [open, setOpen] = useState(false);
   const locale = useLocale();
@@ -316,6 +364,12 @@ export default function ConnectionsPage() {
     swrFetcher,
   );
   // FIN-003 — read-only detected paycheck/income streams; only fetched once there's at least one account.
+  // FIN-006 — only asked for once there is a financial account at all, matching how summary/income
+  // streams are gated just above: an account-less user should not fire three pointless requests.
+  const { data: holdingsData } = useSWR<HoldingsResponse>(
+    financialAccounts && financialAccounts.length > 0 ? "/v1/finance/holdings" : null,
+    swrFetcher,
+  );
   const { data: incomeStreams, mutate: mutateIncomeStreams } = useSWR<IncomeStream[]>(
     financialAccounts && financialAccounts.length > 0 ? "/v1/finance/income-streams" : null,
     swrFetcher,
@@ -601,6 +655,72 @@ export default function ConnectionsPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+            {/* FIN-006 "Investments" — positions behind an investment account's balance. Plaid's investments
+                product was licensed all along but never requested at Link time, so a brokerage showed a
+                balance with nothing behind it. An account the user has EXCLUDED still lists its positions
+                (excluded means "not counted", not "hidden") but is marked and left out of the total. */}
+            {holdingsData && holdingsData.holdings.length > 0 && (
+              <div className="space-y-2 border-t border-border-subtle pt-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Investments</p>
+                  {holdingsData.totalsByCurrency.map((total) => (
+                    <span key={total.currency} className="text-sm font-medium text-primary">
+                      {formatMoney(total.totalMinorUnits, total.currency, locale)}
+                      {total.unrealizedGainMinorUnits !== null && (
+                        <span
+                          className={`ml-1.5 text-xs font-normal ${
+                            total.unrealizedGainMinorUnits >= 0 ? "text-positive-subtle-text" : "text-critical-subtle-text"
+                          }`}
+                        >
+                          {total.unrealizedGainMinorUnits >= 0 ? "+" : "\u2212"}
+                          {formatMoney(Math.abs(total.unrealizedGainMinorUnits), total.currency, locale)}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                {holdingsData.holdings.map((holding) => {
+                  const label = holding.security.tickerSymbol ?? holding.security.name ?? "Unnamed holding";
+                  const gain = holding.unrealizedGainMinorUnits;
+                  return (
+                    <div key={holding.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span
+                        className="min-w-0 truncate text-primary"
+                        title={`${holding.security.name ?? label}\u2003${formatQuantity(holding.quantity)} ${
+                          holding.security.isCashEquivalent ? "" : "shares"
+                        } in ${holding.accountName}${holding.isIncluded ? "" : " (excluded from totals)"}`}
+                      >
+                        {label}
+                        <span className="text-tertiary"> · {formatQuantity(holding.quantity)}</span>
+                        {!holding.isIncluded && <span className="ml-1.5 text-xs font-medium text-tertiary">(excluded)</span>}
+                      </span>
+                      <span className="flex shrink-0 items-baseline gap-2">
+                        {holding.institutionValueMinorUnits !== null && (
+                          <span className="font-medium text-primary">
+                            {formatMoney(holding.institutionValueMinorUnits, holding.currency, locale)}
+                          </span>
+                        )}
+                        {gain === null ? (
+                          // Withheld, not guessed. An absent cost basis is not a basis of zero, and showing
+                          // a "+100%" gain derived from nothing would be a fabricated number wearing the
+                          // same styling as a real one.
+                          <span className="text-xs text-tertiary" title="No cost basis reported for this position">
+                            {"\u2014"}
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-xs ${gain >= 0 ? "text-positive-subtle-text" : "text-critical-subtle-text"}`}
+                          >
+                            {gain >= 0 ? "+" : "\u2212"}
+                            {formatMoney(Math.abs(gain), holding.currency, locale)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {/* FIN-003 "Recurring income/outflow" — read-only detected paycheck streams; a stream only

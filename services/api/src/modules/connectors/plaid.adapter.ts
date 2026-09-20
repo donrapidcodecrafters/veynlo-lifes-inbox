@@ -88,6 +88,36 @@ interface PlaidLiabilitiesResponse {
   };
 }
 
+/** Plaid's Security, as `/investments/holdings/get` returns it in its top-level `securities` array. */
+interface PlaidSecurity {
+  security_id: string;
+  name: string | null;
+  ticker_symbol: string | null;
+  type: string | null;
+  close_price: number | null;
+  close_price_as_of: string | null;
+  iso_currency_code: string | null;
+  is_cash_equivalent: boolean | null;
+}
+
+/** Plaid's Holding — one position, joined to its security by `security_id`. */
+interface PlaidHolding {
+  account_id: string;
+  security_id: string;
+  quantity: number;
+  institution_price: number | null;
+  institution_price_as_of: string | null;
+  institution_value: number | null;
+  cost_basis: number | null;
+  iso_currency_code: string | null;
+}
+
+interface PlaidHoldingsResponse {
+  accounts: PlaidAccount[];
+  holdings: PlaidHolding[];
+  securities: PlaidSecurity[];
+}
+
 /**
  * Phase 2 §52.2 "financial aggregator" (spec's feasibility class D — "Plaid-style partner abstracting
  * many institutions"). Unlike every other connector in this file, a user never gets redirected to Plaid's
@@ -143,7 +173,11 @@ export class PlaidAdapter implements ConnectorAdapter {
       // FIN-005 — "liabilities" must be requested as its own product at Link time (same as "transactions")
       // for Plaid to actually grant/consent it; without this, `/liabilities/get` would 400 for every item
       // connected through this Link flow regardless of what the linked institution itself supports.
-      products: ["transactions", "liabilities"],
+      // FIN-006 — same rule as liabilities directly above: a product Plaid was never ASKED for at Link
+      // time is not consented, and `/investments/holdings/get` 400s for the item no matter what the
+      // institution supports. "investments" was licensed on this account the whole time and simply never
+      // requested, which is why brokerage accounts synced a balance and nothing behind it.
+      products: ["transactions", "liabilities", "investments"],
       country_codes: ["US"],
       language: "en",
     });
@@ -176,7 +210,7 @@ export class PlaidAdapter implements ConnectorAdapter {
       householdId: params.householdId,
       provider: "plaid",
       feasibilityClass: "aggregator",
-      scopes: ["transactions", "liabilities"], // PRIV-001 "granted scopes" display — mirrors createLinkToken's products list above
+      scopes: ["transactions", "liabilities", "investments"], // PRIV-001 "granted scopes" display — mirrors createLinkToken's products list above
       enabledCategories: ["purchases", "bills"],
       health: "initializing",
       historyDepthDays,
@@ -316,6 +350,161 @@ export class PlaidAdapter implements ConnectorAdapter {
     }
   }
 
+  /**
+   * FIN-006 "Investments" — `/investments/holdings/get` returns holdings and their securities as two
+   * parallel arrays joined by `security_id`, so securities are upserted first and the resulting local ids
+   * are what holdings reference.
+   *
+   * Re-upserted every sync rather than appended: a position's quantity and value drift constantly and only
+   * the current one means anything. Holdings that have disappeared from Plaid's response are deleted for
+   * the accounts this response covers — a sold position must not linger as a phantom holding — but scoped
+   * to exactly those account ids, never the whole user, so an item covering one brokerage can never clear
+   * another item's positions.
+   *
+   * Quantities and per-unit prices go into NUMERIC columns as strings. JSON itself already bounds upstream
+   * precision (Plaid sends a JSON number, which is a double), so this does not recover precision that was
+   * never sent — what it prevents is further drift when these are summed or round-tripped, which is where
+   * a portfolio total would actually go wrong.
+   *
+   * No real Plaid account exists in this environment (docs/PHASE2_PENDING_CREDENTIALS.md) — the mapping
+   * below is exercised against a mocked response matching Plaid's documented schema in
+   * plaid.adapter.test.ts, with every database write real. That is the same evidence standard
+   * syncLiabilities carries, and it is not the same thing as a live sandbox call.
+   */
+  private async syncHoldings(connectionId: string): Promise<void> {
+    const { connection, creds } = await this.credentials(connectionId);
+    const response = await this.plaidPost<PlaidHoldingsResponse>("/investments/holdings/get", {
+      access_token: creds.access_token,
+    });
+
+    const now = new Date();
+
+    // security_id -> local securities.id, built once so each holding is a plain lookup.
+    const securityIdByPlaidId = new Map<string, string>();
+    for (const security of response.securities ?? []) {
+      const values = {
+        name: security.name,
+        tickerSymbol: security.ticker_symbol,
+        type: security.type,
+        closePrice: security.close_price != null ? String(security.close_price) : null,
+        closePriceAsOf: security.close_price_as_of,
+        currency: security.iso_currency_code ?? "USD",
+        isCashEquivalent: security.is_cash_equivalent ?? false,
+        updatedAt: now,
+      };
+      const [existing] = await this.db
+        .select({ id: schema.securities.id })
+        .from(schema.securities)
+        .where(
+          and(
+            eq(schema.securities.ownerUserId, connection.ownerUserId),
+            eq(schema.securities.plaidSecurityId, security.security_id),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        await this.db.update(schema.securities).set(values).where(eq(schema.securities.id, existing.id));
+        securityIdByPlaidId.set(security.security_id, existing.id);
+      } else {
+        const id = generateId("security");
+        await this.db.insert(schema.securities).values({
+          id,
+          ownerUserId: connection.ownerUserId,
+          plaidSecurityId: security.security_id,
+          ...values,
+        });
+        securityIdByPlaidId.set(security.security_id, id);
+      }
+    }
+
+    // plaid account_id -> local financial_accounts.id, for exactly the accounts this response covers.
+    const accountIdByPlaidId = new Map<string, string>();
+    for (const account of response.accounts ?? []) {
+      const [row] = await this.db
+        .select({ id: schema.financialAccounts.id })
+        .from(schema.financialAccounts)
+        .where(
+          and(
+            eq(schema.financialAccounts.connectionId, connectionId),
+            eq(schema.financialAccounts.plaidAccountId, account.account_id),
+          ),
+        )
+        .limit(1);
+      if (row) accountIdByPlaidId.set(account.account_id, row.id);
+    }
+
+    const seenByAccount = new Map<string, Set<string>>();
+    for (const holding of response.holdings ?? []) {
+      const accountId = accountIdByPlaidId.get(holding.account_id);
+      const securityId = securityIdByPlaidId.get(holding.security_id);
+      // A holding naming an account or security absent from its own response is malformed; skipping it is
+      // right, but silently would hide a real upstream problem, so it is logged.
+      if (!accountId || !securityId) {
+        this.logger.warn(
+          `Skipping holding for connection ${connectionId}: unknown ${!accountId ? "account" : "security"} reference`,
+        );
+        continue;
+      }
+
+      const values = {
+        quantity: String(holding.quantity),
+        institutionPrice: holding.institution_price != null ? String(holding.institution_price) : null,
+        institutionPriceAsOf: holding.institution_price_as_of,
+        institutionValueMinorUnits:
+          holding.institution_value != null ? Math.round(holding.institution_value * 100) : null,
+        costBasisMinorUnits: holding.cost_basis != null ? Math.round(holding.cost_basis * 100) : null,
+        currency: holding.iso_currency_code ?? "USD",
+        lastSyncedAt: now,
+        updatedAt: now,
+      };
+
+      const [existing] = await this.db
+        .select({ id: schema.investmentHoldings.id })
+        .from(schema.investmentHoldings)
+        .where(
+          and(
+            eq(schema.investmentHoldings.accountId, accountId),
+            eq(schema.investmentHoldings.securityId, securityId),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        await this.db
+          .update(schema.investmentHoldings)
+          .set(values)
+          .where(eq(schema.investmentHoldings.id, existing.id));
+      } else {
+        await this.db.insert(schema.investmentHoldings).values({
+          id: generateId("investmentHolding"),
+          accountId,
+          ownerUserId: connection.ownerUserId,
+          securityId,
+          ...values,
+        });
+      }
+
+      const seen = seenByAccount.get(accountId) ?? new Set<string>();
+      seen.add(securityId);
+      seenByAccount.set(accountId, seen);
+    }
+
+    // Clear positions Plaid no longer reports, per covered account. An account present in the response
+    // with zero surviving holdings still gets cleared — that is the "sold everything" case, and it has to
+    // be distinguishable from "this account was not in this response at all", which is left untouched.
+    for (const accountId of accountIdByPlaidId.values()) {
+      const seen = seenByAccount.get(accountId) ?? new Set<string>();
+      const rows = await this.db
+        .select({ id: schema.investmentHoldings.id, securityId: schema.investmentHoldings.securityId })
+        .from(schema.investmentHoldings)
+        .where(eq(schema.investmentHoldings.accountId, accountId));
+      for (const row of rows) {
+        if (!seen.has(row.securityId)) {
+          await this.db.delete(schema.investmentHoldings).where(eq(schema.investmentHoldings.id, row.id));
+        }
+      }
+    }
+  }
+
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
     return this.syncTransactions(connectionId, null);
   }
@@ -342,6 +531,16 @@ export class PlaidAdapter implements ConnectorAdapter {
       // is a normal, common outcome, not a sync failure. Mirrors this same class's revoke()'s "best effort,
       // log and continue" stance rather than letting a liabilities-ineligible item break transaction sync.
       this.logger.warn(`Failed to sync liabilities for connection ${connectionId}: ${String(err)}`);
+    }
+
+    try {
+      await this.syncHoldings(connectionId);
+    } catch (err) {
+      // FIN-006 — exactly the liabilities case above. Most items hold no investment accounts at all, and
+      // an item linked BEFORE "investments" joined the Link product list never consented to it, so this
+      // 400s for every pre-existing connection until the user reconnects. Neither is a sync failure, and
+      // neither may be allowed to take transaction sync down with it.
+      this.logger.warn(`Failed to sync investment holdings for connection ${connectionId}: ${String(err)}`);
     }
 
     let itemCount = 0;
