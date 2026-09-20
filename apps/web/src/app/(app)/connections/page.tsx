@@ -382,6 +382,7 @@ export default function ConnectionsPage() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [showImapForm, setShowImapForm] = useState(false);
+  const [showDavForm, setShowDavForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -766,6 +767,37 @@ export default function ConnectionsPage() {
           </CardBody>
         </Card>
 
+        {/* Calendar and contacts over CalDAV/CardDAV — the register's "CalDAV servers", "CardDAV",
+            "Apple Calendar" and "Apple Contacts" rows. Distinct from the phone's own calendar and
+            contacts cards, which are device imports: this is a server-side connection that keeps itself
+            current for the whole account, not just the handset it was set up on. */}
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Calendar &amp; contacts server (CalDAV/CardDAV)</p>
+                <p className="text-sm text-tertiary">
+                  iCloud, Fastmail, Nextcloud, or any server that speaks CalDAV or CardDAV.
+                </p>
+              </div>
+              {!showDavForm && (
+                <Button variant="secondary" onClick={() => setShowDavForm(true)}>
+                  Connect server
+                </Button>
+              )}
+            </div>
+            {showDavForm && (
+              <DavConnectForm
+                onDone={() => {
+                  setShowDavForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowDavForm(false)}
+              />
+            )}
+          </CardBody>
+        </Card>
+
         {/* The six Appendix A email targets that previously had no path in at all. Kept next to the ICS
             card rather than in AVAILABLE_CONNECTORS above, because those are all one-click OAuth buttons
             and this needs a real form: a provider, an address, and an app password. */}
@@ -1095,6 +1127,169 @@ function PlaidConnectCard({ onConnected }: { onConnected: () => void }) {
       </div>
       {error && <FieldError>{error}</FieldError>}
     </>
+  );
+}
+
+interface DavProviderOption {
+  key: string;
+  label: string;
+  serverUrl: string;
+  services: Array<"caldav" | "carddav">;
+  credentialHint: string;
+  credentialUrl: string | null;
+}
+
+/**
+ * Connect a CalDAV/CardDAV server.
+ *
+ * One form for both protocols, because they are one credential: iCloud, Fastmail and Nextcloud each hand
+ * out a single app password that opens calendars and contacts alike, so asking twice would be asking the
+ * same question twice. What the user picks instead is WHAT to sync, and both are on by default — a server
+ * that offers both and quietly syncs one is a surprise.
+ *
+ * Each choice becomes a separate connection underneath. They sync, fail and disconnect independently,
+ * which is exactly why a partial result is reported rather than flattened: Apple serves calendars and
+ * contacts from different hosts, so "calendars connected, contacts did not" is a real outcome and
+ * reporting it as "failed" would be wrong.
+ */
+function DavConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { data } = useSWR<{ providers: DavProviderOption[] }>("/v1/connectors/dav/providers", swrFetcher);
+  const [providerKey, setProviderKey] = useState("icloud");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [syncCalendars, setSyncCalendars] = useState(true);
+  const [syncContacts, setSyncContacts] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const providers = data?.providers ?? [];
+  const selected = providers.find((p) => p.key === providerKey);
+  const needsUrl = providerKey === "custom" || providerKey === "nextcloud";
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!syncCalendars && !syncContacts) {
+      setError("Choose at least one of calendars or contacts.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    const body = { providerKey, username, password, serverUrl: needsUrl ? serverUrl : undefined };
+    const failures: string[] = [];
+    let anySucceeded = false;
+
+    const services: Array<[boolean, string, string]> = [
+      [syncCalendars, "/v1/connectors/caldav/connect", "Calendars"],
+      [syncContacts, "/v1/connectors/carddav/connect", "Contacts"],
+    ];
+
+    for (const [enabled, path, label] of services) {
+      if (!enabled) continue;
+      try {
+        await api.post(path, body);
+        anySucceeded = true;
+      } catch (err) {
+        failures.push(label + ": " + (err instanceof ApiError ? err.message : "something went wrong"));
+      }
+    }
+
+    if (failures.length === 0) {
+      onDone();
+      return;
+    }
+    setError((anySucceeded ? "Partly connected. " : "") + failures.join(" "));
+    setSubmitting(false);
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="dav-provider">Provider</Label>
+        <select
+          id="dav-provider"
+          value={providerKey}
+          onChange={(e) => setProviderKey(e.target.value)}
+          className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+        >
+          {providers.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <p className="text-sm text-tertiary">
+          {selected.credentialHint}
+          {selected.credentialUrl && (
+            <>
+              {" "}
+              <a href={selected.credentialUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-brand underline">
+                Open {selected.label} security settings
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {needsUrl && (
+        <div>
+          <Label htmlFor="dav-url">Server address</Label>
+          <Input
+            id="dav-url"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            placeholder="https://your-server/remote.php/dav"
+            required
+          />
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="dav-username">Username</Label>
+        <Input id="dav-username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="you@example.com" required />
+      </div>
+      <div>
+        <Label htmlFor="dav-password">App password</Label>
+        <Input id="dav-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+      </div>
+
+      <fieldset className="space-y-1.5">
+        <legend className="text-sm font-medium text-secondary">What to sync</legend>
+        <label className="flex items-center gap-2 text-sm text-primary">
+          <input
+            type="checkbox"
+            checked={syncCalendars}
+            onChange={(e) => setSyncCalendars(e.target.checked)}
+            className="rounded border-border-default"
+          />
+          Calendars
+        </label>
+        <label className="flex items-center gap-2 text-sm text-primary">
+          <input
+            type="checkbox"
+            checked={syncContacts}
+            onChange={(e) => setSyncContacts(e.target.checked)}
+            className="rounded border-border-default"
+          />
+          Contacts
+        </label>
+      </fieldset>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

@@ -13,6 +13,9 @@ import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
 import { ImapAdapter } from "./imap.adapter";
+import { CalDavAdapter } from "./caldav.adapter";
+import { CardDavAdapter } from "./carddav.adapter";
+import { listDavProviders } from "./dav-providers";
 import { listImapProviders } from "./imap-providers";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
@@ -29,6 +32,8 @@ import {
   type IcsConnectDto,
   ImapConnectDtoSchema,
   type ImapConnectDto,
+  DavConnectDtoSchema,
+  type DavConnectDto,
   PlaidExchangeDtoSchema,
   type PlaidExchangeDto,
   SetWriteBackDtoSchema,
@@ -63,6 +68,8 @@ export class ConnectorsController {
     @Inject(OutlookAdapter) private readonly outlook: OutlookAdapter,
     @Inject(IcsAdapter) private readonly ics: IcsAdapter,
     @Inject(ImapAdapter) private readonly imap: ImapAdapter,
+    @Inject(CalDavAdapter) private readonly caldav: CalDavAdapter,
+    @Inject(CardDavAdapter) private readonly carddav: CardDavAdapter,
     @Inject(GoogleCalendarAdapter) private readonly googleCalendar: GoogleCalendarAdapter,
     @Inject(MicrosoftCalendarAdapter) private readonly microsoftCalendar: MicrosoftCalendarAdapter,
     @Inject(GoogleContactsAdapter) private readonly googleContacts: GoogleContactsAdapter,
@@ -618,6 +625,45 @@ export class ConnectorsController {
       ownerUserId: user.userId,
       householdId: null,
     });
+    return { connectionId: result.connectionId };
+  }
+
+  /** Calendar and contact servers reachable over CalDAV/CardDAV, and what credential each needs. */
+  @Get("dav/providers")
+  @UseGuards(AuthGuard)
+  davProviders() {
+    return { providers: listDavProviders() };
+  }
+
+  /**
+   * Connect a calendar over CalDAV — the spec's 'CalDAV servers' and 'Apple Calendar' rows.
+   *
+   * Distinct from the mobile app's 'This phone's calendar' card, which is EventKit: a manual,
+   * one-device import. This is a server-side connection that syncs on its own.
+   */
+  @Post("caldav/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DavConnectDtoSchema))
+  async calDavConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: DavConnectDto) {
+    const result = await this.caldav.connect({
+      dto: { ...dto, requestedHistoryDepthDays: dto.historyDepthDays },
+      ownerUserId: user.userId,
+      householdId: null,
+    });
+    return { connectionId: result.connectionId };
+  }
+
+  /**
+   * Connect contacts over CardDAV — the spec's 'CardDAV' and 'Apple Contacts' rows.
+   *
+   * Distinct from the mobile app's device contact picker, which is a manual one-device import and
+   * stays. This is a server-side connection that keeps itself current.
+   */
+  @Post("carddav/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DavConnectDtoSchema))
+  async cardDavConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: DavConnectDto) {
+    const result = await this.carddav.connect({ dto, ownerUserId: user.userId, householdId: null });
     return { connectionId: result.connectionId };
   }
 

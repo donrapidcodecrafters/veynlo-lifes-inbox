@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { google, type people_v1 } from "googleapis";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -10,6 +10,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 import type { OAuthConnectorAdapter } from "./connector.interface";
 import { recordConnectorSyncFailure } from "./connection-health.util";
+import { buildContactSyncIndexes, upsertContact, type ParsedContact } from "./contact-sync";
 
 // PEO-001 "Connect Google Contacts... when permission is granted" — reuses the SAME
 // GOOGLE_OAUTH_CLIENT_ID/SECRET Gmail/Google Calendar already use (one Google Cloud OAuth app, an
@@ -18,15 +19,6 @@ import { recordConnectorSyncFailure } from "./connection-health.util";
 // write-back concept for contacts the way CAL-001 does for calendar events.
 const CONTACTS_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"];
 const PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations,metadata";
-
-interface ParsedContact {
-  providerContactId: string;
-  displayName: string;
-  emails: string[];
-  phones: string[];
-  organizationName: string | null;
-  deleted: boolean;
-}
 
 function parsePerson(person: people_v1.Schema$Person): ParsedContact | null {
   const resourceName = person.resourceName;
@@ -131,114 +123,35 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
   /** Upserts one Google contact into `people`/`aliases`/`contactSources` — see this class's own doc comment
    * on why this never alias-matches into an existing person at import time. */
   /**
-   * Indexes for the two lookups this sync needs, built ONCE per sync from decrypted rows.
-   *
-   * Both used to be SQL predicates on columns that are encrypted at rest — `contactSources
-   * .providerContactId` and `organizations.name`. Drizzle only decrypts on the way out
-   * (`fromDriver`), and `encryptField` uses a fresh random IV per write, so those comparisons matched
-   * a plaintext string against ciphertext and could never be true. Proven against the real database
-   * inside a rolled-back transaction: insert a row, read it back by id and its decrypted
-   * providerContactId is exactly the value written; query for that same value and it returns 0 rows.
-   *
-   * The consequence was not a missing feature, it was compounding corruption: `existingSource` was
-   * always undefined, so every sync took the "new contact" branch and inserted another person row and
-   * another contact-source row for every contact in the address book, every time. The update branch
-   * (refresh displayName, bump syncedAt) was unreachable, so a renamed contact spawned a duplicate
-   * instead of updating; the deletion branch was unreachable, so a removed contact was never marked;
-   * and `return !existingSource` was always true, reporting the entire address book as newly
-   * discovered on every run. Organizations duplicated the same way.
-   *
-   * Built once and mutated as rows are inserted, so duplicates inside a single sync are caught too.
-   * One query each, rather than one per contact — matching in JS after decryption is the only way to
-   * compare these columns, and doing it per contact would be quadratic on a large address book.
+   * Both lookups, built once per sync from DECRYPTED rows — see `contact-sync.ts` for why a SQL
+   * comparison against these columns silently matches nothing, and what that cost when it shipped.
    */
   private async syncIndexes(connection: typeof schema.connections.$inferSelect, connectionId: string) {
-    const sourceRows = await this.db
-      .select()
-      .from(schema.contactSources)
-      .where(and(eq(schema.contactSources.connectionId, connectionId), eq(schema.contactSources.provider, "google")));
-    const organizationRows = await this.db
-      .select()
-      .from(schema.organizations)
-      .where(eq(schema.organizations.ownerUserId, connection.ownerUserId));
-    return {
-      sources: new Map(sourceRows.filter((r) => r.providerContactId).map((r) => [r.providerContactId as string, r])),
-      organizations: new Map(organizationRows.map((r) => [r.name, r.id])),
-    };
+    return buildContactSyncIndexes(this.db, { ownerUserId: connection.ownerUserId, connectionId, provider: "google" });
   }
-
+  /**
+   * One Google contact into `people`/`aliases`/`contactSources`.
+   *
+   * The body of this lives in `contact-sync.ts` now, shared with CardDAV. Every semantic it carries —
+   * never destroying a person whose contact disappeared upstream, private-by-default visibility, keying
+   * identity on the provider's id rather than a matching email — is a decision that would be wrong in a
+   * different way if a second connector re-derived it.
+   */
   private async upsertContact(
     connection: typeof schema.connections.$inferSelect,
     connectionId: string,
     contact: ParsedContact,
     indexes: Awaited<ReturnType<GoogleContactsAdapter["syncIndexes"]>>,
   ): Promise<boolean> {
-    const existingSource = indexes.sources.get(contact.providerContactId);
-
-    if (contact.deleted) {
-      // Contact sources remain evidence of what was once synced; the canonical Person row (and any notes/
-      // relationships/history a user attached to it) is never destroyed just because it disappeared from a
-      // provider's address book — same "don't destroy user data on an external signal" stance
-      // GoogleCalendarAdapter takes for a cancelled event, applied to the more destructive case of a
-      // person's whole row. Just stop tracking it as still-synced.
-      if (existingSource) await this.db.update(schema.contactSources).set({ syncedAt: new Date() }).where(eq(schema.contactSources.id, existingSource.id));
-      return false;
-    }
-
-    let personId: string;
-    if (existingSource) {
-      personId = existingSource.personId;
-      await this.db.update(schema.contactSources).set({ syncedAt: new Date() }).where(eq(schema.contactSources.id, existingSource.id));
-      await this.db.update(schema.people).set({ displayName: contact.displayName, updatedAt: new Date() }).where(eq(schema.people.id, personId));
-    } else {
-      personId = generateId("person");
-      await this.db.insert(schema.people).values({
-        id: personId,
-        ownerUserId: connection.ownerUserId,
-        householdId: connection.householdId,
-        displayName: contact.displayName,
-        // PEO-001 "avoid sensitive identity inference beyond product need" — private by default, exactly
-        // like a manually-created person (PeopleService.create); a synced contact isn't household-visible
-        // just because it came from a household-linked connection.
-        visibility: "private",
-      });
-      const contactSourceId = generateId("contactSource");
-      const inserted = {
-        id: contactSourceId,
-        personId,
-        ownerUserId: connection.ownerUserId,
-        provider: "google" as const,
-        connectionId,
-        providerContactId: contact.providerContactId,
-        syncedAt: new Date(),
-      };
-      await this.db.insert(schema.contactSources).values(inserted);
-      indexes.sources.set(contact.providerContactId, inserted as (typeof indexes.sources) extends Map<string, infer V> ? V : never);
-    }
-
-    if (contact.organizationName) {
-      const existingOrganizationId = indexes.organizations.get(contact.organizationName);
-      const organizationId = existingOrganizationId ?? generateId("organization");
-      if (!existingOrganizationId) {
-        await this.db.insert(schema.organizations).values({ id: organizationId, ownerUserId: connection.ownerUserId, name: contact.organizationName });
-        indexes.organizations.set(contact.organizationName, organizationId);
-      }
-      await this.db.update(schema.people).set({ organizationId }).where(eq(schema.people.id, personId));
-    }
-
-    const existingAliases = await this.db.select().from(schema.aliases).where(eq(schema.aliases.personId, personId));
-    const existingValues = new Set(existingAliases.map((a) => `${a.kind}:${a.value}`));
-    for (const email of contact.emails) {
-      if (existingValues.has(`email:${email}`)) continue;
-      await this.db.insert(schema.aliases).values({ id: generateId("alias"), personId, ownerUserId: connection.ownerUserId, kind: "email", value: email });
-    }
-    for (const phone of contact.phones) {
-      if (existingValues.has(`phone:${phone}`)) continue;
-      await this.db.insert(schema.aliases).values({ id: generateId("alias"), personId, ownerUserId: connection.ownerUserId, kind: "phone", value: phone });
-    }
-    return !existingSource;
+    return upsertContact(this.db, {
+      ownerUserId: connection.ownerUserId,
+      householdId: connection.householdId,
+      connectionId,
+      provider: "google",
+      contact,
+      indexes,
+    });
   }
-
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
     try {
       const { connection, people } = await this.client(connectionId);

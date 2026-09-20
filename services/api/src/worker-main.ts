@@ -49,6 +49,8 @@ import { GoogleTasksAdapter } from "./modules/connectors/google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./modules/connectors/microsoft-todo.adapter";
 import { PlaidAdapter } from "./modules/connectors/plaid.adapter";
 import { ImapAdapter } from "./modules/connectors/imap.adapter";
+import { CalDavAdapter } from "./modules/connectors/caldav.adapter";
+import { CardDavAdapter } from "./modules/connectors/carddav.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { OBJECT_STORAGE, type ObjectStorage } from "./modules/documents/object-storage.interface";
@@ -98,6 +100,8 @@ async function bootstrap() {
   const microsoftToDoAdapter = appContext.get(MicrosoftToDoAdapter);
   const plaidAdapter = appContext.get(PlaidAdapter);
   const imapAdapter = appContext.get(ImapAdapter);
+  const calDavAdapter = appContext.get(CalDavAdapter);
+  const cardDavAdapter = appContext.get(CardDavAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get<ObjectStorage>(OBJECT_STORAGE);
@@ -146,6 +150,8 @@ async function bootstrap() {
           gmail: gmailAdapter,
           outlook: outlookAdapter,
           imap: imapAdapter,
+          caldav: calDavAdapter,
+          carddav: cardDavAdapter,
           ics: icsAdapter,
           google_calendar: googleCalendarAdapter,
           microsoft_calendar: microsoftCalendarAdapter,

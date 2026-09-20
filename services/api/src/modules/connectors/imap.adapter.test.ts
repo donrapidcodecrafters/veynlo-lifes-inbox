@@ -151,6 +151,26 @@ describe("ImapAdapter against a real IMAP server", () => {
     }
   });
 
+
+  /**
+   * Prove this suite actually ran against the real server.
+   *
+   * Every test below early-returns when the server is unreachable, which is the repo's convention and is
+   * right for CI — but it means a suite that connected to NOTHING reports exactly the same green as one
+   * that connected to everything. That is the vacuous pass this audit keeps finding, and it is worse here
+   * than most places because the whole point of these tests is that they are not mocked.
+   *
+   * So: set REQUIRE_REAL_SERVER=1 and the skip becomes a failure. The verification harness sets it; a
+   * developer running the suite on a laptop with no Docker does not.
+   */
+  it("actually reached the real server (REQUIRE_REAL_SERVER)", () => {
+    if (process.env.REQUIRE_REAL_SERVER === "1") {
+      expect(available, "REQUIRE_REAL_SERVER=1 but the server was unreachable — this suite proved nothing").toBe(true);
+    } else if (!available) {
+      console.warn("   (skipped: the real server was unreachable — set REQUIRE_REAL_SERVER=1 to make that a failure)");
+    }
+  });
+
   it("reads a real mailbox over TLS and files what the sender declared in it", async () => {
     if (!available) return;
 

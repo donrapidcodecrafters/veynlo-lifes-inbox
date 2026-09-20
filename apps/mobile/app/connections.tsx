@@ -288,6 +288,7 @@ export default function ConnectionsScreen() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [showImapForm, setShowImapForm] = useState(false);
+  const [showDavForm, setShowDavForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -916,6 +917,34 @@ export default function ConnectionsScreen() {
           )}
         </Card>
 
+{/* CalDAV/CardDAV — the register's "CalDAV servers", "CardDAV", "Apple Calendar" and "Apple
+            Contacts" rows. Distinct from the device-import cards further down: this is a server-side
+            connection that keeps itself current for the whole account, not just this handset. */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Calendar &amp; contacts server</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                iCloud, Fastmail, Nextcloud, or any CalDAV/CardDAV server.
+              </Text>
+            </View>
+            {!showDavForm && (
+              <Button variant="secondary" onPress={() => setShowDavForm(true)}>
+                Connect
+              </Button>
+            )}
+          </View>
+          {showDavForm && (
+            <DavConnectForm
+              onDone={() => {
+                setShowDavForm(false);
+                load();
+              }}
+              onCancel={() => setShowDavForm(false)}
+            />
+          )}
+        </Card>
+
 {/* The six Appendix A email targets that had no path in at all before this. Not in the OAuth
             connector list above because those are one-tap buttons and this needs a real form. */}
         <Card style={{ gap: 10 }}>
@@ -1192,6 +1221,164 @@ export default function ConnectionsScreen() {
         </View>
       )}
     </Screen>
+  );
+}
+
+interface DavProviderOption {
+  key: string;
+  label: string;
+  serverUrl: string;
+  services: Array<"caldav" | "carddav">;
+  credentialHint: string;
+  credentialUrl: string | null;
+}
+
+/**
+ * Connect a CalDAV/CardDAV server.
+ *
+ * One form for both protocols, because they are one credential — iCloud, Fastmail and Nextcloud each issue
+ * a single app password that opens calendars and contacts alike. What the user chooses is WHAT to sync,
+ * and both are on by default: a server that offers both and quietly syncs one is a surprise.
+ *
+ * Each choice becomes its own connection underneath, so they sync and fail independently. That is why a
+ * partial result is reported rather than flattened into "it failed" — Apple serves calendars and contacts
+ * from different hosts, and "calendars connected, contacts did not" is a real outcome.
+ */
+function DavConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [providers, setProviders] = useState<DavProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("icloud");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [syncCalendars, setSyncCalendars] = useState(true);
+  const [syncContacts, setSyncContacts] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.get<{ providers: DavProviderOption[] }>("/v1/connectors/dav/providers");
+        setProviders(result.providers);
+      } catch {
+        setError("Couldn't load the list of providers.");
+      }
+    })();
+  }, []);
+
+  const selected = providers.find((p) => p.key === providerKey);
+  const needsUrl = providerKey === "custom" || providerKey === "nextcloud";
+
+  async function onSubmit() {
+    if (!syncCalendars && !syncContacts) {
+      setError("Choose at least one of calendars or contacts.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    const body = { providerKey, username, password, serverUrl: needsUrl ? serverUrl : undefined };
+    const failures: string[] = [];
+    let anySucceeded = false;
+
+    const services: Array<[boolean, string, string]> = [
+      [syncCalendars, "/v1/connectors/caldav/connect", "Calendars"],
+      [syncContacts, "/v1/connectors/carddav/connect", "Contacts"],
+    ];
+
+    for (const [enabled, path, label] of services) {
+      if (!enabled) continue;
+      try {
+        await api.post(path, body);
+        anySucceeded = true;
+      } catch (err) {
+        failures.push(label + ": " + (err instanceof ApiError ? err.message : "something went wrong"));
+      }
+    }
+
+    if (failures.length === 0) {
+      onDone();
+      return;
+    }
+    setError((anySucceeded ? "Partly connected. " : "") + failures.join(" "));
+    setSubmitting(false);
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>Provider</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {providers.map((provider) => {
+          const active = provider.key === providerKey;
+          return (
+            <Pressable
+              key={provider.key}
+              onPress={() => setProviderKey(provider.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={provider.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: active ? "600" : "400",
+                  color: active ? theme.colors.brandDefault : theme.colors.textPrimary,
+                }}
+              >
+                {provider.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{selected.credentialHint}</Text>}
+
+      {needsUrl && (
+        <TextField
+          label="Server address"
+          value={serverUrl}
+          onChangeText={setServerUrl}
+          placeholder="https://your-server/remote.php/dav"
+          autoCapitalize="none"
+        />
+      )}
+      <TextField label="Username" value={username} onChangeText={setUsername} placeholder="you@example.com" autoCapitalize="none" />
+      <TextField label="App password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" />
+
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>What to sync</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>Calendars</Text>
+        <Switch value={syncCalendars} onValueChange={setSyncCalendars} accessibilityLabel="Sync calendars" />
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>Contacts</Text>
+        <Switch value={syncContacts} onValueChange={setSyncContacts} accessibilityLabel="Sync contacts" />
+      </View>
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
   );
 }
 

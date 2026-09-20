@@ -15,6 +15,8 @@ import { GmailAdapter } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
 import { ImapAdapter } from "./imap.adapter";
+import { CalDavAdapter } from "./caldav.adapter";
+import { CardDavAdapter } from "./carddav.adapter";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { GoogleContactsAdapter } from "./google-contacts.adapter";
@@ -31,6 +33,8 @@ const ADAPTERS = [
   OutlookAdapter,
   IcsAdapter,
   ImapAdapter,
+  CalDavAdapter,
+  CardDavAdapter,
   GoogleCalendarAdapter,
   MicrosoftCalendarAdapter,
   GoogleContactsAdapter,

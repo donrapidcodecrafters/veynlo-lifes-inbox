@@ -31,6 +31,20 @@ export const ImapConnectDtoSchema = z.object({
 });
 export type ImapConnectDto = z.infer<typeof ImapConnectDtoSchema>;
 
+/**
+ * CalDAV/CardDAV connect. `serverUrl` is only read for providers whose address the user supplies
+ * (custom, Nextcloud); the rest carry their own verified host, so a client cannot repoint a known
+ * provider at a server of its choosing.
+ */
+export const DavConnectDtoSchema = z.object({
+  providerKey: z.string().min(1).max(40),
+  username: z.string().min(1).max(320),
+  password: z.string().min(1).max(512),
+  serverUrl: z.string().min(1).max(2048).optional(),
+  historyDepthDays: z.number().int().min(0).max(3650).optional(),
+});
+export type DavConnectDto = z.infer<typeof DavConnectDtoSchema>;
+
 export const PlaidExchangeDtoSchema = z.object({
   publicToken: z.string().min(1),
   // ONB-002 — optional historical-depth choice from the onboarding flow (or a future Connections-page
