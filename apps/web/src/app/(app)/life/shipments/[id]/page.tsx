@@ -16,6 +16,7 @@ interface ShipmentDetail {
     id: string;
     carrier: string;
     trackingNumber: string;
+    trackingUrl: string | null;
     status: string;
     estimatedDelivery: TemporalValueLike | null;
     deliveredAt: string | null;
@@ -67,7 +68,24 @@ export default function ShipmentDetailPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-primary">{shipment.carrier}</h1>
-          <p className="mt-1 font-mono text-sm text-tertiary">{shipment.trackingNumber}</p>
+          {/* A tracking number is only useful if you can follow it. Rendered as plain text, using it
+              meant selecting 22 characters, copying them, finding the right carrier's site and pasting.
+              `trackingUrl` is null whenever the carrier could not be established — a link to the wrong
+              carrier reports "not found" for a parcel that is fine, which is worse than no link. */}
+          {shipment.trackingUrl ? (
+            <a
+              href={shipment.trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center gap-1 font-mono text-sm text-brand underline"
+              title={`Track ${shipment.trackingNumber} on ${shipment.carrier}`}
+            >
+              {shipment.trackingNumber}
+              <span aria-hidden="true">↗</span>
+            </a>
+          ) : (
+            <p className="mt-1 font-mono text-sm text-tertiary">{shipment.trackingNumber}</p>
+          )}
         </div>
         <Badge tone={STATUS_TONE[shipment.status] ?? "neutral"}>{shipment.status.replace(/_/g, " ")}</Badge>
       </header>

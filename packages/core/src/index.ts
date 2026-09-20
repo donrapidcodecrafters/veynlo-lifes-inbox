@@ -17,6 +17,7 @@ export * from "./util/group-nested";
 // (see packages/core/package.json's "./util/token" export) — never through this main barrel.
 export * from "./util/recurrence";
 export * from "./util/geo";
+export * from "./util/carrier";
 export * from "./util/place-extraction";
 
 export * from "./permissions/sensitivity";
