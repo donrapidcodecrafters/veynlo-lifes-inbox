@@ -42,6 +42,8 @@ import {
   type ShareMessageClassification,
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender, normalizeSenderDomain, extractEmailAddress, KNOWN_SENDER_PARSER_VERSION } from "../intelligence/deterministic-prefilter";
+import { extractSchemaOrgFromHtml, hasUsableMarkup, EMPTY_FINDINGS, type SchemaOrgFindings } from "./schema-org-email";
+import { receiptResultFromMarkup, shipmentResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
 import { parseGmailMessage, type ParsedEmail, type EmailAttachmentInput } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, toTemporalValueWithTime, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
@@ -361,11 +363,16 @@ export class IngestionService {
       fromAddress: parsed.fromAddress || null,
     });
 
+    // Parsed once, here, and threaded onward — the relevance gate and the extractors both need it, and
+    // re-reading the same HTML twice per message is pure waste.
+    const markup = extractSchemaOrgFromHtml(parsed.bodyHtml);
+
     const relevance = evaluateRelevance({
       subject: parsed.subject,
       fromAddress: parsed.fromAddress,
       snippet: parsed.snippet,
       headers: parsed.headers,
+      hasPublishedMarkup: hasUsableMarkup(markup),
     });
 
     if (!relevance.relevant) {
@@ -380,6 +387,7 @@ export class IngestionService {
       connectionId: params.connectionId,
       parsed,
       isBackfill: params.isBackfill,
+      markup,
     });
   }
 
@@ -451,6 +459,7 @@ export class IngestionService {
         dateHeader: "",
         snippet: params.bodyText.slice(0, 200),
         bodyText: params.bodyText,
+        bodyHtml: null,
         headers: {},
       },
     };
@@ -637,6 +646,7 @@ export class IngestionService {
         dateHeader: "",
         snippet: trimmedTranscript.slice(0, 200),
         bodyText: trimmedTranscript,
+        bodyHtml: null, // a transcript has no markup to read
         headers: {},
       },
     });
@@ -735,7 +745,7 @@ export class IngestionService {
       sourceEventId,
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
-      parsed: { subject: "Shared screenshot", fromAddress: "", toAddress: "", dateHeader: "", snippet: ocrText.slice(0, 200), bodyText: ocrText, headers: {} },
+      parsed: { subject: "Shared screenshot", fromAddress: "", toAddress: "", dateHeader: "", snippet: ocrText.slice(0, 200), bodyText: ocrText, headers: {}, bodyHtml: null },
     });
     return { sourceEventId };
   }
@@ -806,7 +816,10 @@ export class IngestionService {
     const data = result.data;
     let filed = false;
     if (data.category === "purchase") {
-      filed = await this.extractReceipt(ctx, null);
+      // A shared screenshot or message has no HTML body and therefore no markup to read — this path is
+      // OCR text or a pasted string. EMPTY_FINDINGS says that explicitly rather than reaching for
+      // ctx.parsed.bodyHtml, which is always null here by construction.
+      filed = await this.extractReceipt(ctx, null, EMPTY_FINDINGS, true);
     } else if (data.category === "event" || data.category === "date") {
       filed = await this.extractCalendarEvent(ctx);
     } else if (data.category === "task") {
@@ -1012,6 +1025,8 @@ export class IngestionService {
      * (GmailAdapter/OutlookAdapter's `initialSync`), never from live/incremental sync or any manual capture
      * path. See `isBackfillCostBudgetPaused`'s own doc comment. */
     isBackfill?: boolean;
+    /** Already parsed by `ingestParsedEmail`; recomputed below for callers with no HTML body at all. */
+    markup?: SchemaOrgFindings;
   }): Promise<void> {
     // §AI-003 kill switch — checked at the very top, before any other gate or AI call, so flipping
     // `ai_extraction_paused` genuinely stops every NEW extraction call, not just the domain classifier
@@ -1023,14 +1038,30 @@ export class IngestionService {
       return;
     }
 
+    // The sender's own structured data, read once for this message and threaded through everything below.
+    //
+    // Deliberately AFTER the §AI-003 kill switch and BEFORE every other gate. The kill switch is an
+    // emergency brake, and the conservative reading of an emergency brake is that it stops processing, not
+    // merely the model. Every gate below it, though, is about AI specifically — cost, consent, model
+    // behaviour — and none of those describe reading a field the sender put in their own email.
+    const markup: SchemaOrgFindings = ctx.markup ?? extractSchemaOrgFromHtml(ctx.parsed.bodyHtml);
+    const markupUsable = hasUsableMarkup(markup);
+
     // §47.4/§39.2 backfill-specific cost-pressure pause — deliberately gated on `ctx.isBackfill` so this
     // NEVER throttles live inbox processing, only the deferrable historical-backfill work the spec calls out
     // by name as "the correct thing to throttle first" under cost pressure. See
     // `isBackfillCostBudgetPaused`'s own doc comment for the threshold mechanics.
+    // A cost pause exists to stop spending. Reading markup spends nothing — no model call, no tokens, no
+    // request leaving this process — so a budget pause suppresses the model and lets the sender's own
+    // stated facts through, rather than discarding free information to save money that was never at risk.
+    let aiAllowed = true;
     if (ctx.isBackfill && (await this.isBackfillCostBudgetPaused(ctx.ownerUserId))) {
       this.logger.warn(`Backfill cost budget exceeded for user ${ctx.ownerUserId} — deferring backfill-triggered AI extraction for source event ${ctx.sourceEventId}`);
-      await this.markProcessed(ctx.sourceEventId, "filed");
-      return;
+      if (!markupUsable) {
+        await this.markProcessed(ctx.sourceEventId, "filed");
+        return;
+      }
+      aiAllowed = false;
     }
 
     // PRIV-001 privacy/consent center's "AI processing" opt-out — checked here, before ANY AI call, not
@@ -1056,8 +1087,18 @@ export class IngestionService {
       }
     }
     if (!effectiveAiProcessingEnabled) {
-      await this.markProcessed(ctx.sourceEventId, "filed");
-      return;
+      // PRIV-001 is an AI opt-out, and schema.org markup is not AI: no model runs, nothing is inferred,
+      // and no content leaves this process. Before this, the toggle meant a completely dead inbox — a user
+      // who wanted no model reading their mail also got no orders and no deliveries, ever. They now still
+      // get what senders state outright about their own messages, and nothing more.
+      //
+      // Every non-AI gate still applies in full: a paused connection, an excluded sender and an "ignore"
+      // sender rule all still stop this message dead, below.
+      if (!markupUsable) {
+        await this.markProcessed(ctx.sourceEventId, "filed");
+        return;
+      }
+      aiAllowed = false;
     }
 
     // PRIV-001 "exclude a specific sender from a connection" — a connection-scoped deny-list checked
@@ -1122,7 +1163,7 @@ export class IngestionService {
       // matchKnownSender path, never for an AI-classified or sender-rule-forced event — see
       // KNOWN_SENDER_PARSER_VERSION's own doc comment.
       await this.db.update(schema.sourceEvents).set({ parserVersion: KNOWN_SENDER_PARSER_VERSION }).where(eq(schema.sourceEvents.id, ctx.sourceEventId));
-    } else if (this.ai.isConfigured()) {
+    } else if (aiAllowed && this.ai.isConfigured()) {
       const classification = await this.ai.extractStructured({
         extractorName: "domain_classifier_v1",
         sourceEventId: ctx.sourceEventId,
@@ -1136,8 +1177,15 @@ export class IngestionService {
         toolDescription: "Classify this message's Veynlo domains.",
       });
       domains = classification?.data.domains ?? ["irrelevant"];
+      // The classifier reads prose and can miss what the sender declared outright — and on a message whose
+      // body is a wall of marketing images around one ld+json block, prose is most of what it has to go on.
+      // Union rather than replace: the classifier still contributes domains the markup says nothing about.
+      for (const domain of domainsFromMarkup(markup)) if (!domains.includes(domain)) domains.push(domain);
     } else {
-      domains = ["irrelevant"];
+      // No classifier — either unconfigured, or suppressed by a gate above. A declared Order IS a receipt;
+      // saying so needs no model, which is the whole reason extraction still works with AI switched off.
+      domains = domainsFromMarkup(markup);
+      if (domains.length === 0) domains = ["irrelevant"];
     }
 
     if (domains.includes("irrelevant") && domains.length === 1) {
@@ -1183,10 +1231,10 @@ export class IngestionService {
 
     let filedAny = false;
     if (domains.includes("receipt") && purchasesReturnsTracking !== false && categoryPurchasesEnabled) {
-      filedAny = (await this.extractReceipt(ctx, known?.category === "receipt" ? known.merchantName : null)) || filedAny;
+      filedAny = (await this.extractReceipt(ctx, known?.category === "receipt" ? known.merchantName : null, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("shipment")) {
-      filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null)) || filedAny;
+      filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("bill") && subscriptionsBillsTracking !== false && categoryFinanceEnabled) {
       filedAny = (await this.extractBill(ctx)) || filedAny;
@@ -1229,10 +1277,20 @@ export class IngestionService {
   private async extractReceipt(
     ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: ReturnType<typeof parseGmailMessage> },
     knownMerchantName: string | null,
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
   ): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "receipt_extraction_v1",
+    // The sender's own statement of their own order. Taken as authoritative for the fields it covers.
+    const fromMarkup = receiptResultFromMarkup(markup);
+
+    // The model still runs when it is allowed to, because markup has no vocabulary for a return deadline,
+    // tax, shipping or how it was paid — and a return deadline is among the most valuable things this app
+    // extracts. Skipping the model on the strength of a partial Order would trade a real capability for a
+    // saving that was never the point.
+    const fromModel =
+      aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "receipt_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -1240,10 +1298,35 @@ export class IngestionService {
         "Extract structured purchase/receipt data from this email for Veynlo. Never invent a date or amount that " +
         "is not clearly stated — use null and confidenceNotes instead.",
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
-      schema: ReceiptExtractionSchema,
-      toolDescription: "Emit the extracted receipt/purchase fields.",
-    });
-    if (!result) return false;
+            schema: ReceiptExtractionSchema,
+            toolDescription: "Emit the extracted receipt/purchase fields.",
+          })
+        : null;
+
+    if (!fromMarkup && !fromModel) return false;
+
+    // Merge, markup winning field by field. Not "markup OR model": an Order that states a number and a
+    // total but no line items must not discard the line items the model read from the same email.
+    const result =
+      fromMarkup && fromModel
+        ? {
+            ...fromModel,
+            modelUsed: `${fromMarkup.modelUsed}+${fromModel.modelUsed}`,
+            // Confidence follows the weakest field that actually decides anything downstream. The merged
+            // record is part inference, so it does not get the markup's certainty.
+            confidenceScore: fromModel.confidenceScore,
+            data: {
+              ...fromModel.data,
+              merchantName: fromMarkup.data.merchantName ?? fromModel.data.merchantName,
+              orderNumber: fromMarkup.data.orderNumber ?? fromModel.data.orderNumber,
+              purchaseDate: fromMarkup.data.purchaseDate ?? fromModel.data.purchaseDate,
+              totalAmountMinorUnits: fromMarkup.data.totalAmountMinorUnits ?? fromModel.data.totalAmountMinorUnits,
+              currency: fromMarkup.data.totalAmountMinorUnits !== null ? fromMarkup.data.currency : fromModel.data.currency,
+              lineItems: fromMarkup.data.lineItems.length > 0 ? fromMarkup.data.lineItems : fromModel.data.lineItems,
+              confidenceNotes: `${fromMarkup.data.confidenceNotes}\n\n${fromModel.data.confidenceNotes}`,
+            },
+          }
+        : (fromMarkup ?? fromModel)!;
 
     const merchantName = knownMerchantName ?? result.data.merchantName ?? "Unknown merchant";
     const merchantId = await this.findOrCreateMerchant(merchantName);
@@ -1539,10 +1622,19 @@ export class IngestionService {
   private async extractShipment(
     ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: ReturnType<typeof parseGmailMessage> },
     knownCarrierName: string | null,
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
   ): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "shipment_extraction_v1",
+    // Unlike a receipt, a ParcelDelivery carries everything a shipment record is made of — carrier,
+    // tracking number, the delivery window and the order it belongs to. There is no field left for the
+    // model to contribute, so when the markup is there the model is not called at all. This is where the
+    // cost saving actually lives.
+    const fromMarkup = shipmentResultFromMarkup(markup);
+    const result =
+      fromMarkup ??
+      (aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "shipment_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -1550,9 +1642,10 @@ export class IngestionService {
         "Extract structured shipping/tracking data from this email for Veynlo. Never invent a carrier, tracking " +
         "number, or delivery date that is not clearly stated.",
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
-      schema: ShipmentExtractionSchema,
-      toolDescription: "Emit the extracted shipment fields.",
-    });
+            schema: ShipmentExtractionSchema,
+            toolDescription: "Emit the extracted shipment fields.",
+          })
+        : null);
     if (!result || !result.data.trackingNumber) return false;
 
     const carrier = knownCarrierName ?? result.data.carrier ?? "Unknown carrier";

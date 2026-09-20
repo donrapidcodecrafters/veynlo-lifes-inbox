@@ -18,6 +18,18 @@ export interface ParsedEmail {
   dateHeader: string;
   snippet: string;
   bodyText: string;
+  /**
+   * The raw HTML body, when the message has one.
+   *
+   * `bodyText` above cannot substitute for this. A multipart/alternative message — which is what almost
+   * every retailer sends — carries both parts, and `extractPlainText` deliberately prefers the plain one,
+   * so the HTML is never even looked at. When it IS used, the tag-strip reduces
+   * `<script type="application/ld+json">{...}</script>` to a smear of JSON in the middle of the prose.
+   *
+   * Either way the structured data the sender published is lost, which is why this is carried separately
+   * rather than reconstructed downstream. Size-capped identically to bodyText.
+   */
+  bodyHtml: string | null;
   headers: Record<string, string>;
   /** Populated by IngestionService.ingestParsedEmail from the adapter-provided attachments param — never
    * set by parseGmailMessage/parseOutlookMessage themselves, which only ever see the message metadata, not
@@ -28,6 +40,21 @@ export interface ParsedEmail {
 
 function decodeBase64Url(data: string): string {
   return Buffer.from(data, "base64url").toString("utf8");
+}
+
+/**
+ * The message's `text/html` part, untouched. Separate from `extractPlainText` on purpose: that function
+ * answers "what did this message say", this one answers "what did the sender publish about it", and the
+ * second question needs the markup intact.
+ */
+function extractHtml(part: gmail_v1.Schema$MessagePart | undefined): string | null {
+  if (!part) return null;
+  if (part.mimeType === "text/html" && part.body?.data) return decodeBase64Url(part.body.data);
+  for (const child of part.parts ?? []) {
+    const html = extractHtml(child);
+    if (html) return html;
+  }
+  return null;
 }
 
 function extractPlainText(part: gmail_v1.Schema$MessagePart | undefined): string {
@@ -91,6 +118,7 @@ export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedEmail
     dateHeader: headers["date"] ?? "",
     snippet: message.snippet ?? "",
     bodyText: extractPlainText(message.payload).slice(0, 20_000), // cap payload size entering the pipeline
+    bodyHtml: extractHtml(message.payload)?.slice(0, 100_000) ?? null,
     headers,
   };
 }

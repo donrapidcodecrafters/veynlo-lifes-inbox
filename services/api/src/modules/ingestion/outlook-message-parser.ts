@@ -35,6 +35,10 @@ export function parseOutlookMessage(message: GraphMessage): ParsedEmail {
     dateHeader: message.receivedDateTime ?? "",
     snippet: message.bodyPreview ?? "",
     bodyText: bodyText.slice(0, 20_000), // cap payload size entering the pipeline, matching the Gmail parser
+    // Graph returns ONE body with a contentType, not multipart alternatives — so unlike Gmail there is no
+    // second part to fall back to. When it says html, that string is the only place the sender's markup
+    // can be, and bodyText above has already had its tags stripped out of it.
+    bodyHtml: message.body?.contentType === "html" ? (message.body.content ?? "").slice(0, 100_000) || null : null,
     headers,
   };
 }

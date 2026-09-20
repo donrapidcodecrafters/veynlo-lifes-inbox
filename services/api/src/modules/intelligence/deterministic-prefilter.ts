@@ -29,7 +29,27 @@ export interface RelevanceResult {
   reason: string;
 }
 
-export function evaluateRelevance(params: { subject: string; fromAddress: string; snippet: string; headers: Record<string, string> }): RelevanceResult {
+export function evaluateRelevance(params: {
+  subject: string;
+  fromAddress: string;
+  snippet: string;
+  headers: Record<string, string>;
+  /**
+   * True when the sender published schema.org markup (an Order, a ParcelDelivery) in this message's HTML.
+   *
+   * This outranks every other signal here, including the mailing-list headers, and it should: everything
+   * else on this function is a guess made from a subject line, while this is the sender stating in a
+   * machine-readable field of their own email that it carries a transaction. A retailer's shipping
+   * notice legitimately goes out with List-Unsubscribe headers attached, and a subject of "Shipped" or
+   * "Order confirmed" matches no keyword here at all — both were being dropped before anything looked at
+   * the markup they carried. Found exactly that way: the pipeline test for markup-derived extraction
+   * failed because the message never reached the extractor.
+   */
+  hasPublishedMarkup?: boolean;
+}): RelevanceResult {
+  if (params.hasPublishedMarkup) {
+    return { relevant: true, reason: "schema_org_markup" };
+  }
   const hasListHeader = IRRELEVANT_LIST_HEADERS.some((h) => Boolean(params.headers[h]));
   const text = `${params.subject}\n${params.snippet}`;
   const matchesKeyword = RELEVANT_KEYWORD_PATTERNS.some((pattern) => pattern.test(text));
