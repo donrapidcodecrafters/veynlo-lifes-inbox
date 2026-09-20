@@ -27,6 +27,7 @@ import { DropboxAdapter } from "./dropbox.adapter";
 import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./microsoft-todo.adapter";
 import { PlaidAdapter } from "./plaid.adapter";
+import { TokenTaskAdapter } from "./token-task.adapter";
 
 const ADAPTERS = [
   GmailAdapter,
@@ -45,6 +46,7 @@ const ADAPTERS = [
   GoogleTasksAdapter,
   MicrosoftToDoAdapter,
   PlaidAdapter,
+  TokenTaskAdapter,
 ];
 
 @Module({

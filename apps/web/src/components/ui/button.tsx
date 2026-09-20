@@ -23,10 +23,23 @@ const variantClasses: Record<Variant, string> = {
   critical: "bg-critical text-on-brand border border-critical hover:brightness-95",
 };
 
+/**
+ * A MINIMUM height, not a fixed one.
+ *
+ * These were `h-8`/`h-10`/`h-12`. A label that wraps is taller than its box, and with a fixed height the
+ * text does not shrink the button — it escapes it: found on the Connections page at 390px, where a
+ * "Connect task app" button rendered its first line ABOVE its own outline, so the word sat on the card
+ * background with the border drawn through the middle of the label. The button still measured a tidy 40px,
+ * which is why a height assertion did not catch it.
+ *
+ * `min-h-*` leaves every single-line button exactly where it was (content is well under the minimum) and
+ * lets a wrapping one grow to contain its own text. The vertical padding matters for the same reason:
+ * without it a two-line label sits flush against the border once the button does grow.
+ */
 const sizeClasses: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm gap-1.5",
-  md: "h-10 px-4 text-[0.9375rem] gap-2",
-  lg: "h-12 px-5 text-base gap-2",
+  sm: "min-h-8 px-3 py-1 text-sm gap-1.5",
+  md: "min-h-10 px-4 py-1.5 text-[0.9375rem] gap-2",
+  lg: "min-h-12 px-5 py-2 text-base gap-2",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

@@ -13,10 +13,12 @@ import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
 import { ImapAdapter } from "./imap.adapter";
+import { TokenTaskAdapter } from "./token-task.adapter";
 import { CalDavAdapter } from "./caldav.adapter";
 import { CardDavAdapter } from "./carddav.adapter";
 import { listDavProviders } from "./dav-providers";
 import { listImapProviders } from "./imap-providers";
+import { listTokenTaskProviders } from "./token-task-providers";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { GoogleContactsAdapter } from "./google-contacts.adapter";
@@ -32,6 +34,8 @@ import {
   type IcsConnectDto,
   ImapConnectDtoSchema,
   type ImapConnectDto,
+  TokenTaskConnectDtoSchema,
+  type TokenTaskConnectDto,
   DavConnectDtoSchema,
   type DavConnectDto,
   PlaidExchangeDtoSchema,
@@ -68,6 +72,7 @@ export class ConnectorsController {
     @Inject(OutlookAdapter) private readonly outlook: OutlookAdapter,
     @Inject(IcsAdapter) private readonly ics: IcsAdapter,
     @Inject(ImapAdapter) private readonly imap: ImapAdapter,
+    @Inject(TokenTaskAdapter) private readonly tokenTask: TokenTaskAdapter,
     @Inject(CalDavAdapter) private readonly caldav: CalDavAdapter,
     @Inject(CardDavAdapter) private readonly carddav: CardDavAdapter,
     @Inject(GoogleCalendarAdapter) private readonly googleCalendar: GoogleCalendarAdapter,
@@ -664,6 +669,41 @@ export class ConnectorsController {
   @UsePipes(new ZodValidationPipe(DavConnectDtoSchema))
   async cardDavConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: DavConnectDto) {
     const result = await this.carddav.connect({ dto, ownerUserId: user.userId, householdId: null });
+    return { connectionId: result.connectionId };
+  }
+
+  /**
+   * Task apps that can be connected with a token the user issues themselves, and what to create for each.
+   *
+   * Only providers that actually work are listed. TickTick, Any.do and Notion are absent rather than
+   * present-and-disabled: the IMAP list shows Proton with a reason because Proton's blocker is something
+   * the USER could change (Proton Bridge); nothing a user of TickTick can do makes an OAuth-only API
+   * connectable without this deployment registering an application, so offering it would only be a dead
+   * end with a promise attached.
+   */
+  @Get("task-apps/providers")
+  @UseGuards(AuthGuard)
+  taskAppProviders() {
+    return { providers: listTokenTaskProviders() };
+  }
+
+  /**
+   * Connect Todoist, Trello or Asana.
+   *
+   * Like the IMAP route, this receives a secret rather than completing an OAuth dance, so the same rules
+   * apply: the token is exercised against the provider before anything is stored, it is stored encrypted,
+   * and no endpoint reads it back. The adapter's own error messages are passed through unflattened —
+   * "Trello needs an API key too" and "that token was rejected" need different fixes.
+   */
+  @Post("task-apps/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(TokenTaskConnectDtoSchema))
+  async taskAppConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: TokenTaskConnectDto) {
+    // No `assertConnectorQuota` call, for the same reason the contacts routes above have none: there is no
+    // "tasks" category and no capability key backing one. Google Tasks and Microsoft To Do have never been
+    // metered, and adding a cap to the two providers a user can self-serve while leaving the OAuth ones
+    // uncapped would be an arbitrary limit dressed up as a plan boundary.
+    const result = await this.tokenTask.connect({ dto, ownerUserId: user.userId, householdId: null });
     return { connectionId: result.connectionId };
   }
 

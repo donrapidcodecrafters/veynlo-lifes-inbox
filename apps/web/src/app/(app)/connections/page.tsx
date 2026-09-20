@@ -257,6 +257,9 @@ const PROVIDER_LABEL: Record<string, string> = {
   dropbox: "Dropbox",
   google_tasks: "Google Tasks",
   microsoft_todo: "Microsoft To Do",
+  todoist: "Todoist",
+  trello: "Trello",
+  asana: "Asana",
   google_contacts: "Google Contacts",
   microsoft_contacts: "Microsoft Contacts",
   // Found live: missing here, so a connected Plaid connection fell through to the `?? c.provider` raw-
@@ -382,6 +385,7 @@ export default function ConnectionsPage() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [showImapForm, setShowImapForm] = useState(false);
+  const [showTaskAppForm, setShowTaskAppForm] = useState(false);
   const [showDavForm, setShowDavForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
@@ -823,6 +827,37 @@ export default function ConnectionsPage() {
                   mutate();
                 }}
                 onCancel={() => setShowImapForm(false)}
+              />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Three more Appendix A task targets. Next to the IMAP card rather than in AVAILABLE_CONNECTORS
+            above for the same reason that one is: those are one-click OAuth buttons, and this needs a
+            pasted token. TickTick, Any.do and Notion are deliberately not offered — see the API's
+            token-task-providers.ts for why each one is absent. */}
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Todoist, Trello or Asana</p>
+                <p className="text-sm text-tertiary">
+                  Bring your tasks in from a task app, using a token you create in your own account — no admin setup needed.
+                </p>
+              </div>
+              {!showTaskAppForm && (
+                <Button variant="secondary" onClick={() => setShowTaskAppForm(true)}>
+                  Connect app
+                </Button>
+              )}
+            </div>
+            {showTaskAppForm && (
+              <TaskAppConnectForm
+                onDone={() => {
+                  setShowTaskAppForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowTaskAppForm(false)}
               />
             )}
           </CardBody>
@@ -1419,6 +1454,114 @@ function ImapConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: (
 
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting || unavailable}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+interface TaskAppProviderOption {
+  key: string;
+  label: string;
+  credentialHint: string;
+  credentialUrl: string | null;
+  requiresApiKey: boolean;
+}
+
+/**
+ * Connect Todoist, Trello or Asana.
+ *
+ * A form rather than a one-click button, for the same reason the IMAP card above is one: there is no OAuth
+ * application behind these. The user issues a token in their own account settings and pastes it, which
+ * means the form's real job is telling them exactly where that setting is — each provider buries it
+ * somewhere different, and "invalid token" is the least useful thing this could say after the fact.
+ *
+ * Trello is the one provider needing two secrets. The second field appears only for Trello, driven by the
+ * provider's own `requiresApiKey` flag rather than a hardcoded key check here, so the API stays the single
+ * place that knows which providers need what.
+ */
+function TaskAppConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { data } = useSWR<{ providers: TaskAppProviderOption[] }>("/v1/connectors/task-apps/providers", swrFetcher);
+  const [providerKey, setProviderKey] = useState("todoist");
+  const [token, setToken] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const providers = data?.providers ?? [];
+  const selected = providers.find((p) => p.key === providerKey);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/task-apps/connect", {
+        providerKey,
+        token,
+        apiKey: selected?.requiresApiKey ? apiKey : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API answers with that provider's own guidance — "Trello needs an API key too" and "that token
+      // was rejected" need different fixes, so it is shown verbatim rather than flattened.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="task-app-provider">Task app</Label>
+        <select
+          id="task-app-provider"
+          value={providerKey}
+          onChange={(e) => setProviderKey(e.target.value)}
+          className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+        >
+          {providers.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <p className="text-sm text-tertiary">
+          {selected.credentialHint}
+          {selected.credentialUrl && (
+            <>
+              {" "}
+              <a href={selected.credentialUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-brand underline">
+                Open {selected.label} settings
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {selected?.requiresApiKey && (
+        <div>
+          <Label htmlFor="task-app-key">API key</Label>
+          <Input id="task-app-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required />
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="task-app-token">Token</Label>
+        <Input id="task-app-token" type="password" value={token} onChange={(e) => setToken(e.target.value)} required />
+      </div>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={submitting}>
           {submitting ? "Connecting…" : "Connect"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel}>

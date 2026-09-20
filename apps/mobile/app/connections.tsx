@@ -27,6 +27,9 @@ const PROVIDER_LABEL: Record<string, string> = {
   dropbox: "Dropbox",
   google_tasks: "Google Tasks",
   microsoft_todo: "Microsoft To Do",
+  todoist: "Todoist",
+  trello: "Trello",
+  asana: "Asana",
   google_contacts: "Google Contacts",
   microsoft_contacts: "Microsoft Contacts",
   // Mirrors the same fix on apps/web's connections page — missing here left a connected Plaid connection
@@ -288,6 +291,7 @@ export default function ConnectionsScreen() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
   const [showImapForm, setShowImapForm] = useState(false);
+  const [showTaskAppForm, setShowTaskAppForm] = useState(false);
   const [showDavForm, setShowDavForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
@@ -972,6 +976,34 @@ export default function ConnectionsScreen() {
           )}
         </Card>
 
+        {/* Three more Appendix A task targets. Not in the OAuth connector list above for the same reason
+            the IMAP card isn't: those are one-tap buttons, and this needs a pasted token. TickTick, Any.do
+            and Notion are deliberately not offered — see the API's token-task-providers.ts for why. */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Todoist, Trello or Asana</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                Bring in tasks using a token you create in your own account.
+              </Text>
+            </View>
+            {!showTaskAppForm && (
+              <Button variant="secondary" onPress={() => setShowTaskAppForm(true)}>
+                Connect
+              </Button>
+            )}
+          </View>
+          {showTaskAppForm && (
+            <TaskAppConnectForm
+              onDone={() => {
+                setShowTaskAppForm(false);
+                load();
+              }}
+              onCancel={() => setShowTaskAppForm(false)}
+            />
+          )}
+        </Card>
+
         <Card style={{ gap: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <View style={{ flex: 1 }}>
@@ -1511,6 +1543,118 @@ function ImapConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: (
 
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Button onPress={onSubmit} loading={submitting} disabled={unavailable}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+interface TaskAppProviderOption {
+  key: string;
+  label: string;
+  credentialHint: string;
+  credentialUrl: string | null;
+  requiresApiKey: boolean;
+}
+
+/**
+ * Connect Todoist, Trello or Asana.
+ *
+ * A form rather than a one-tap button, because there is no OAuth application behind these: the user issues
+ * a token in their own account settings and pastes it. So the form's real job is saying exactly where that
+ * setting lives — each provider buries it somewhere different, and a later "invalid token" helps nobody.
+ *
+ * Trello's second secret field appears from the provider's own `requiresApiKey` flag rather than a
+ * hardcoded check here, so the API stays the one place that knows which providers need what.
+ */
+function TaskAppConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [providers, setProviders] = useState<TaskAppProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("todoist");
+  const [token, setToken] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.get<{ providers: TaskAppProviderOption[] }>("/v1/connectors/task-apps/providers");
+        setProviders(result.providers);
+      } catch {
+        setError("Couldn't load the list of task apps.");
+      }
+    })();
+  }, []);
+
+  const selected = providers.find((p) => p.key === providerKey);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/task-apps/connect", {
+        providerKey,
+        token,
+        apiKey: selected?.requiresApiKey ? apiKey : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API answers with that provider's own guidance — shown as sent, not flattened.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>Task app</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {providers.map((provider) => {
+          const active = provider.key === providerKey;
+          return (
+            <Pressable
+              key={provider.key}
+              onPress={() => setProviderKey(provider.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={provider.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                // Always outlined — a control with no border is not visibly a control.
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? theme.colors.brandDefault : theme.colors.textPrimary }}>
+                {provider.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{selected.credentialHint}</Text>}
+
+      {selected?.requiresApiKey && (
+        <TextField label="API key" value={apiKey} onChangeText={setApiKey} secureTextEntry autoCapitalize="none" />
+      )}
+      <TextField label="Token" value={token} onChangeText={setToken} secureTextEntry autoCapitalize="none" />
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting}>
           Connect
         </Button>
         <Button variant="secondary" onPress={onCancel}>

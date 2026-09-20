@@ -45,6 +45,20 @@ export const DavConnectDtoSchema = z.object({
 });
 export type DavConnectDto = z.infer<typeof DavConnectDtoSchema>;
 
+/**
+ * Todoist / Trello / Asana connect, with a token the user issues in their own account.
+ *
+ * `apiKey` is Trello-only and optional here rather than required, because "which providers need a second
+ * secret" is the adapter's knowledge, not this schema's — the adapter rejects a missing Trello key with a
+ * message naming Trello. Encoding it here too would put the same rule in two places that can drift.
+ */
+export const TokenTaskConnectDtoSchema = z.object({
+  providerKey: z.string().min(1).max(40),
+  token: z.string().min(1).max(512),
+  apiKey: z.string().min(1).max(512).optional(),
+});
+export type TokenTaskConnectDto = z.infer<typeof TokenTaskConnectDtoSchema>;
+
 export const PlaidExchangeDtoSchema = z.object({
   publicToken: z.string().min(1),
   // ONB-002 — optional historical-depth choice from the onboarding flow (or a future Connections-page

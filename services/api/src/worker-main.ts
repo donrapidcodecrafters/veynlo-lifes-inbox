@@ -46,6 +46,7 @@ import { GoogleDriveAdapter } from "./modules/connectors/google-drive.adapter";
 import { OneDriveAdapter } from "./modules/connectors/onedrive.adapter";
 import { DropboxAdapter } from "./modules/connectors/dropbox.adapter";
 import { GoogleTasksAdapter } from "./modules/connectors/google-tasks.adapter";
+import { TokenTaskAdapter } from "./modules/connectors/token-task.adapter";
 import { MicrosoftToDoAdapter } from "./modules/connectors/microsoft-todo.adapter";
 import { PlaidAdapter } from "./modules/connectors/plaid.adapter";
 import { ImapAdapter } from "./modules/connectors/imap.adapter";
@@ -64,7 +65,7 @@ import { SchoolIcsService } from "./modules/school/school-ics.service";
 import { RecallMonitorService } from "./modules/assets/recall-monitor.service";
 import { MemoriesService } from "./modules/memories/memories.service";
 import { ResurfacingService } from "./modules/memories/resurfacing.service";
-import { ConnectorsService } from "./modules/connectors/connectors.service";
+import { ConnectorsService, assertConnectorRegistrationIsComplete } from "./modules/connectors/connectors.service";
 import { CaregiverDayPassService } from "./modules/sharing/caregiver-day-pass.service";
 import { recordConnectorSyncFailure, providerFamilyFor } from "./modules/connectors/connection-health.util";
 import { LegacyReleaseService } from "./modules/sharing/legacy-release.service";
@@ -98,6 +99,7 @@ async function bootstrap() {
   const dropboxAdapter = appContext.get(DropboxAdapter);
   const googleTasksAdapter = appContext.get(GoogleTasksAdapter);
   const microsoftToDoAdapter = appContext.get(MicrosoftToDoAdapter);
+  const tokenTaskAdapter = appContext.get(TokenTaskAdapter);
   const plaidAdapter = appContext.get(PlaidAdapter);
   const imapAdapter = appContext.get(ImapAdapter);
   const calDavAdapter = appContext.get(CalDavAdapter);
@@ -121,6 +123,43 @@ async function bootstrap() {
   const dataIntegrity = appContext.get(DataIntegrityService);
   const searchBackfill = appContext.get(SearchBackfillService);
 
+  /**
+   * A map, not a ternary chain, and deliberately with no default.
+   *
+   * What this replaced ended `: gmailAdapter`, so ANY provider the chain did not name was synced as
+   * Gmail — a new connector whose registration was forgotten would not fail, it would quietly run the
+   * wrong adapter against someone's account and report success. That is the same shape as every other
+   * defect this audit has found: a wrong answer that looks exactly like a right one. Now an unregistered
+   * provider throws, which the job's existing error handling records against the connection's health
+   * where somebody can see it.
+   *
+   * Todoist, Trello and Asana share one adapter: they differ only in which URL it calls, and the
+   * credential it loads names the provider.
+   */
+  const adaptersByProvider: Record<string, { initialSync(id: string): Promise<unknown>; incrementalSync(id: string): Promise<unknown> }> = {
+    gmail: gmailAdapter,
+    outlook: outlookAdapter,
+    imap: imapAdapter,
+    caldav: calDavAdapter,
+    carddav: cardDavAdapter,
+    ics: icsAdapter,
+    google_calendar: googleCalendarAdapter,
+    microsoft_calendar: microsoftCalendarAdapter,
+    google_drive: googleDriveAdapter,
+    onedrive: oneDriveAdapter,
+    dropbox: dropboxAdapter,
+    google_tasks: googleTasksAdapter,
+    microsoft_todo: microsoftToDoAdapter,
+    todoist: tokenTaskAdapter,
+    trello: tokenTaskAdapter,
+    asana: tokenTaskAdapter,
+    plaid: plaidAdapter,
+  };
+
+  // Checked at boot rather than left to a test: a worker that would ship silent connections — a
+  // connection reporting healthy while nothing ever arrives — should not start at all.
+  assertConnectorRegistrationIsComplete(Object.keys(adaptersByProvider));
+
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
     async (job) => {
@@ -138,30 +177,6 @@ async function bootstrap() {
           .limit(1);
         if (!connection) throw new Error(`Connection ${connectionId} not found`);
         provider = connection.provider;
-        // A map, not a ternary chain, and deliberately with no default.
-        //
-        // What this replaced ended `: gmailAdapter`, so ANY provider the chain did not name was synced as
-        // Gmail — a new connector whose registration was forgotten would not fail, it would quietly run the
-        // wrong adapter against someone's account and report success. That is the same shape as every other
-        // defect this audit has found: a wrong answer that looks exactly like a right one. Now an
-        // unregistered provider throws, which the job's existing error handling records against the
-        // connection's health where somebody can see it.
-        const adaptersByProvider: Record<string, { initialSync(id: string): Promise<unknown>; incrementalSync(id: string): Promise<unknown> }> = {
-          gmail: gmailAdapter,
-          outlook: outlookAdapter,
-          imap: imapAdapter,
-          caldav: calDavAdapter,
-          carddav: cardDavAdapter,
-          ics: icsAdapter,
-          google_calendar: googleCalendarAdapter,
-          microsoft_calendar: microsoftCalendarAdapter,
-          google_drive: googleDriveAdapter,
-          onedrive: oneDriveAdapter,
-          dropbox: dropboxAdapter,
-          google_tasks: googleTasksAdapter,
-          microsoft_todo: microsoftToDoAdapter,
-          plaid: plaidAdapter,
-        };
         const adapter = adaptersByProvider[connection.provider];
         if (!adapter) throw new Error(`No sync adapter registered for provider "${connection.provider}"`);
         if (kind === "incremental") {
