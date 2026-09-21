@@ -5,6 +5,7 @@ import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
 import { assertHostnameIsPublic } from "../ingestion/safe-url-fetcher";
+import { AttentionService } from "../attention/attention.service";
 
 /**
  * Home Assistant — the Appendix A "Home Assistant" row, and the first §31 smart-home provider that is a
@@ -349,11 +350,27 @@ export function homeAssistantSignal(entity: HaEntity): HaSignal | null {
   return null;
 }
 
+/**
+ * How loudly a device's own severity should be raised to the household.
+ *
+ * Deliberately not a pass-through of the strings: `AttentionService` has three urgencies and this has
+ * three severities, and they do not mean the same things. "info" here is a battery at 15% — worth knowing,
+ * not worth interrupting anyone for.
+ */
+const SIGNAL_URGENCY: Record<HaSignal["severity"], "critical" | "important" | "useful"> = {
+  critical: "critical",
+  warning: "important",
+  info: "useful",
+};
+
 @Injectable()
 export class HomeAssistantService {
   private readonly logger = new Logger(HomeAssistantService.name);
 
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    @Inject(AttentionService) private readonly attention: AttentionService,
+  ) {}
 
   /**
    * The SSRF check, as its own method so a test can reach a local server without the guard being weakened
@@ -447,14 +464,20 @@ export class HomeAssistantService {
 
   private async loadConnection(
     smartConnectionId: string,
-  ): Promise<{ apiBaseUrl: string; apiToken: string; ownerUserId: string; propertyProfileId: string | null } | null> {
+  ): Promise<{ apiBaseUrl: string; apiToken: string; ownerUserId: string; propertyProfileId: string | null; householdId: string | null } | null> {
     const [row] = await this.db
       .select()
       .from(schema.smartConnections)
       .where(eq(schema.smartConnections.id, smartConnectionId))
       .limit(1);
     if (!row || row.provider !== "home_assistant" || !row.apiBaseUrl || !row.apiToken || row.disconnectedAt) return null;
-    return { apiBaseUrl: row.apiBaseUrl, apiToken: row.apiToken, ownerUserId: row.ownerUserId, propertyProfileId: row.propertyProfileId };
+    return {
+      apiBaseUrl: row.apiBaseUrl,
+      apiToken: row.apiToken,
+      ownerUserId: row.ownerUserId,
+      propertyProfileId: row.propertyProfileId,
+      householdId: row.householdId,
+    };
   }
 
   /**
@@ -527,8 +550,22 @@ export class HomeAssistantService {
         .limit(1);
       if (existing) continue;
 
+      /**
+       * A signal nobody is told about is not a feature.
+       *
+       * Writing a `device_signals` row and stopping there is precisely the failure this codebase keeps
+       * finding: the capture succeeds, nothing errors, and the household is never informed. A leak sensor
+       * earns its place by somebody hearing about the leak.
+       *
+       * SMART-002 "Maintenance/health signals into obligations" — filed through the same
+       * `AttentionService.fileIfNew` every other scanner in this app uses, rather than a second parallel
+       * "insert an attention item" path with its own dedup bugs to find later. Keyed on the signal's own
+       * id, so a SECOND leak files a second obligation while the same continuing one does not — the
+       * dedupe that decides that already happened above, on `dedupeKey`.
+       */
+      const deviceSignalId = generateId("deviceSignal");
       await this.db.insert(schema.deviceSignals).values({
-        id: generateId("deviceSignal"),
+        id: deviceSignalId,
         smartDeviceId: device.id,
         ownerUserId: device.ownerUserId,
         signalKind: signal.signalKind,
@@ -537,6 +574,33 @@ export class HomeAssistantService {
         dedupeKey: signal.dedupeKey,
         occurredAt: signal.occurredAt,
       });
+
+      try {
+        await this.attention.fileIfNew({
+          ownerUserId: device.ownerUserId,
+          householdId: connection.householdId,
+          reasonCode: `smart_home_${signal.signalKind}`,
+          reasonText: signal.detail,
+          urgency: SIGNAL_URGENCY[signal.severity],
+          // A leak is happening now. There is no future deadline to count down to, and inventing one would
+          // put a smoke alarm behind something due next week.
+          dueAt: null,
+          dueAtSort: signal.occurredAt,
+          moneyAtStakeMinorUnits: null,
+          moneyAtStakeCurrency: null,
+          // The device said so. Nothing here was inferred from prose or guessed by a model.
+          confidenceBand: "verified",
+          linkedResourceType: "device_signal",
+          linkedResourceId: deviceSignalId,
+          primaryActions: ["view_device", "dismiss"],
+        });
+        await this.db.update(schema.deviceSignals).set({ attentionItemId: deviceSignalId }).where(eq(schema.deviceSignals.id, deviceSignalId));
+      } catch (err) {
+        // The signal itself is already recorded. Losing the whole sync because one obligation could not be
+        // filed would also lose every other device's reading in the same pass.
+        this.logger.warn(`Filed a device signal but could not raise it for attention: ${(err as Error)?.name ?? "error"}`);
+      }
+
       signalCount += 1;
     }
 

@@ -68,6 +68,9 @@ const SOURCE_LABEL: Record<string, string> = {
   document: "Document",
   refill_reminder: "Refill",
   pet_vaccination: "Pet vaccination",
+  // A smart-home device's own reading. Added WITH the connector that files it rather than after somebody
+  // saw "device_signal" on screen — which is exactly how the entries above this one came to be here.
+  device_signal: "Smart home",
   trip_segment: "Trip",
   bill_equipment_return: "Equipment return",
   financial_duplicate_charge: "Possible duplicate",
@@ -184,6 +187,14 @@ const ATTENTION_GROUP_LABEL: Record<string, string> = {
   store_credit_expiring: "Store credit expiring",
   pet_refill_due: "Pet refills due",
   memory_resurface_trip_location: "Saved for this trip",
+  // One group per kind, not a single "Smart home" bucket: a flat battery and a smoke alarm collapsed
+  // under one heading would hide the one that matters behind the one that does not.
+  smart_home_leak: "Water detected",
+  smart_home_smoke_co: "Smoke or carbon monoxide",
+  smart_home_battery_low: "Device batteries low",
+  smart_home_fault: "Devices reporting a fault",
+  smart_home_offline: "Devices not responding",
+  smart_home_security: "Device tampering",
 };
 
 const URGENCY_TONE: Record<AttentionItem["urgency"], "critical" | "warning" | "info" | "neutral"> = {

@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AttentionModule } from "../attention/attention.module";
 import { SmartHomeController } from "./smart-home.controller";
 import { SmartHomeService } from "./smart-home.service";
 import { HomeAssistantService } from "./home-assistant.service";
@@ -9,6 +10,7 @@ import { HomeAssistantService } from "./home-assistant.service";
  * of the effort spent.
  */
 @Module({
+  imports: [AttentionModule],
   controllers: [SmartHomeController],
   providers: [SmartHomeService, HomeAssistantService],
   exports: [SmartHomeService, HomeAssistantService],

@@ -8,6 +8,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { HomeAssistantService } from "./home-assistant.service";
 import { SmartHomeService } from "./smart-home.service";
+import type { AttentionService } from "../attention/attention.service";
 import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
@@ -110,6 +111,7 @@ describe("a wet basement becomes a device signal", () => {
   let homeAssistant: LocalHomeAssistantService;
   let smartHome: SmartHomeService;
   let realService: HomeAssistantService;
+  let filedAttention: Record<string, unknown>[];
   let ownerUserId: string;
   let connectionId: string;
   let dbAvailable = true;
@@ -138,8 +140,17 @@ describe("a wet basement becomes a device signal", () => {
 
     db = createDbClient(DATABASE_URL);
     try {
-      homeAssistant = new LocalHomeAssistantService(db);
-      realService = new HomeAssistantService(db);
+      // Records every obligation raised, so "the household was told" is checkable rather than assumed.
+      // Writing a device_signals row and stopping there is the failure this whole connector exists to
+      // avoid: the capture succeeds, nothing errors, and nobody hears about the leak.
+      filedAttention = [];
+      const attention = {
+        fileIfNew: async (item: Record<string, unknown>) => {
+          filedAttention.push(item);
+        },
+      } as unknown as AttentionService;
+      homeAssistant = new LocalHomeAssistantService(db, attention);
+      realService = new HomeAssistantService(db, attention);
       smartHome = new SmartHomeService(db, homeAssistant);
 
       ownerUserId = generateId("user");
@@ -279,6 +290,16 @@ describe("a wet basement becomes a device signal", () => {
     expect(signal?.detail).toContain("Basement Water Sensor");
     // The timestamp is the one Home Assistant reported, not the moment the sync happened.
     expect(signal?.occurredAt.toISOString()).toBe("2026-09-21T03:00:00.000Z");
+
+    // And the household was actually TOLD. A signal filed into a table nobody reads is not a feature —
+    // it is the silent-success failure this codebase keeps finding, and it is what this connector shipped
+    // with until this assertion existed.
+    expect(filedAttention, "a leak was recorded but nobody was told about it").toHaveLength(1);
+    expect(filedAttention[0]?.urgency).toBe("critical");
+    expect(String(filedAttention[0]?.reasonText)).toContain("Basement Water Sensor");
+    expect(filedAttention[0]?.linkedResourceType).toBe("device_signal");
+    // Never a guess: the device said so.
+    expect(filedAttention[0]?.confidenceBand).toBe("verified");
   });
 
   it("does not file the same leak again on the next sync", async () => {
