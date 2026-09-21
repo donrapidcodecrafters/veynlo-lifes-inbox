@@ -923,7 +923,7 @@ export default function ConnectionsPage() {
             <div>
               <p className="text-[0.9375rem] font-medium text-primary">Smart home</p>
               <p className="text-sm text-tertiary">
-                Connect Home Assistant to hear about a leak, smoke, a flat battery, or a device that&apos;s stopped responding. You choose
+                Hear about a leak, smoke, a flat battery, or a device that&apos;s stopped responding, from the Home Assistant you already run. You choose
                 which devices Veynlo watches.
               </p>
             </div>

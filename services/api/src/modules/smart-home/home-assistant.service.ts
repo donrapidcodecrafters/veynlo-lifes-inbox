@@ -145,10 +145,14 @@ export function homeAssistantOrigin(input: string): string {
   if (isObviouslyLocalHostname(url.hostname)) {
     throw new BadRequestException({
       code: "HA_URL_LOCAL",
+      // The full example address (https://abc123.ui.nabu.casa) is deliberately NOT repeated here, even
+      // though it reads well on a wide screen. On a phone it wrapped mid-URL — "https://abc123.ui.nabu"
+      // on one line and ".casa," on the next — which is hard to read and impossible to copy. The form's
+      // placeholder already shows the whole address, so this only has to name where to find it.
       message:
         "That's a home-network address, which Veynlo's servers can't reach from outside your house. " +
-        "Use your Home Assistant's remote address instead — Home Assistant Cloud gives you one that looks like " +
-        "https://abc123.ui.nabu.casa, and your own reverse proxy or DuckDNS name works too.",
+        "Use your Home Assistant's remote address instead — the one from Home Assistant Cloud, ending in " +
+        ".ui.nabu.casa. Your own reverse proxy or DuckDNS name works too.",
     });
   }
   if (url.protocol !== "https:") {
