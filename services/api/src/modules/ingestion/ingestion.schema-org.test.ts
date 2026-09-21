@@ -313,4 +313,110 @@ describe("schema.org markup through the ingestion pipeline", () => {
       await db.delete(schema.connectionExclusions).where(eq(schema.connectionExclusions.id, exclusionId));
     }
   });
+
+  it("files a utility bill from a declared Invoice, with the biller's stated due date", async () => {
+    if (!dbAvailable) return;
+
+    const accountLabel = `Account ending ${generateId("bill").slice(-4)}`;
+    // The model answers but states none of the fields the biller did, so every one of them must come from
+    // the markup. It DOES state an equipment-return obligation, which schema.org has no vocabulary for —
+    // that must survive the merge.
+    ai.enqueue("bill_extraction_v1", fakeExtraction({
+      billerName: null,
+      amountDueMinorUnits: null,
+      currency: "USD",
+      dueDate: null,
+      autopayMentioned: null,
+      accountLabel: null,
+      equipmentReturnDeadline: { iso_date: "2026-06-15", approximate_text: null },
+      equipmentReturnInstructions: "Return the modem to any store.",
+      confidenceNotes: "from the model",
+    }));
+
+    await ingestion.ingestGmailMessage({
+      ownerUserId,
+      householdId: null,
+      connectionId,
+      message: gmailMessageWithMarkup(`msg-invoice-${accountLabel}`, "Your bill is ready", {
+        "@context": "https://schema.org",
+        "@type": "Invoice",
+        accountId: accountLabel,
+        paymentDueDate: "2026-05-01",
+        paymentStatus: "http://schema.org/PaymentAutomaticallyApplied",
+        provider: { "@type": "Organization", name: "City Power & Light" },
+        totalPaymentDue: { "@type": "PriceSpecification", price: "84.20", priceCurrency: "USD" },
+      }),
+    });
+
+    const bills = await db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, ownerUserId));
+    const filed = bills.find((b) => b.accountLabel === accountLabel);
+    expect(filed, "no bill was filed from the declared Invoice").toBeDefined();
+    expect(filed?.amountDueMinorUnits).toBe(8_420);
+    // The one field this whole path exists for. A bill filed a week late is a late payment and a fee.
+    expect(filed?.dueDateSort?.toISOString().slice(0, 10)).toBe("2026-05-01");
+    // A declared PaymentAutomaticallyApplied is the biller saying autopay is on.
+    expect(filed?.autopayBelieved).toBe(true);
+    // And what only the model knew survived the merge.
+    expect(filed?.equipmentReturnInstructions).toBe("Return the modem to any store.");
+  });
+
+  it("files the bill for a household that has turned AI processing OFF", async () => {
+    if (!dbAvailable) return;
+    // The whole reason this path is worth having: a biller stating its own due date is not inference, and
+    // a privacy choice about AI should not cost somebody a late fee.
+    await db.update(schema.users).set({ aiProcessingEnabled: false }).where(eq(schema.users.id, ownerUserId));
+    try {
+      // A DIFFERENT biller, amount and due date from the test above, on purpose. `findExistingBill` is a
+      // precision-first dedup on owner/biller/amount/date-window, so re-filing the same bill correctly
+      // UPDATES the first row rather than creating a second — and this test then found no new row and read
+      // it as "AI is off and the bill was lost". The dedup was right; the test data was not.
+      const accountLabel = `Account ending ${generateId("bill").slice(-4)}`;
+      await ingestion.ingestGmailMessage({
+        ownerUserId,
+        householdId: null,
+        connectionId,
+        message: gmailMessageWithMarkup(`msg-invoice-noai-${accountLabel}`, "Your water bill is ready", {
+          "@context": "https://schema.org",
+          "@type": "Invoice",
+          accountId: accountLabel,
+          paymentDueDate: "2026-07-14",
+          provider: { "@type": "Organization", name: "Riverside Water Authority" },
+          totalPaymentDue: { "@type": "PriceSpecification", price: "31.75", priceCurrency: "USD" },
+        }),
+      });
+
+      const bills = await db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, ownerUserId));
+      expect(bills.find((b) => b.accountLabel === accountLabel), "AI is off and the declared bill was lost with it").toBeDefined();
+      // The cost claim, against the provider's own call log rather than assumed.
+      expect(ai.calls.filter((c) => c === "bill_extraction_v1").length).toBe(0);
+    } finally {
+      await db.update(schema.users).set({ aiProcessingEnabled: true }).where(eq(schema.users.id, ownerUserId));
+    }
+  });
+
+  it("refuses an Invoice with nobody to pay", async () => {
+    if (!dbAvailable) return;
+    /**
+     * A bill needs a biller. Without one there is nothing to show on a row, nothing to categorise, and —
+     * the part that bites later — nothing `findExistingBill` can match on, so every reminder about the
+     * same bill would create another sibling row.
+     *
+     * The guard predates this markup path and was carried into it unchanged. It had no test, which
+     * falsification found by deleting it and watching the suite stay green.
+     */
+    const before = await db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, ownerUserId));
+    await ingestion.ingestGmailMessage({
+      ownerUserId,
+      householdId: null,
+      connectionId,
+      message: gmailMessageWithMarkup("msg-invoice-nobiller", "A bill", {
+        "@context": "https://schema.org",
+        "@type": "Invoice",
+        paymentDueDate: "2026-09-30",
+        totalPaymentDue: { "@type": "PriceSpecification", price: "19.99", priceCurrency: "USD" },
+      }),
+    });
+    const after = await db.select().from(schema.bills).where(eq(schema.bills.ownerUserId, ownerUserId));
+    expect(after.length, "a bill with no biller was filed anyway").toBe(before.length);
+  });
 });

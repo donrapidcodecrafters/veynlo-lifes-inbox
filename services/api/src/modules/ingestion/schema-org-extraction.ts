@@ -22,7 +22,7 @@
  * in the markup; everything else is null and, where the model is available, gets filled by it.
  */
 import type { SchemaOrgFindings } from "./schema-org-email";
-import type { ReceiptExtraction, ShipmentExtraction, TripSegmentExtraction } from "../intelligence/extraction-schemas";
+import type { BillExtraction, ReceiptExtraction, ShipmentExtraction, TripSegmentExtraction } from "../intelligence/extraction-schemas";
 import type { StructuredExtractionResult } from "../intelligence/anthropic-extraction.service";
 
 /** Recorded on every markup-derived result, so an extraction run says where its values came from. */
@@ -196,6 +196,36 @@ export function tripSegmentResultFromMarkup(findings: SchemaOrgFindings): Struct
 }
 
 /**
+ * A bill from a declared `Invoice`, or null when there is none.
+ *
+ * Only the FIRST invoice is used, for the same reason the order and reservation mappers take only the
+ * first: a source event files one bill, and a single notice covering several accounts would otherwise
+ * attribute all of them to one record.
+ */
+export function billResultFromMarkup(findings: SchemaOrgFindings): StructuredExtractionResult<BillExtraction> | null {
+  const invoice = findings.invoices[0];
+  if (!invoice) return null;
+
+  const data: BillExtraction = {
+    billerName: invoice.billerName,
+    amountDueMinorUnits: invoice.amountDueMinorUnits,
+    currency: invoice.currency ?? "USD",
+    dueDate: statedDate(invoice.dueDate),
+    // schema.org says this outright. Inferring autopay from a sentence is a guess; being told is not.
+    // Anything else leaves it null rather than asserting autopay is OFF — a claim the markup never makes.
+    autopayMentioned: invoice.paymentStatus === "PaymentAutomaticallyApplied" ? true : null,
+    accountLabel: invoice.accountId,
+    // UTIL-001 equipment return has no schema.org vocabulary at all. Null, so the model fills it when it
+    // runs — a cable box return window is one of the few genuinely costly things this app catches.
+    equipmentReturnDeadline: statedDate(null),
+    equipmentReturnInstructions: null,
+    confidenceNotes: MARKUP_NOTE,
+  };
+
+  return markupResult(data);
+}
+
+/**
  * Which domains this message's markup establishes on its own.
  *
  * This is what lets a message skip the AI domain classifier entirely, and what makes extraction work at
@@ -212,6 +242,9 @@ export function domainsFromMarkup(findings: SchemaOrgFindings): string[] {
   // A declared reservation IS travel. No inference, no model call, and it holds for a household that has
   // turned AI processing off — which is the whole reason this path exists.
   if (findings.reservations.length > 0) domains.add("travel");
+  // A declared Invoice IS a bill. Same reasoning as the Order above, and the same benefit for a household
+  // that has turned AI processing off.
+  if (findings.invoices.length > 0) domains.add("bill");
   return [...domains];
 }
 

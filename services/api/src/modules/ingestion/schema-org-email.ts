@@ -114,10 +114,32 @@ export interface SchemaOrgReservation {
   venue: string | null;
 }
 
+/**
+ * A bill the sender published in their own notice.
+ *
+ * Appendix A lists 8 utilities and 6 insurers, and both groups sat in the "served by the email pipeline"
+ * column meaning a model reads the prose. `Invoice` is the type Google's own email markup defines for
+ * exactly this, and it states the one field that decides whether somebody pays on time: the due date.
+ *
+ * It also states something no prose reader can be certain of — `PaymentAutomaticallyApplied` is schema.org
+ * saying autopay is on. Inferring that from a sentence is a guess; being told it is not.
+ */
+export interface SchemaOrgInvoice {
+  accountId: string | null;
+  billerName: string | null;
+  amountDueMinorUnits: number | null;
+  currency: string | null;
+  dueDate: string | null;
+  /** The bare token: "PaymentDue" | "PaymentAutomaticallyApplied" | "PaymentComplete" | "PaymentPastDue". */
+  paymentStatus: string | null;
+  url: string | null;
+}
+
 export interface SchemaOrgFindings {
   orders: SchemaOrgOrder[];
   parcels: SchemaOrgParcel[];
   reservations: SchemaOrgReservation[];
+  invoices: SchemaOrgInvoice[];
   /** How many `<script type="application/ld+json">` blocks were seen, including ones that failed to parse. */
   blocksSeen: number;
   /** Blocks that were present but unusable — malformed JSON, or over the size bound. */
@@ -128,6 +150,7 @@ export const EMPTY_FINDINGS: SchemaOrgFindings = Object.freeze({
   orders: [],
   parcels: [],
   reservations: [],
+  invoices: [],
   blocksSeen: 0,
   blocksRejected: 0,
 });
@@ -351,6 +374,29 @@ function readOrder(node: Record<string, unknown>): SchemaOrgOrder | null {
   return stated === null || stated === undefined ? null : order;
 }
 
+function readInvoice(node: Record<string, unknown>): SchemaOrgInvoice | null {
+  // `totalPaymentDue` is usually a PriceSpecification or MonetaryAmount; some senders put a bare number
+  // there instead. Both shapes are read rather than one being assumed.
+  const due = asRecord(node.totalPaymentDue);
+
+  const invoice: SchemaOrgInvoice = {
+    accountId: clampString(node.accountId),
+    billerName: organizationName(node.provider ?? node.broker ?? node.seller),
+    amountDueMinorUnits: toMinorUnits(due ? (due.price ?? due.value ?? due.amount) : node.totalPaymentDue),
+    currency: currencyOf(due) ?? currencyOf(node),
+    // `paymentDueDate` is the current name; `paymentDue` is the older one Google's markup documentation
+    // used for years and which senders still emit. Missing the old name loses the due date entirely.
+    dueDate: toIsoDate(node.paymentDueDate ?? node.paymentDue),
+    paymentStatus: clampString(node.paymentStatus)?.split("/").pop() ?? null,
+    url: clampString(node.url),
+  };
+
+  // A due date or an amount is what makes this a bill. A node with neither states nothing anybody can act
+  // on, and filing it would put an empty bill in front of somebody.
+  const stated = invoice.dueDate ?? invoice.amountDueMinorUnits ?? invoice.billerName;
+  return stated === null || stated === undefined ? null : invoice;
+}
+
 function readParcel(node: Record<string, unknown>): SchemaOrgParcel | null {
   const partOfOrder = asRecord(node.partOfOrder);
   const deliveryAddress = asRecord(node.deliveryAddress);
@@ -487,6 +533,7 @@ export function extractSchemaOrgFromHtml(html: string | null | undefined): Schem
   const orders: SchemaOrgOrder[] = [];
   const parcels: SchemaOrgParcel[] = [];
   const reservations: SchemaOrgReservation[] = [];
+  const invoices: SchemaOrgInvoice[] = [];
   let blocksSeen = 0;
   let blocksRejected = 0;
 
@@ -519,6 +566,10 @@ export function extractSchemaOrgFromHtml(html: string | null | undefined): Schem
         const parcel = readParcel(node);
         if (parcel) parcels.push(parcel);
       }
+      if (invoices.length < MAX_ITEMS_PER_TYPE && isType(node, "Invoice")) {
+        const invoice = readInvoice(node);
+        if (invoice) invoices.push(invoice);
+      }
       if (reservations.length < MAX_ITEMS_PER_TYPE) {
         for (const { type, kind } of RESERVATION_KINDS) {
           if (!isType(node, type)) continue;
@@ -531,10 +582,10 @@ export function extractSchemaOrgFromHtml(html: string | null | undefined): Schem
     }
   }
 
-  return { orders, parcels, reservations, blocksSeen, blocksRejected };
+  return { orders, parcels, reservations, invoices, blocksSeen, blocksRejected };
 }
 
 /** True when there is anything worth acting on — cheaper to ask than to re-derive at each call site. */
 export function hasUsableMarkup(findings: SchemaOrgFindings): boolean {
-  return findings.orders.length > 0 || findings.parcels.length > 0 || findings.reservations.length > 0;
+  return findings.orders.length > 0 || findings.parcels.length > 0 || findings.reservations.length > 0 || findings.invoices.length > 0;
 }

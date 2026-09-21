@@ -43,7 +43,7 @@ import {
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender, normalizeSenderDomain, extractEmailAddress, KNOWN_SENDER_PARSER_VERSION } from "../intelligence/deterministic-prefilter";
 import { extractSchemaOrgFromHtml, hasUsableMarkup, EMPTY_FINDINGS, type SchemaOrgFindings } from "./schema-org-email";
-import { receiptResultFromMarkup, shipmentResultFromMarkup, tripSegmentResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
+import { receiptResultFromMarkup, shipmentResultFromMarkup, tripSegmentResultFromMarkup, billResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
 import { parseGmailMessage, type ParsedEmail, type EmailAttachmentInput } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, toTemporalValueWithTime, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
@@ -1283,7 +1283,7 @@ export class IngestionService {
       filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("bill") && subscriptionsBillsTracking !== false && categoryFinanceEnabled) {
-      filedAny = (await this.extractBill(ctx)) || filedAny;
+      filedAny = (await this.extractBill(ctx, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("subscription") && subscriptionsBillsTracking !== false && categoryFinanceEnabled) {
       filedAny = (await this.extractSubscription(ctx)) || filedAny;
@@ -1874,15 +1874,26 @@ export class IngestionService {
     return matches[0] ?? null;
   }
 
-  private async extractBill(ctx: {
-    sourceEventId: string;
-    ownerUserId: string;
-    householdId: string | null;
-    parsed: ReturnType<typeof parseGmailMessage>;
-  }): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "bill_extraction_v1",
+  private async extractBill(
+    ctx: {
+      sourceEventId: string;
+      ownerUserId: string;
+      householdId: string | null;
+      parsed: ReturnType<typeof parseGmailMessage>;
+    },
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
+  ): Promise<boolean> {
+    // The biller's own statement of their own bill. A due date stated in a machine-readable field cannot
+    // be misread the way one inferred from prose can, and a due date read wrong is a late payment.
+    const fromMarkup = billResultFromMarkup(markup);
+
+    // The model still runs when allowed. schema.org has no vocabulary at all for an equipment-return
+    // deadline, and a cable box return window is one of the few genuinely costly things this app catches.
+    const fromModel =
+      aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "bill_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -1896,8 +1907,37 @@ export class IngestionService {
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
       schema: BillExtractionSchema,
       toolDescription: "Emit the extracted bill fields.",
-    });
-    if (!result || !result.data.billerName) return false;
+          })
+        : null;
+
+    if (!fromMarkup && !fromModel) return false;
+
+    // Merge, markup winning field by field. An Invoice that states a due date and an amount but no
+    // equipment-return obligation must not discard the one the model read from the same email.
+    const result =
+      fromMarkup && fromModel
+        ? {
+            ...fromModel,
+            modelUsed: `${fromMarkup.modelUsed}+${fromModel.modelUsed}`,
+            confidenceScore: fromModel.confidenceScore,
+            data: {
+              ...fromModel.data,
+              billerName: fromMarkup.data.billerName ?? fromModel.data.billerName,
+              amountDueMinorUnits: fromMarkup.data.amountDueMinorUnits ?? fromModel.data.amountDueMinorUnits,
+              currency: fromMarkup.data.amountDueMinorUnits !== null ? fromMarkup.data.currency : fromModel.data.currency,
+              dueDate: fromMarkup.data.dueDate ?? fromModel.data.dueDate,
+              // A declared PaymentAutomaticallyApplied is the biller saying autopay is on. Where the markup
+              // says nothing, the model's reading of the prose still stands.
+              autopayMentioned: fromMarkup.data.autopayMentioned ?? fromModel.data.autopayMentioned,
+              accountLabel: fromMarkup.data.accountLabel ?? fromModel.data.accountLabel,
+              confidenceNotes: `${fromMarkup.data.confidenceNotes}\n\n${fromModel.data.confidenceNotes}`,
+            },
+          }
+        : (fromMarkup ?? fromModel)!;
+
+    // A bill with nobody to pay is not a bill this app can file or de-duplicate — unchanged from before,
+    // and it applies to a markup-derived result exactly as it did to a model-derived one.
+    if (!result.data.billerName) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("bill"));
     const dueDate = toTemporalValue(result.data.dueDate);
