@@ -119,7 +119,7 @@ describe("extractSchemaOrgFromHtml — real markup", () => {
 
   it("returns nothing for an email with no markup at all", () => {
     const found = extractSchemaOrgFromHtml("<html><body><p>Just a newsletter</p></body></html>");
-    expect(found).toEqual({ orders: [], parcels: [], blocksSeen: 0, blocksRejected: 0 });
+    expect(found).toEqual({ orders: [], parcels: [], reservations: [], blocksSeen: 0, blocksRejected: 0 });
     expect(hasUsableMarkup(found)).toBe(false);
   });
 
@@ -281,4 +281,4 @@ describe("extractSchemaOrgFromHtml — hostile input", () => {
   });
 });
 
-const EMPTY = { orders: [], parcels: [], blocksSeen: 0, blocksRejected: 0 };
+const EMPTY = { orders: [], parcels: [], reservations: [], blocksSeen: 0, blocksRejected: 0 };

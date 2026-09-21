@@ -23,6 +23,27 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 /** How far the wall clock in `timeZone` is ahead of UTC at `instant`, in milliseconds. */
 function zoneOffsetMs(instant: Date, timeZone: string): number {
+  /**
+   * A fixed UTC offset, not a zone name.
+   *
+   * `Intl` understands only IANA zones, and the catch below turns anything it rejects into 0 — silently
+   * UTC. So a caller holding a real, unambiguous offset got a time that was WRONG rather than an error:
+   * schema.org reservation markup states "2026-04-15T18:30:00-07:00", and passing that offset through
+   * filed an 18:30 departure as 18:30Z, seven hours out. A flight filed at the wrong hour is worse than
+   * one not filed at all, because somebody plans around it.
+   *
+   * Handled here rather than at that one call site: any caller holding an offset has the same problem, and
+   * a rule implemented once and omitted at its siblings is the most common defect shape in this codebase.
+   */
+  const fixedOffset = /^([+-])(\d{2}):?(\d{2})$/.exec(timeZone.trim());
+  if (fixedOffset) {
+    const sign = fixedOffset[1] === "-" ? -1 : 1;
+    const hours = Number(fixedOffset[2]);
+    const minutes = Number(fixedOffset[3]);
+    // An impossible offset falls through to Intl, which rejects it — better UTC than a wild number.
+    if (hours <= 14 && minutes <= 59) return sign * (hours * 60 + minutes) * 60_000;
+  }
+
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone,

@@ -76,9 +76,48 @@ export interface SchemaOrgParcel {
   trackingUrl: string | null;
 }
 
+/**
+ * A reservation the sender published in their own confirmation email.
+ *
+ * Appendix A lists 23 travel targets — airlines, hotels, rail, car hire, ticketing — and every one of them
+ * sat in the "served by the email pipeline" column, which in practice meant "a model reads the prose".
+ * Reservation markup is the alternative the industry already standardised on and that Gmail has rendered
+ * cards from for years. It costs no model call, it STATES the confirmation number rather than inferring
+ * it, and it works for a household that has turned AI processing off entirely.
+ */
+export interface SchemaOrgReservation {
+  /** Mapped onto this app's own four kinds, not schema.org's dozen. Rail and coach are ground transport. */
+  kind: "flight" | "lodging" | "rental" | "ticket";
+  reservationNumber: string | null;
+  providerName: string | null;
+  /** "Confirmed" | "Cancelled" | "Pending" | "Hold" — the bare token, not the full URL. */
+  status: string | null;
+  travelerNames: string[];
+  startDate: string | null;
+  /** HH:MM, 24-hour, exactly as stated. Null when the markup gave only a date. */
+  startTime: string | null;
+  endDate: string | null;
+  endTime: string | null;
+  /** The UTC offset the sender stated, e.g. "-05:00". Never guessed from an airport or a city name. */
+  utcOffset: string | null;
+  url: string | null;
+  locationLabel: string | null;
+  flightNumber: string | null;
+  departureAirport: string | null;
+  arrivalAirport: string | null;
+  seat: string | null;
+  propertyName: string | null;
+  vehicleOrServiceType: string | null;
+  pickupLocation: string | null;
+  dropoffLocation: string | null;
+  eventName: string | null;
+  venue: string | null;
+}
+
 export interface SchemaOrgFindings {
   orders: SchemaOrgOrder[];
   parcels: SchemaOrgParcel[];
+  reservations: SchemaOrgReservation[];
   /** How many `<script type="application/ld+json">` blocks were seen, including ones that failed to parse. */
   blocksSeen: number;
   /** Blocks that were present but unusable — malformed JSON, or over the size bound. */
@@ -88,6 +127,7 @@ export interface SchemaOrgFindings {
 export const EMPTY_FINDINGS: SchemaOrgFindings = Object.freeze({
   orders: [],
   parcels: [],
+  reservations: [],
   blocksSeen: 0,
   blocksRejected: 0,
 });
@@ -174,6 +214,60 @@ function toIsoDate(value: unknown): string | null {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
   return date;
+}
+
+/**
+ * An ISO-8601 date-time, split into the three parts this app stores separately.
+ *
+ * `toIsoDate` above deliberately throws the time away, which is right for an order date and wrong for a
+ * departure: "2026-04-15" and "2026-04-15T18:30:00-05:00" are not the same fact, and a flight filed
+ * without its time is a flight somebody can miss.
+ *
+ * The offset is taken ONLY when the sender stated one. A departure time with no zone is ambiguous, and
+ * guessing a zone from an airport code would be inventing a fact — the caller resolves it the same way it
+ * resolves any other unzoned time.
+ */
+function toIsoDateTime(value: unknown): { date: string | null; time: string | null; utcOffset: string | null } {
+  const rawValue = clampString(value);
+  if (!rawValue) return { date: null, time: null, utcOffset: null };
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?/.exec(rawValue);
+  if (!match) return { date: null, time: null, utcOffset: null };
+
+  const date = toIsoDate(match[1]);
+  if (!date) return { date: null, time: null, utcOffset: null };
+
+  const hour = match[2];
+  const minute = match[3];
+  let time: string | null = null;
+  if (hour !== undefined && minute !== undefined) {
+    const h = Number(hour);
+    const m = Number(minute);
+    // A syntactically valid but impossible time is dropped rather than stored or repaired.
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) time = `${hour}:${minute}`;
+  }
+
+  let utcOffset: string | null = null;
+  const zone = match[4];
+  if (zone === "Z") utcOffset = "+00:00";
+  else if (zone) utcOffset = zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone;
+
+  return { date, time, utcOffset };
+}
+
+/** A place's name, however schema.org happened to express it — a string, a named node, or an address. */
+function placeName(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!record) return clampString(value);
+  const named = clampString(record.name);
+  if (named) return named;
+  const address = asRecord(record.address);
+  if (address) {
+    const parts = [address.streetAddress, address.addressLocality, address.addressRegion, address.addressCountry]
+      .map((part) => clampString(part))
+      .filter((part): part is string => part !== null);
+    if (parts.length > 0) return parts.join(", ").slice(0, MAX_STRING_LENGTH);
+  }
+  return clampString(record.address);
 }
 
 /** schema.org names an organization either as a bare string or as an `{ "@type": "Organization", name }`. */
@@ -278,6 +372,110 @@ function readParcel(node: Record<string, unknown>): SchemaOrgParcel | null {
 }
 
 /**
+ * schema.org's reservation types, mapped onto the four kinds this app actually models.
+ *
+ * Rail and coach become "rental" rather than a kind of their own: `TripSegmentExtractionSchema` calls that
+ * bucket ground transport and its own example is "Amtrak Acela". A restaurant booking becomes "ticket" for
+ * the same reason — it is a named thing at a named place at a stated time, which is what that kind holds.
+ */
+const RESERVATION_KINDS: { type: string; kind: SchemaOrgReservation["kind"] }[] = [
+  { type: "FlightReservation", kind: "flight" },
+  { type: "LodgingReservation", kind: "lodging" },
+  { type: "RentalCarReservation", kind: "rental" },
+  { type: "TrainReservation", kind: "rental" },
+  { type: "BusReservation", kind: "rental" },
+  { type: "EventReservation", kind: "ticket" },
+  { type: "FoodEstablishmentReservation", kind: "ticket" },
+];
+
+/** Every name on the booking, as stated. Never deduplicated against household members, never inferred. */
+function travelerNames(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  const names: string[] = [];
+  for (const entry of values) {
+    const record = asRecord(entry);
+    const name = record ? clampString(record.name) : clampString(entry);
+    if (name && !names.includes(name)) names.push(name);
+    if (names.length >= 10) break;
+  }
+  return names;
+}
+
+function readReservation(node: Record<string, unknown>, kind: SchemaOrgReservation["kind"]): SchemaOrgReservation | null {
+  const reservationFor = asRecord(node.reservationFor);
+  const forNode = reservationFor ?? {};
+
+  // Times live on the reservation for some types and on the thing reserved for others, and real senders
+  // are not consistent about it. Both are read, the reservation's own value winning.
+  const start = toIsoDateTime(
+    node.checkinTime ?? node.pickupTime ?? node.startTime ?? forNode.departureTime ?? forNode.startDate ?? forNode.startTime,
+  );
+  const end = toIsoDateTime(
+    node.checkoutTime ?? node.dropoffTime ?? node.endTime ?? forNode.arrivalTime ?? forNode.endDate ?? forNode.endTime,
+  );
+
+  const ticket = asRecord(node.reservedTicket);
+  const seatNode = ticket ? asRecord(ticket.ticketedSeat) : null;
+
+  const departureAirport = asRecord(forNode.departureAirport);
+  const arrivalAirport = asRecord(forNode.arrivalAirport);
+  const departureName =
+    (departureAirport ? clampString(departureAirport.iataCode) : null) ?? placeName(forNode.departureAirport ?? forNode.departureStation ?? forNode.departureBusStop);
+  const arrivalName =
+    (arrivalAirport ? clampString(arrivalAirport.iataCode) : null) ?? placeName(forNode.arrivalAirport ?? forNode.arrivalStation ?? forNode.arrivalBusStop);
+
+  const propertyName = kind === "lodging" ? placeName(node.reservationFor) : null;
+  const eventName = kind === "ticket" ? clampString(forNode.name) : null;
+  const venue = kind === "ticket" ? placeName(forNode.location) : null;
+
+  const locationLabel =
+    departureName && arrivalName
+      ? `${departureName} → ${arrivalName}`.slice(0, MAX_STRING_LENGTH)
+      : (propertyName ?? venue ?? placeName(node.pickupLocation) ?? null);
+
+  const reservation: SchemaOrgReservation = {
+    kind,
+    reservationNumber: clampString(node.reservationNumber),
+    providerName:
+      organizationName(forNode.airline ?? forNode.provider ?? node.provider ?? node.broker ?? forNode.rentalCompany) ??
+      (kind === "lodging" ? propertyName : null),
+    // e.g. "http://schema.org/ReservationConfirmed" — the bare state is the useful part, and the
+    // "Reservation" prefix says nothing a reader of this field does not already know.
+    status: clampString(node.reservationStatus)?.split("/").pop()?.replace(/^Reservation/, "") ?? null,
+    travelerNames: travelerNames(node.underName),
+    startDate: start.date,
+    startTime: start.time,
+    endDate: end.date,
+    endTime: end.time,
+    utcOffset: start.utcOffset ?? end.utcOffset,
+    url: clampString(node.url ?? (ticket ? ticket.url : null)),
+    locationLabel,
+    flightNumber: kind === "flight" ? clampString(forNode.flightNumber) : null,
+    departureAirport: kind === "flight" ? departureName : null,
+    arrivalAirport: kind === "flight" ? arrivalName : null,
+    seat: seatNode ? clampString(seatNode.seatNumber) : null,
+    propertyName,
+    vehicleOrServiceType:
+      kind === "rental" ? (clampString(forNode.name) ?? clampString(forNode.model) ?? clampString(forNode.trainNumber) ?? clampString(forNode.busNumber)) : null,
+    pickupLocation: kind === "rental" ? (placeName(node.pickupLocation) ?? departureName) : null,
+    dropoffLocation: kind === "rental" ? (placeName(node.dropoffLocation) ?? arrivalName) : null,
+    eventName,
+    venue,
+  };
+
+  // A reservation node that states nothing usable is markup boilerplate, not a booking. Filing it would
+  // put an empty trip segment in front of somebody.
+  const stated =
+    reservation.reservationNumber ??
+    reservation.startDate ??
+    reservation.flightNumber ??
+    reservation.propertyName ??
+    reservation.eventName ??
+    reservation.providerName;
+  return stated === null ? null : reservation;
+}
+
+/**
  * Pull every schema.org entity this app can use out of an email's HTML body.
  *
  * Never throws. A malformed block is counted in `blocksRejected` and skipped — one bad script tag in a
@@ -288,6 +486,7 @@ export function extractSchemaOrgFromHtml(html: string | null | undefined): Schem
 
   const orders: SchemaOrgOrder[] = [];
   const parcels: SchemaOrgParcel[] = [];
+  const reservations: SchemaOrgReservation[] = [];
   let blocksSeen = 0;
   let blocksRejected = 0;
 
@@ -320,13 +519,22 @@ export function extractSchemaOrgFromHtml(html: string | null | undefined): Schem
         const parcel = readParcel(node);
         if (parcel) parcels.push(parcel);
       }
+      if (reservations.length < MAX_ITEMS_PER_TYPE) {
+        for (const { type, kind } of RESERVATION_KINDS) {
+          if (!isType(node, type)) continue;
+          const reservation = readReservation(node, kind);
+          if (reservation) reservations.push(reservation);
+          // One node is one reservation. Without this a node typed as both would be filed twice.
+          break;
+        }
+      }
     }
   }
 
-  return { orders, parcels, blocksSeen, blocksRejected };
+  return { orders, parcels, reservations, blocksSeen, blocksRejected };
 }
 
 /** True when there is anything worth acting on — cheaper to ask than to re-derive at each call site. */
 export function hasUsableMarkup(findings: SchemaOrgFindings): boolean {
-  return findings.orders.length > 0 || findings.parcels.length > 0;
+  return findings.orders.length > 0 || findings.parcels.length > 0 || findings.reservations.length > 0;
 }

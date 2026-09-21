@@ -22,7 +22,7 @@
  * in the markup; everything else is null and, where the model is available, gets filled by it.
  */
 import type { SchemaOrgFindings } from "./schema-org-email";
-import type { ReceiptExtraction, ShipmentExtraction } from "../intelligence/extraction-schemas";
+import type { ReceiptExtraction, ShipmentExtraction, TripSegmentExtraction } from "../intelligence/extraction-schemas";
 import type { StructuredExtractionResult } from "../intelligence/anthropic-extraction.service";
 
 /** Recorded on every markup-derived result, so an extraction run says where its values came from. */
@@ -134,6 +134,68 @@ export function shipmentResultFromMarkup(findings: SchemaOrgFindings): Structure
 }
 
 /**
+ * A trip segment from a reservation the sender published.
+ *
+ * Only the FIRST reservation is used, for the same reason `receiptResultFromMarkup` takes only the first
+ * order: a source event files one segment, and attributing every leg of a return trip to the same email
+ * would put two flights on one record. The rest are left to the prose path, which is where multi-leg
+ * clustering already lives (TripsService.clusterSegment).
+ *
+ * Every field here traces to something the sender stated. The ones markup has no vocabulary for —
+ * baggage allowance, a resort fee, a cancellation deadline, the policy text — stay null so the model fills
+ * them when it runs. A cancellation deadline in particular is among the most valuable things this app
+ * extracts and is never in the markup, which is exactly why the model still runs alongside this.
+ */
+export function tripSegmentResultFromMarkup(findings: SchemaOrgFindings): StructuredExtractionResult<TripSegmentExtraction> | null {
+  const reservation = findings.reservations[0];
+  if (!reservation) return null;
+
+  const data: TripSegmentExtraction = {
+    kind: reservation.kind,
+    providerName: reservation.providerName,
+    confirmationNumber: reservation.reservationNumber,
+    locationLabel: reservation.locationLabel,
+    // Markup names airports, stations and properties but never says which city a trip is "to" — that is an
+    // inference, and inferring it here would cluster two unrelated trips together on a guess.
+    destinationCityOrRegion: null,
+    startDate: statedDate(reservation.startDate),
+    startTime: reservation.startTime,
+    endDate: statedDate(reservation.endDate),
+    endTime: reservation.endTime,
+    // The sender's stated UTC offset, not a zone name. Null when they stated none — deriving one from an
+    // airport code would be inventing the fact that matters most on a travel record.
+    timezone: reservation.utcOffset,
+    cancellationDeadlineDate: statedDate(null),
+    policyEvidenceText: null,
+    travelerNamesOnReservation: reservation.travelerNames,
+    // Only ever true from an explicit ReservationCancelled. Everything else, including markup that states
+    // no status at all, leaves this null rather than asserting the booking is fine.
+    cancellationMentioned: reservation.status === "Cancelled" ? true : null,
+    // schema.org has no vocabulary for a delay. Null, never false: "no delay stated" and "stated there is
+    // no delay" are different claims and this only knows the first.
+    delayMentioned: null,
+    flightNumber: reservation.flightNumber,
+    departureAirport: reservation.departureAirport,
+    arrivalAirport: reservation.arrivalAirport,
+    seat: reservation.seat,
+    baggageInfo: null,
+    propertyName: reservation.propertyName,
+    roomType: null,
+    guestCount: null,
+    feesInfo: null,
+    vehicleOrServiceType: reservation.vehicleOrServiceType,
+    pickupLocation: reservation.pickupLocation,
+    dropoffLocation: reservation.dropoffLocation,
+    eventName: reservation.eventName,
+    venue: reservation.venue,
+    bookingUrl: reservation.url,
+    confidenceNotes: MARKUP_NOTE,
+  };
+
+  return markupResult(data);
+}
+
+/**
  * Which domains this message's markup establishes on its own.
  *
  * This is what lets a message skip the AI domain classifier entirely, and what makes extraction work at
@@ -147,6 +209,9 @@ export function domainsFromMarkup(findings: SchemaOrgFindings): string[] {
   const domains = new Set<string>();
   if (findings.orders.length > 0) domains.add("receipt");
   if (findings.parcels.some((p) => p.trackingNumber !== null)) domains.add("shipment");
+  // A declared reservation IS travel. No inference, no model call, and it holds for a household that has
+  // turned AI processing off — which is the whole reason this path exists.
+  if (findings.reservations.length > 0) domains.add("travel");
   return [...domains];
 }
 

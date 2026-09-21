@@ -43,7 +43,7 @@ import {
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender, normalizeSenderDomain, extractEmailAddress, KNOWN_SENDER_PARSER_VERSION } from "../intelligence/deterministic-prefilter";
 import { extractSchemaOrgFromHtml, hasUsableMarkup, EMPTY_FINDINGS, type SchemaOrgFindings } from "./schema-org-email";
-import { receiptResultFromMarkup, shipmentResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
+import { receiptResultFromMarkup, shipmentResultFromMarkup, tripSegmentResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
 import { parseGmailMessage, type ParsedEmail, type EmailAttachmentInput } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, toTemporalValueWithTime, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
@@ -1296,7 +1296,7 @@ export class IngestionService {
     // back to extractCalendarEvent, since a partially-classified travel email with no trip segment filed is
     // still correctly "nothing filed" (same "no half-features" stance as the other entitlement gates here).
     if (domains.includes("travel") && travelPlanning !== false && categoryTravelEnabled) {
-      filedAny = (await this.extractTripSegment(ctx)) || filedAny;
+      filedAny = (await this.extractTripSegment(ctx, markup, aiAllowed)) || filedAny;
     } else if (domains.includes("calendar_event")) {
       filedAny = (await this.extractCalendarEvent(ctx)) || filedAny;
     }
@@ -2665,15 +2665,29 @@ export class IngestionService {
    * logic itself lives in TripsService.clusterSegment (see its own doc comment for the precision-first
    * matching stance and CAL-004-style reschedule reconciliation).
    */
-  private async extractTripSegment(ctx: {
-    sourceEventId: string;
-    ownerUserId: string;
-    householdId: string | null;
-    parsed: ReturnType<typeof parseGmailMessage>;
-  }): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "trip_segment_extraction_v1",
+  private async extractTripSegment(
+    ctx: {
+      sourceEventId: string;
+      ownerUserId: string;
+      householdId: string | null;
+      parsed: ReturnType<typeof parseGmailMessage>;
+    },
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
+  ): Promise<boolean> {
+    // The airline's, hotel's or ticketing site's own statement of the booking. Taken as authoritative for
+    // the fields it covers — a confirmation number stated in a machine-readable field cannot be misread
+    // the way one inferred from prose can.
+    const fromMarkup = tripSegmentResultFromMarkup(markup);
+
+    // The model still runs when it is allowed to, because markup has no vocabulary for a cancellation
+    // deadline, a baggage allowance, a resort fee or the policy text — and a cancellation deadline is
+    // among the most valuable things this app extracts from a travel email. Skipping the model because a
+    // reservation was declared would trade a real capability for a saving that was never the point.
+    const fromModel =
+      aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "trip_segment_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -2688,8 +2702,54 @@ export class IngestionService {
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
       schema: TripSegmentExtractionSchema,
       toolDescription: "Emit the extracted trip-segment fields.",
-    });
-    if (!result) return false;
+          })
+        : null;
+
+    if (!fromMarkup && !fromModel) return false;
+
+    // Merge, markup winning field by field. Not "markup OR model": a reservation that states a flight
+    // number and a departure time but no cancellation policy must not discard the policy the model read
+    // from the same email.
+    const result =
+      fromMarkup && fromModel
+        ? {
+            ...fromModel,
+            modelUsed: `${fromMarkup.modelUsed}+${fromModel.modelUsed}`,
+            // The merged record is part inference, so it does not get the markup's certainty.
+            confidenceScore: fromModel.confidenceScore,
+            data: {
+              ...fromModel.data,
+              kind: fromMarkup.data.kind,
+              providerName: fromMarkup.data.providerName ?? fromModel.data.providerName,
+              confirmationNumber: fromMarkup.data.confirmationNumber ?? fromModel.data.confirmationNumber,
+              locationLabel: fromMarkup.data.locationLabel ?? fromModel.data.locationLabel,
+              startDate: fromMarkup.data.startDate ?? fromModel.data.startDate,
+              startTime: fromMarkup.data.startTime ?? fromModel.data.startTime,
+              endDate: fromMarkup.data.endDate ?? fromModel.data.endDate,
+              endTime: fromMarkup.data.endTime ?? fromModel.data.endTime,
+              timezone: fromMarkup.data.timezone ?? fromModel.data.timezone,
+              travelerNamesOnReservation:
+                fromMarkup.data.travelerNamesOnReservation.length > 0
+                  ? fromMarkup.data.travelerNamesOnReservation
+                  : fromModel.data.travelerNamesOnReservation,
+              // A declared ReservationCancelled is the sender saying it outright. Where the markup says
+              // nothing, the model's reading of the prose still stands.
+              cancellationMentioned: fromMarkup.data.cancellationMentioned ?? fromModel.data.cancellationMentioned,
+              flightNumber: fromMarkup.data.flightNumber ?? fromModel.data.flightNumber,
+              departureAirport: fromMarkup.data.departureAirport ?? fromModel.data.departureAirport,
+              arrivalAirport: fromMarkup.data.arrivalAirport ?? fromModel.data.arrivalAirport,
+              seat: fromMarkup.data.seat ?? fromModel.data.seat,
+              propertyName: fromMarkup.data.propertyName ?? fromModel.data.propertyName,
+              vehicleOrServiceType: fromMarkup.data.vehicleOrServiceType ?? fromModel.data.vehicleOrServiceType,
+              pickupLocation: fromMarkup.data.pickupLocation ?? fromModel.data.pickupLocation,
+              dropoffLocation: fromMarkup.data.dropoffLocation ?? fromModel.data.dropoffLocation,
+              eventName: fromMarkup.data.eventName ?? fromModel.data.eventName,
+              venue: fromMarkup.data.venue ?? fromModel.data.venue,
+              bookingUrl: fromMarkup.data.bookingUrl ?? fromModel.data.bookingUrl,
+              confidenceNotes: `${fromMarkup.data.confidenceNotes}\n\n${fromModel.data.confidenceNotes}`,
+            },
+          }
+        : (fromMarkup ?? fromModel)!;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("travel"));
     const zone = result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId));
