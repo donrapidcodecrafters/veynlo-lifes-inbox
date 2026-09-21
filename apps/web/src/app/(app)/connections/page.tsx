@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import useSWR from "swr";
 import { useLocale } from "next-intl";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
@@ -17,6 +18,18 @@ import { providerLabel } from "@veynlo/core";
 interface InboundAliasInfo {
   configured: boolean;
   address: string | null;
+}
+
+/** §31 SMART-001 — one smart-home connection, exactly as GET /v1/smart-home/connections returns it. */
+interface SmartHomeConnection {
+  id: string;
+  provider: string;
+  status: string;
+  healthDetail: string | null;
+  baseUrl: string | null;
+  lastSuccessfulSyncAt: string | null;
+  createdAt: string;
+  selectedDevices: { id: string; label: string; deviceType: string }[];
 }
 
 // Keyed by the lowercased `code` field of whatever exception the OAuth callback threw — see
@@ -347,6 +360,11 @@ export default function ConnectionsPage() {
     refreshInterval: (latest) => (latest?.some((c) => c.health === "initializing") ? 3000 : 0),
   });
   const { data: inboundAlias, mutate: mutateInboundAlias } = useSWR<InboundAliasInfo>("/v1/auth/inbound-alias", swrFetcher);
+  const {
+    data: smartHome,
+    isLoading: smartHomeLoading,
+    mutate: mutateSmartHome,
+  } = useSWR<SmartHomeConnection[]>("/v1/smart-home/connections", swrFetcher);
   const { data: financialAccounts, mutate: mutateAccounts } = useSWR<FinancialAccount[]>("/v1/finance/accounts", swrFetcher);
   const { data: financialTransactions, mutate: mutateTransactions } = useSWR<FinancialTransaction[]>("/v1/finance/transactions", swrFetcher);
   // FIN-001 — total balance across only the accounts the user hasn't excluded.
@@ -375,6 +393,7 @@ export default function ConnectionsPage() {
   const [showImapForm, setShowImapForm] = useState(false);
   const [showTaskAppForm, setShowTaskAppForm] = useState(false);
   const [showDavForm, setShowDavForm] = useState(false);
+  const [showHomeAssistantForm, setShowHomeAssistantForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -894,17 +913,47 @@ export default function ConnectionsPage() {
           </CardBody>
         </Card>
 
-        {/* Phase 3 SMART-001 — data model + adapter interface only, no real provider access exists yet
-            (see docs/PHASE3_PENDING_CREDENTIALS.md). Deliberately no "Connect" button — every named
-            provider needs its own OAuth app registration/partner agreement this dev environment doesn't
-            have, and a working-looking button with no real backend behind it would mislead a user into
-            thinking a device is actually connected. */}
+        {/* Phase 3 SMART-001. Home Assistant is real and connectable; the rest still are not, and the copy
+            below says which is which rather than implying the whole category works. Every other named
+            provider needs its own OAuth app registration or partner agreement (see
+            docs/PHASE3_PENDING_CREDENTIALS.md), and a working-looking button with nothing behind it would
+            leave someone believing a smoke alarm was being watched when it was not. */}
         <Card>
-          <CardBody className="space-y-2">
-            <p className="text-[0.9375rem] font-medium text-primary">Smart home</p>
+          <CardBody className="space-y-3">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Smart home</p>
+              <p className="text-sm text-tertiary">
+                Connect Home Assistant to hear about a leak, smoke, a flat battery, or a device that&apos;s stopped responding. You choose
+                which devices Veynlo watches.
+              </p>
+            </div>
+
+            {smartHomeLoading && <div className="h-9 w-56 animate-pulse rounded-lg bg-subtle" />}
+
+            {smartHome?.map((connection) => (
+              <SmartHomeConnectionRow key={connection.id} connection={connection} onChanged={() => mutateSmartHome()} />
+            ))}
+
+            {!smartHomeLoading && (smartHome?.length ?? 0) === 0 && !showHomeAssistantForm && (
+              <Button variant="secondary" onClick={() => setShowHomeAssistantForm(true)}>
+                Connect Home Assistant
+              </Button>
+            )}
+
+            {showHomeAssistantForm && (
+              <HomeAssistantConnectForm
+                onDone={() => {
+                  setShowHomeAssistantForm(false);
+                  mutateSmartHome();
+                }}
+                onCancel={() => setShowHomeAssistantForm(false)}
+              />
+            )}
+
             <p className="text-sm text-tertiary">
-              Home Assistant, SmartThings, Nest, Ring, Ecobee, and Philips Hue integrations are planned but not yet available on this
-              deployment.
+              SmartThings, Nest, Ring, Ecobee and Philips Hue each need an approved partner application, which isn&apos;t something this
+              deployment can set up on its own. Home Assistant already talks to most of them, so connecting it is often the way to reach
+              those devices anyway.
             </p>
           </CardBody>
         </Card>
@@ -1549,6 +1598,153 @@ function TaskAppConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel
       {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
 
       <div className="flex gap-2">
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * One connected Home Assistant.
+ *
+ * Deliberately shows the address. A household can run more than one server — a house and a rental, a
+ * parent's place — and "Home Assistant · connected" on two identical cards tells nobody which is which.
+ * The token is never shown and is not in the response at all.
+ */
+function SmartHomeConnectionRow({ connection, onChanged }: { connection: SmartHomeConnection; onChanged: () => void }) {
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function disconnect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(`/v1/smart-home/connections/${connection.id}`);
+      setConfirmingDisconnect(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't disconnect. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const selected = connection.selectedDevices.length;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3">
+      {/* min-w-0 on the text side and flex-wrap on the row: the address can be long, and without both the
+          buttons were pushed off the card at 390px — the same defect found live on the connector rows. */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[0.9375rem] font-medium text-primary">Home Assistant</p>
+          <p className="truncate text-sm text-tertiary">{connection.baseUrl}</p>
+        </div>
+        <Badge tone={connection.status === "error" ? "critical" : "positive"}>
+          {connection.status === "error" ? "Needs attention" : "Connected"}
+        </Badge>
+      </div>
+
+      {connection.healthDetail && <p className="text-sm text-critical-subtle-text">{connection.healthDetail}</p>}
+
+      <p className="text-sm text-tertiary">
+        {selected === 0
+          ? "No devices chosen yet — nothing from this server is being read."
+          : `Watching ${selected} ${selected === 1 ? "device" : "devices"}.`}
+      </p>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      {!confirmingDisconnect && (
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/connections/smart-home/${connection.id}`}>
+            <Button variant="secondary" size="sm">
+              Choose devices
+            </Button>
+          </Link>
+          <Button variant="secondary" size="sm" onClick={() => setConfirmingDisconnect(true)}>
+            Disconnect
+          </Button>
+        </div>
+      )}
+
+      {confirmingDisconnect && (
+        <div className="space-y-2">
+          <p className="text-sm text-primary">
+            Disconnect this Home Assistant? Your access token is deleted and nothing more will be read from it. What it already reported
+            stays.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="critical" size="sm" onClick={disconnect} disabled={busy}>
+              {busy ? "Disconnecting…" : "Disconnect"}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmingDisconnect(false)} disabled={busy}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HomeAssistantConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [baseUrl, setBaseUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/smart-home/connections/home-assistant", { baseUrl, token });
+      onDone();
+    } catch (err) {
+      // Shown verbatim. The API distinguishes a home-network address from a rejected token from a server
+      // that isn't Home Assistant, and those need three different things from the user — flattening them
+      // to "couldn't connect" would send someone to regenerate a token that was never the problem.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="ha-url">Home Assistant address</Label>
+        <Input
+          id="ha-url"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://abc123.ui.nabu.casa"
+          required
+        />
+        <p className="mt-1 text-sm text-tertiary">
+          This has to be an address reachable from outside your home — a Home Assistant Cloud address, or your own remote address. A
+          local one like <span className="whitespace-nowrap">homeassistant.local</span> only works inside your house.
+        </p>
+      </div>
+
+      <div>
+        <Label htmlFor="ha-token">Long-Lived Access Token</Label>
+        <Input id="ha-token" type="password" value={token} onChange={(e) => setToken(e.target.value)} required />
+        <p className="mt-1 text-sm text-tertiary">
+          In Home Assistant: your profile, then Security, then Long-Lived Access Tokens, then Create Token.
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={submitting}>
           {submitting ? "Connecting…" : "Connect"}
         </Button>
