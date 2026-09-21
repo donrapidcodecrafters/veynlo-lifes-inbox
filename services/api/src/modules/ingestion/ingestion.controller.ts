@@ -76,9 +76,12 @@ export class IngestionController {
       ownerUserId: user.userId,
       householdId: null,
       subject: title,
-      bodyText: text,
+      // The user's own words go FIRST. "for Saturday?" is why they saved it; the page's text is context.
+      bodyText: dto.note ? [dto.note, text].join("\n\n").slice(0, 20_000) : text,
       fromAddress: finalUrl,
-      kind: "url_capture",
+      // A deliberate share stays distinguishable from a link typed into the app, the same distinction
+      // /v1/ingestion/manual already draws.
+      kind: dto.kind === "share_capture" ? "share_capture" : "url_capture",
       platform: toAnalyticsPlatform(detectPlatform(req)),
     });
   }

@@ -6,6 +6,7 @@ import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { ScreenHeader } from "@/components/screen-header";
 import { Button } from "@/components/button";
+import { splitSharedLink } from "@/lib/shared-link";
 
 /** Mirrors documents.controller.ts's own VALID_DOCUMENT_TYPES set of accepted upload mimeTypes — a
  * shared image/file the extension can't confidently map falls through to `null`, surfaced as a clear
@@ -90,14 +91,43 @@ export default function CaptureScreen() {
       setErrorMessage("Nothing was shared.");
       return;
     }
-    api
-      // §MSG-001 — marks this as a deliberate OS share-sheet capture (SourceEventKindSchema's
-      // "share_capture") rather than the indistinguishable default "manual_entry" kind a typed-in-app
-      // entry gets, since this screen only ever runs at the end of the iOS Share Extension / Android
-      // share-intent handoff.
-      .post("/v1/ingestion/manual", { subject, bodyText, kind: "share_capture" })
+    /**
+     * A shared LINK goes to the URL endpoint, which can actually describe it.
+     *
+     * Everything shared here used to go to /manual with the literal subject "Shared text", so sharing a
+     * TikTok, an Instagram post, a Google Maps place or a YouTube video filed an item called "Shared
+     * text" — every time, for every app. Six of Appendix A's browser/social targets and four of its maps
+     * targets arrive exactly this way, so all ten were useless on a phone no matter how well the server
+     * could describe the link.
+     *
+     * Whatever was shared alongside the link travels with it as `note`: a share sheet rarely hands over a
+     * bare URL, and that surrounding text is frequently the only part that says why it was kept.
+     */
+    const link = splitSharedLink(bodyText);
+    const request = link
+      ? api.post("/v1/ingestion/url", { url: link.url, note: link.note ?? undefined, kind: "share_capture" })
+      : // §MSG-001 — marks this as a deliberate OS share-sheet capture (SourceEventKindSchema's
+        // "share_capture") rather than the indistinguishable default "manual_entry" kind a typed-in-app
+        // entry gets, since this screen only ever runs at the end of the iOS Share Extension / Android
+        // share-intent handoff.
+        api.post("/v1/ingestion/manual", { subject, bodyText, kind: "share_capture" });
+
+    request
       .then(() => setState("done"))
       .catch((err) => {
+        // A link that cannot be fetched must not lose what the user shared. Falling back to filing it as
+        // text keeps the URL and any note, which is exactly what happened before this change — the worst
+        // outcome here is the old behaviour, not a lost capture.
+        if (link) {
+          api
+            .post("/v1/ingestion/manual", { subject, bodyText, kind: "share_capture" })
+            .then(() => setState("done"))
+            .catch(() => {
+              setState("error");
+              setErrorMessage(err instanceof ApiError ? err.message : "Couldn't save that. Please try again.");
+            });
+          return;
+        }
         setState("error");
         setErrorMessage(err instanceof ApiError ? err.message : "Couldn't save that. Please try again.");
       });

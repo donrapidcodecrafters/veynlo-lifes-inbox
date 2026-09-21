@@ -14,6 +14,20 @@ export type IngestManualDto = z.infer<typeof IngestManualDtoSchema>;
 
 export const IngestUrlDtoSchema = z.object({
   url: z.string().url().max(2000),
+  /**
+   * Whatever the user shared ALONGSIDE the link.
+   *
+   * A share sheet rarely hands over a bare URL. TikTok's carries a caption; a person forwarding a
+   * restaurant adds "for Saturday?". That text is the reason they saved it and is frequently the only part
+   * that says why, so it is kept with the page rather than discarded to make the URL fit this endpoint.
+   */
+  note: z.string().trim().max(4000).optional(),
+  /**
+   * Marks an OS share-sheet capture, exactly as `IngestManualDtoSchema.kind` does — the mobile share path
+   * sends a URL here now rather than to /manual, and losing that distinction would make a deliberate share
+   * indistinguishable from a link typed into the app.
+   */
+  kind: z.enum(["share_capture"]).optional(),
 });
 export type IngestUrlDto = z.infer<typeof IngestUrlDtoSchema>;
 
