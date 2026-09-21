@@ -5,6 +5,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { AnthropicExtractionService, detectPromptInjectionAttempt, computeCostMinorUnits } from "./anthropic-extraction.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real integration test against a real Postgres (same convention as ingestion.dedup.test.ts) — the two
@@ -59,8 +60,7 @@ describe("AnthropicExtractionService — §AI-003 schema-repair retry and prompt
     try {
       await db.select().from(schema.promptSecurityEvents).limit(1);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AnthropicExtractionService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AnthropicExtractionService tests");
     }
   });
 

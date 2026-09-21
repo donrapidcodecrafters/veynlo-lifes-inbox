@@ -13,6 +13,7 @@ import type { DocumentsService } from "../documents/documents.service";
 import type { HouseholdService } from "../household/household.service";
 import type { IdentityService } from "../identity/identity.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * PERS-005 "AI tone/verbosity" — "Concise vs detailed answers... Does not change underlying
@@ -57,8 +58,7 @@ describe("SearchService.ask — PERS-005 response-style preference never touches
         confidenceBand: "verified",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping Ask response-style tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "Ask response-style tests");
     }
   });
 

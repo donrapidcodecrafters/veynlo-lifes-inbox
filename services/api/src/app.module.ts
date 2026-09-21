@@ -36,6 +36,7 @@ import { PublicShareModule } from "./modules/sharing/public-share.module";
 import { LocationModule } from "./modules/location/location.module";
 import { TripsModule } from "./modules/trips/trips.module";
 import { SchoolModule } from "./modules/school/school.module";
+import { SmartHomeModule } from "./modules/smart-home/smart-home.module";
 import { HealthLogisticsModule } from "./modules/health-logistics/health-logistics.module";
 import { PreferencesModule } from "./modules/preferences/preferences.module";
 import { PeopleModule } from "./modules/people/people.module";
@@ -45,7 +46,12 @@ import { IdentityRecordsModule } from "./modules/identity-records/identity-recor
 import { CaregiverDayPassModule } from "./modules/sharing/caregiver-day-pass.module";
 import { LegacyReleaseModule } from "./modules/sharing/legacy-release.module";
 import { DataIntegrityModule } from "./modules/data-integrity/data-integrity.module";
+import { SearchBackfillModule } from "./modules/search/search-backfill.module";
 import { HistoryModule } from "./modules/history/history.module";
+// Both restored from origin/pre-mac-sync-backup-2026-09-03 after the main force-push dropped them —
+// see PROJECT_AUDIT.md DEF-082.
+import { MetricsModule } from "./metrics/metrics.module";
+import { MaintenanceModeGuard } from "./common/maintenance-mode.guard";
 
 @Module({
   imports: [
@@ -72,6 +78,7 @@ import { HistoryModule } from "./modules/history/history.module";
     TimelineModule,
     DataExportModule,
     FeatureFlagsModule,
+    MetricsModule,
     EntitlementsModule,
     AssetsModule,
     PetsModule,
@@ -85,6 +92,7 @@ import { HistoryModule } from "./modules/history/history.module";
     LocationModule,
     TripsModule,
     SchoolModule,
+    SmartHomeModule,
     HealthLogisticsModule,
     PreferencesModule,
     PeopleModule,
@@ -94,8 +102,13 @@ import { HistoryModule } from "./modules/history/history.module";
     CaregiverDayPassModule,
     LegacyReleaseModule,
     DataIntegrityModule,
+    SearchBackfillModule,
     HistoryModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Global rather than opt-in per controller, so a newly added mutating route is covered automatically.
+    { provide: APP_GUARD, useClass: MaintenanceModeGuard },
+  ],
 })
 export class AppModule {}

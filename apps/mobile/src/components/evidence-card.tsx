@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import { useAppTheme } from "@/lib/theme-context";
 import { Card } from "@/components/card";
+import { providerLabel } from "@veynlo/core";
 
 export interface Evidence {
   sourceEventId: string;
@@ -18,7 +19,6 @@ const KIND_LABEL: Record<string, string> = {
   calendar_feed_event: "Calendar feed",
 };
 
-const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed" };
 
 /** Mirrors apps/web/src/components/evidence-card.tsx — see its doc comment for why only a snippet/subject
  * is shown rather than the full original message (never stored). */
@@ -40,7 +40,7 @@ export function EvidenceCard({ evidence }: { evidence: Evidence | null }) {
   if (evidence.subjectLine) rows.push(["Subject", evidence.subjectLine]);
   if (evidence.fromAddress) rows.push(["From", evidence.fromAddress]);
   if (evidence.snippet) rows.push(["Snippet", evidence.snippet]);
-  rows.push(["Source", `${KIND_LABEL[evidence.kind] ?? evidence.kind}${evidence.provider ? ` · ${PROVIDER_LABEL[evidence.provider] ?? evidence.provider}` : ""}`]);
+  rows.push(["Source", `${KIND_LABEL[evidence.kind] ?? evidence.kind}${evidence.provider ? ` · ${providerLabel(evidence.provider)}` : ""}`]);
   rows.push([
     "Received",
     new Date(evidence.occurredAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }),

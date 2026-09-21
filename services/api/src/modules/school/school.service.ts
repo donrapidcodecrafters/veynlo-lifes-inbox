@@ -10,7 +10,22 @@ import { ConflictService } from "../schedule/conflict.service";
 import { temporalToSortDate } from "../ingestion/temporal.util";
 import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
 import { SchoolIcsService } from "./school-ics.service";
+import { CanvasService } from "./canvas.service";
 import type { CreateSchoolDto, CreateSchoolSourceDto, CreatePermissionFormDto } from "./dto";
+
+/**
+ * The school source kinds that are polled on a schedule.
+ *
+ * The recurring scan tick used to filter on the literal `kind = "ics"`, which is the same shape as the
+ * connector defect found alongside this work: a source that CAN sync and is never ASKED to syncs once and
+ * then goes silent, while still reporting itself healthy. Canvas would have landed straight into it.
+ *
+ * Exported, and used both by the scan query and by `syncSchoolSource` below, so "can it sync" and "is it
+ * scanned" are one list rather than two that agree by luck. `forwarding_email` is correctly absent: it
+ * has nothing to poll — mail arrives through the inbound alias on its own.
+ */
+export const SYNCABLE_SCHOOL_SOURCE_KINDS = ["ics", "canvas"] as const;
+export type SyncableSchoolSourceKind = (typeof SYNCABLE_SCHOOL_SOURCE_KINDS)[number];
 
 const FORM_STATE_ORDER = ["discovered", "opened", "completed", "submitted", "confirmed"] as const;
 type PermissionFormState = (typeof FORM_STATE_ORDER)[number];
@@ -40,6 +55,7 @@ export class SchoolService {
     @Inject(HouseholdService) private readonly households: HouseholdService,
     @Inject(ConflictService) private readonly conflicts: ConflictService,
     @Inject(SchoolIcsService) private readonly schoolIcs: SchoolIcsService,
+    @Inject(CanvasService) private readonly canvas: CanvasService,
     @Inject(QUEUE_PRODUCER) private readonly queue: QueueProducer,
   ) {}
 
@@ -77,10 +93,40 @@ export class SchoolService {
 
   // ---- School sources (SCH-002 subscribe/unsubscribe) ----
 
+  /**
+   * Explicit columns, because this one is read by everybody in the household.
+   *
+   * It was `select()`, which returns every column — including `icsUrl` and, once Canvas landed,
+   * `apiToken`. A school ICS URL is "typically a long unguessable-token URL" by this table's own schema
+   * comment, and a Canvas access token can read that student's entire Canvas account. Neither is anything
+   * a list endpoint should hand back, and no client has ever asked for them: both are write-only in
+   * practice, set on the subscribe form and never displayed again.
+   *
+   * This is the same stance every connector takes — `ConnectorsService.listForUser` does not return
+   * vault contents either. A credential that can be read back out is a credential that leaks through the
+   * first over-broad sharing bug, and this row is visible to delegates as well as members.
+   */
   async listSchoolSources(userId: string) {
     const householdIds = [...new Set([...(await this.households.activeHouseholdIds(userId)), ...(await this.households.delegatedHouseholdIds(userId, "schedule:read"))])];
     if (householdIds.length === 0) return [];
-    return this.db.select().from(schema.schoolSources).where(inArray(schema.schoolSources.householdId, householdIds));
+    return this.db
+      .select({
+        id: schema.schoolSources.id,
+        householdId: schema.schoolSources.householdId,
+        schoolId: schema.schoolSources.schoolId,
+        createdByUserId: schema.schoolSources.createdByUserId,
+        label: schema.schoolSources.label,
+        kind: schema.schoolSources.kind,
+        health: schema.schoolSources.health,
+        healthDetail: schema.schoolSources.healthDetail,
+        lastSuccessfulSyncAt: schema.schoolSources.lastSuccessfulSyncAt,
+        itemsDiscoveredCount: schema.schoolSources.itemsDiscoveredCount,
+        disconnectedAt: schema.schoolSources.disconnectedAt,
+        createdAt: schema.schoolSources.createdAt,
+        updatedAt: schema.schoolSources.updatedAt,
+      })
+      .from(schema.schoolSources)
+      .where(inArray(schema.schoolSources.householdId, householdIds));
   }
 
   async createSchoolSource(userId: string, dto: CreateSchoolSourceDto): Promise<{ id: string }> {
@@ -92,6 +138,14 @@ export class SchoolService {
     if (dto.kind === "ics" && dto.icsUrl) {
       await this.schoolIcs.probe(dto.icsUrl);
     }
+    // Same reasoning for Canvas, and one more reason on top: the host came from the user, so it is
+    // checked against the SSRF guard here rather than first being written to a row that a recurring
+    // worker will then poll on a schedule.
+    let canvasOriginUrl: string | null = null;
+    if (dto.kind === "canvas" && dto.canvasBaseUrl && dto.canvasToken) {
+      const probed = await this.canvas.probe(dto.canvasBaseUrl, dto.canvasToken);
+      canvasOriginUrl = probed.origin;
+    }
 
     const id = generateId("schoolSource");
     await this.db.insert(schema.schoolSources).values({
@@ -102,13 +156,43 @@ export class SchoolService {
       label: dto.label,
       kind: dto.kind,
       icsUrl: dto.kind === "ics" ? (dto.icsUrl ?? null) : null,
+      // The verified origin, not the raw string the user typed — so whatever is polled later is what was
+      // actually checked, rather than something that merely resembles it.
+      apiBaseUrl: canvasOriginUrl,
+      apiToken: dto.kind === "canvas" ? (dto.canvasToken ?? null) : null,
       health: "initializing",
     });
 
-    if (dto.kind === "ics") {
+    if (dto.kind === "ics" || dto.kind === "canvas") {
       await this.queue.enqueueSchoolSourceSync({ schoolSourceId: id });
     }
     return { id };
+  }
+
+  /**
+   * Sync one school source, whichever kind it is.
+   *
+   * The worker calls this rather than reaching for a specific service, so adding a third kind cannot
+   * leave the worker quietly syncing only the two it already knew about. A kind with no branch here
+   * throws instead of succeeding silently — the same "no default" stance the connector adapter map takes,
+   * and for the same reason: a connector that does nothing and reports success is the worst outcome.
+   */
+  async syncSchoolSource(schoolSourceId: string): Promise<{ itemCount: number }> {
+    const [source] = await this.db.select({ kind: schema.schoolSources.kind }).from(schema.schoolSources).where(eq(schema.schoolSources.id, schoolSourceId)).limit(1);
+    if (!source) return { itemCount: 0 };
+    switch (source.kind) {
+      case "ics":
+        return this.schoolIcs.sync(schoolSourceId);
+      case "canvas":
+        return this.canvas.sync(schoolSourceId);
+      case "forwarding_email":
+        // Nothing to poll: forwarded mail arrives through the user's inbound alias on its own.
+        return { itemCount: 0 };
+      default: {
+        const unknown: never = source.kind;
+        throw new Error(`No sync path for school source kind "${String(unknown)}"`);
+      }
+    }
   }
 
   /** "Unsubscribe" — soft, mirroring ConnectorsService.disconnect (marks disconnected rather than deleting the row, so already-synced events/evidence stay intact). */

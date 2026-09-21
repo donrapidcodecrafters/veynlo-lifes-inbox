@@ -1,5 +1,18 @@
+import * as argon2 from "argon2";
+import { eq } from "drizzle-orm";
 import { createDbClient } from "../client";
 import * as schema from "../schema";
+import { seedCoverage } from "./coverage";
+import { seedEmptyAreas } from "./empty-areas";
+
+/**
+ * Fixed, well-known local password for the demo accounts. Without a passwordHash these users existed in
+ * the database but could not sign in, which made the whole seed useless for UI testing — every screen
+ * had to be exercised as a brand-new empty account instead, where you cannot tell "this control is
+ * broken" apart from "there is simply no data here". Dev-only by construction: this script hard-codes a
+ * local dev connection string and is never pointed at a real environment.
+ */
+export const DEMO_PASSWORD = "Demo-Password-1";
 
 /**
  * Realistic local/demo seed data — one household, two adults, a handful of
@@ -402,6 +415,44 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // --- Notifications that point at something -----------------------------------
+  // The rest of the fixture's notifications are briefs, which deliberately have no target. Without these
+  // two, nothing in the fixture could be tapped, and the deep-link routing, the in-app history rows and
+  // the openedAt they render all had nothing to act on.
+  await db
+    .insert(schema.notifications)
+    .values([
+      {
+        id: "ntf_demo_bill_due",
+        ownerUserId: userId,
+        dedupeKey: "bill-due:bil_demo_electric",
+        priority: "important",
+        channel: "push",
+        title: "Electricity bill due soon",
+        body: "City Light & Power — $184.20. Tap to review it.",
+        linkedResourceType: "bill",
+        linkedResourceId: "bil_demo_electric",
+        state: "sent",
+        scheduledFor: daysFromNow(-1),
+        sentAt: daysFromNow(-1),
+      },
+      {
+        id: "ntf_demo_price_drop",
+        ownerUserId: userId,
+        dedupeKey: "price-drop:pur_demo_vacuum",
+        priority: "useful",
+        channel: "push",
+        title: "The vacuum you bought dropped in price",
+        body: "You may be able to claim the difference. Tap to see the purchase.",
+        linkedResourceType: "purchase",
+        linkedResourceId: "pur_demo_vacuum",
+        state: "sent",
+        scheduledFor: daysFromNow(-2),
+        sentAt: daysFromNow(-2),
+      },
+    ])
+    .onConflictDoNothing();
+
   // --- Inbox items ------------------------------------------------------------
   await db
     .insert(schema.inboxItems)
@@ -432,6 +483,83 @@ async function main() {
       },
     ])
     .onConflictDoNothing();
+
+  // Depth, so the Inbox fixture can actually exhibit what the Inbox does.
+  //
+  // The two items above were the entire Inbox fixture, which meant every sweep that "tested the Inbox"
+  // graded a two-row page: nothing to group, nothing to paginate, and the default view (reviewState "new")
+  // showing almost nothing. DEF-104 and DEF-105 both survived repeated passes because of it.
+  //
+  // Realistic content rather than "item 1" — layout defects hide behind short placeholder text, and
+  // several of these are deliberately long enough to wrap on a phone.
+  const inboxDepth: Array<[string, string[]]> = [
+    ["purchase", [
+      "Amazon order #114-2938471 — Dyson V15 Detect cordless vacuum, $749.99, arriving Thursday",
+      "REI order #RE-88213 — Patagonia Nano Puff jacket, $229.00",
+      "Best Buy order #BBY01-80429 — Sony WH-1000XM5 headphones, $399.99",
+      "Amazon order #114-3847192 — replacement HEPA filters, 2-pack, $39.98",
+      "Home Depot order #WM-77341 — gutter guards, 40ft, $184.50",
+      "Amazon order #114-9928374 — USB-C cables, 3-pack, $24.99",
+      "Target order #TGT-4482910 — winter boots, youth size 5, $64.99",
+      "Backcountry order #BC-338290 — trekking poles, $119.95",
+    ]],
+    ["bill", [
+      "ComEd electricity bill — $84.20 due September 17",
+      "Xfinity internet bill — $99.00 due September 19",
+      "State Farm auto insurance — $212.00 due September 22",
+      "Chicago Water Department — $61.40 due September 25",
+      "Nicor Gas — $38.75 due September 28",
+      "Lincoln Elementary lunch account top-up — $45.00 due October 1",
+    ]],
+    ["appointment", [
+      "Dr. Alvarez follow-up — October 3, 9:30 AM, Riverside Medical",
+      "Maya's parent-teacher conference — September 24, 4:15 PM, Lincoln Elementary",
+      "Biscuit's annual vet checkup — October 8, 11:00 AM, Oak Park Animal Hospital",
+      "Dental cleaning, both kids — October 15, 3:00 PM and 3:45 PM",
+      "Subaru 60,000 mile service — September 30, 8:00 AM",
+    ]],
+    ["document", [
+      "Homeowner's insurance policy renewal — State Farm, effective November 1",
+      "Maya's immunisation record — Lincoln Elementary, uploaded by the school nurse",
+      "2025 property tax assessment — Cook County",
+      "Passport renewal confirmation — application #PR-2938471",
+    ]],
+    ["travel", [
+      "United flight UA482 — Denver, October 14, departing 7:15 AM from ORD",
+      "Hyatt Place Denver Downtown — October 14 to 18, confirmation HY-88392",
+      "Hertz rental car — Denver Airport, October 14, confirmation HZ-44821",
+    ]],
+    ["warranty", [
+      "Dyson V15 warranty registration — 2-year coverage through August 2027",
+      "Sony WH-1000XM5 — 1-year manufacturer warranty registered",
+    ]],
+  ];
+
+  const depthRows = [];
+  let inboxN = 0;
+  for (const [category, summaries] of inboxDepth) {
+    for (const summary of summaries) {
+      depthRows.push({
+        id: `inb_demo_depth_${inboxN}`,
+        ownerUserId: userId,
+        householdId,
+        category,
+        summary,
+        // NOT NULL — every inbox item is traceable to the evidence it came from, which is the point of the
+        // column. Reusing a real seeded source event rather than inventing one keeps that true.
+        sourceEventId: "src_demo_vacuum_receipt",
+        suggestedActions: category === "bill" ? ["confirm", "dismiss"] : ["confirm"],
+        // Most are "new", because a real inbox is mostly unreviewed and "new" is the view users land on —
+        // the other two states are present so their badges and the "all" filter have something to show.
+        reviewState: inboxN % 5 === 3 ? ("needs_review" as const) : inboxN % 5 === 4 ? ("auto_filed" as const) : ("new" as const),
+        autoFiled: inboxN % 5 === 4,
+        confidenceBand: "verified",
+        createdAt: new Date(Date.now() - inboxN * 3_600_000),
+      });
+      inboxN++;
+    }
+  }
+  await db.insert(schema.inboxItems).values(depthRows as never).onConflictDoNothing();
 
   // --- Attention items (Home "Needs You") ------------------------------------
   await db
@@ -544,7 +672,21 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // Both demo users get a real, usable password. Done as an explicit update AFTER the insert because the
+  // insert uses onConflictDoNothing — on a re-run against an already-seeded database that insert is a
+  // no-op, so a hash attached only to the insert would never actually land.
+  const demoPasswordHash = await argon2.hash(DEMO_PASSWORD);
+  for (const id of [userId, partnerUserId]) {
+    await db.update(schema.users).set({ passwordHash: demoPasswordHash }).where(eq(schema.users.id, id));
+  }
+
+  await seedCoverage(db, { userId, partnerUserId, householdId, now });
+  // Fills the 31 API-readable areas that were STILL empty after seedCoverage — see empty-areas.ts.
+  await seedEmptyAreas(db, { userId, partnerUserId, householdId, now });
+
   console.log("Seed complete.");
+  console.log("  Sign in as: alex@example.com / " + DEMO_PASSWORD);
+  console.log("  Partner:    jordan@example.com / " + DEMO_PASSWORD);
   process.exit(0);
 }
 

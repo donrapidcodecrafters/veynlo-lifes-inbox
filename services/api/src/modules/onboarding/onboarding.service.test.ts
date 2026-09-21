@@ -5,6 +5,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { OnboardingService } from "./onboarding.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * ONB-001/ONB-002 real-Postgres regression coverage. Three things the onboarding brief specifically calls
@@ -18,7 +19,7 @@ import type { Cache } from "../../cache/cache.interface";
  *      (`needsOnboarding: false`) — the backend half of "never trap the user".
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 
 describe("OnboardingService", () => {
   let db: Database;
@@ -34,8 +35,7 @@ describe("OnboardingService", () => {
     try {
       await db.select().from(schema.users).limit(1);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping OnboardingService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "OnboardingService tests");
     }
   });
 

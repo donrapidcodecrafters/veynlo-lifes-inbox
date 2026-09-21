@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const CreatePlaceDtoSchema = z
   .object({
-    label: z.string().min(1).max(120),
+    label: z.string().trim().min(1).max(120),
     address: z.string().max(500).nullable().optional(),
     lat: z.number().min(-90).max(90).nullable().optional(),
     lng: z.number().min(-180).max(180).nullable().optional(),
@@ -13,7 +13,7 @@ export type CreatePlaceDto = z.infer<typeof CreatePlaceDtoSchema>;
 
 export const UpdatePlaceDtoSchema = z
   .object({
-    label: z.string().min(1).max(120).optional(),
+    label: z.string().trim().min(1).max(120).optional(),
     address: z.string().max(500).nullable().optional(),
     lat: z.number().min(-90).max(90).nullable().optional(),
     lng: z.number().min(-180).max(180).nullable().optional(),

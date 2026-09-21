@@ -1,7 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import * as ical from "node-ical";
+import { calendarEventsFrom } from "../ingestion/ics-events";
 import { eq } from "drizzle-orm";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -19,11 +20,6 @@ interface IcsCredentials {
   feedName?: string;
   basicAuthUsername?: string;
   basicAuthPassword?: string;
-}
-
-function textValue(v: string | { val: string } | undefined | null): string | null {
-  if (v == null) return null;
-  return typeof v === "string" ? v : v.val;
 }
 
 /**
@@ -121,30 +117,21 @@ export class IcsAdapter implements ConnectorAdapter {
     const calendar = await this.fetchCalendar(credentials.url, credentials);
 
     let itemCount = 0;
-    for (const component of Object.values(calendar)) {
-      if (!component || component.type !== "VEVENT") continue;
-      const title = textValue(component.summary) ?? "Untitled event";
-      const isAllDay = component.datetype === "date";
-      const start: TemporalValue = isAllDay
-        ? { precision: "date", instantUtc: null, date: component.start.toISOString().slice(0, 10), timezone: null, sourceText: null }
-        : { precision: "instant", instantUtc: component.start.toISOString(), date: null, timezone: component.start.tz ?? null, sourceText: null };
-      const end: TemporalValue | null = component.end
-        ? isAllDay
-          ? { precision: "date", instantUtc: null, date: component.end.toISOString().slice(0, 10), timezone: null, sourceText: null }
-          : { precision: "instant", instantUtc: component.end.toISOString(), date: null, timezone: component.end.tz ?? null, sourceText: null }
-        : null;
-
+    // Through the shared reader rather than a copy of the mapping. The copy that used to be here had no
+    // guard for a VEVENT with no DTSTART and called `.toISOString()` on it, so one malformed event in a
+    // subscribed feed threw and cost that sync every other event in the calendar.
+    for (const event of calendarEventsFrom(calendar)) {
       const filed = await this.ingestion.ingestFeedCalendarEvent({
         provider: "ics",
         ownerUserId: connection.ownerUserId,
         householdId: connection.householdId,
         connectionId,
-        uid: component.uid,
-        title,
-        start,
-        end,
-        isAllDay,
-        location: textValue(component.location),
+        uid: event.uid,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        isAllDay: event.isAllDay,
+        location: event.location,
       });
       if (filed) itemCount += 1;
     }

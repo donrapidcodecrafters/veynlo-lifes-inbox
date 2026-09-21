@@ -143,9 +143,12 @@ export default function SavedMemoriesPage() {
           onChange={(e) => setQuery(e.target.value)}
           className="min-w-[220px] flex-1"
         />
+        {/* No visible label sits next to this filter, so a screen reader announced it as just "combo box"
+            (axe: select-name, critical). */}
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
+          aria-label="Filter saved items by category"
           className="h-10 rounded-lg border border-border-default bg-surface px-3 text-sm text-primary"
         >
           {CATEGORIES.map((c) => (
@@ -176,7 +179,9 @@ export default function SavedMemoriesPage() {
               <Card className="transition-colors hover:bg-subtle">
                 <CardBody className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{m.title ?? m.sourceUrl ?? "Untitled save"}</p>
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={m.title ?? m.sourceUrl ?? "Untitled save"}>
+                      {m.title ?? m.sourceUrl ?? "Untitled save"}
+                    </p>
                     <div className="mt-1 flex items-center gap-2">
                       <Badge tone={m.category ? "brand" : "neutral"}>{categoryLabel(m.category)}</Badge>
                       {m.pinned && <Badge tone="warning">Pinned</Badge>}

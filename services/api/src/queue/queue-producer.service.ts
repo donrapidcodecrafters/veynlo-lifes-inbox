@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
-import { Queue } from "bullmq";
+import { Queue, type JobsOptions } from "bullmq";
 import { getRedisConnection } from "./redis-connection";
 import type { QueueProducer } from "./queue-producer.interface";
 import {
@@ -20,11 +20,15 @@ import {
   type ResurfacingScanJobData,
   type SchoolSourceSyncJobData,
   type SchoolSourceScanJobData,
+  type SmartHomeSyncJobData,
+  type SmartHomeScanJobData,
   type RecallCheckJobData,
   type RecallScanJobData,
   type CaregiverDayPassScanJobData,
   type LegacyReleaseInactivityScanJobData,
   type DataIntegrityScanJobData,
+  type ExpectedEventScanJobData,
+  type SearchIndexBackfillJobData,
 } from "./queue-names";
 
 /**
@@ -85,6 +89,12 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
   private readonly schoolSourceScanQueue = new Queue<SchoolSourceScanJobData>(QUEUE_NAMES.schoolSourceScan, {
     connection: getRedisConnection(),
   });
+  private readonly smartHomeSyncQueue = new Queue<SmartHomeSyncJobData>(QUEUE_NAMES.smartHomeSync, {
+    connection: getRedisConnection(),
+  });
+  private readonly smartHomeScanQueue = new Queue<SmartHomeScanJobData>(QUEUE_NAMES.smartHomeScan, {
+    connection: getRedisConnection(),
+  });
   private readonly recallCheckQueue = new Queue<RecallCheckJobData>(QUEUE_NAMES.recallCheck, {
     connection: getRedisConnection(),
   });
@@ -101,11 +111,92 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     connection: getRedisConnection(),
   });
 
+  private readonly expectedEventScanQueue = new Queue<ExpectedEventScanJobData>(QUEUE_NAMES.expectedEventScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly searchIndexBackfillQueue = new Queue<SearchIndexBackfillJobData>(QUEUE_NAMES.searchIndexBackfill, {
+    connection: getRedisConnection(),
+  });
+
+  /**
+   * Add a job under a REUSABLE id — one that identifies a thing, not one occurrence of work on it.
+   *
+   * -------------------------------------------------------------------------------------------------
+   * The defect this exists to fix
+   * -------------------------------------------------------------------------------------------------
+   * BullMQ deduplicates on `jobId`, and that dedup does not end when the job does: a completed or failed
+   * job keeps its key, and any later `add` with the same id is silently ignored. It returns normally. It
+   * looks exactly like a successful enqueue.
+   *
+   * `enqueueConnectorSync` used `${connectionId}-${kind}` as its id, with `removeOnComplete: { count: 200 }`
+   * retaining recent completions. So the FIRST incremental sync of a connection ran, completed, kept its
+   * key — and every 15-minute tick after that was discarded. Found in the live dev Redis: eight
+   * `*-incremental` job hashes, every one finished on 7 September, thirteen days before this was written,
+   * with the completed index empty and the hashes orphaned behind it. Adding that exact id was measured
+   * being dropped while a fresh id queued immediately.
+   *
+   * The connections showed as healthy throughout. Nothing failed. Nothing ran.
+   *
+   * `enqueueSchoolSourceSync` had it too, keyed on the source id, which additionally made the user-facing
+   * "resync now" button a permanent no-op that still answered `{"success": true}`.
+   *
+   * -------------------------------------------------------------------------------------------------
+   * What this does instead
+   * -------------------------------------------------------------------------------------------------
+   * The dedup is worth keeping — enqueuing a second sync for a connection that is already waiting or
+   * running is genuinely redundant. So that case is still dropped, deliberately and by this code rather
+   * than by a side effect of retention.
+   *
+   * A job that has FINISHED, by contrast, is not a reason to refuse new work: it is a record of old work.
+   * Those are removed and the new job is added. That also heals deployments that already have orphaned
+   * keys, without anyone having to go and clear Redis by hand.
+   *
+   * `unknown` is treated as finished on purpose. That is what BullMQ reports for exactly the orphans found
+   * here — a job hash whose entry has been evicted from every state index — and leaving those in place
+   * would leave the original defect intact for every id that already has one.
+   */
+  private async addWithReusableJobId<T>(
+    queue: Queue<T, unknown, string>,
+    name: string,
+    data: T,
+    opts: JobsOptions & { jobId: string },
+  ): Promise<void> {
+    const existing = await queue.getJob(opts.jobId);
+    if (existing) {
+      const state = await existing.getState();
+      // Listed by what is FINISHED rather than by what is in flight, so a state added to BullMQ later is
+      // treated as "still working" — the safe side. Writing it the other way round is how "prioritized"
+      // was nearly mistaken for a finished job and a running sync duplicated.
+      const finished = state === "completed" || state === "failed" || state === "unknown";
+      if (!finished) {
+        // Genuinely already queued or running. This is the dedup the jobId was chosen for.
+        return;
+      }
+      try {
+        await existing.remove();
+      } catch {
+        // A job that vanished between the read and the remove, or one a worker has just locked. Either way
+        // the add below is the right next step: BullMQ will drop it if the id is genuinely still taken,
+        // which is the pre-existing behaviour rather than a new failure.
+      }
+    }
+    // BullMQ resolves `add`'s first parameter through a conditional `ExtractNameType`, which a generic
+    // wrapper cannot satisfy structurally. The assertion covers the job NAME only — a string literal at
+    // every call site ("sync", "delete", "ocr", "transcribe", "classify") — while `data` and `opts` keep
+    // their real types and are still checked.
+    //
+    // `.bind(queue)` is load-bearing. Written as a bare `queue.add` the method loses its receiver, and
+    // BullMQ fails inside `add` with "Cannot read properties of undefined (reading 'trace')" — which
+    // surfaced as a 500 on the resync endpoint, not as anything resembling a detached method.
+    const add = queue.add.bind(queue) as unknown as (jobName: string, jobData: T, jobOpts: JobsOptions) => Promise<unknown>;
+    await add(name, data, opts);
+  }
+
   async enqueueConnectorSync(data: ConnectorSyncJobData): Promise<void> {
     // Idempotent by jobId: a duplicate enqueue for the same connection+kind while one is already
     // waiting/active is deduplicated by BullMQ rather than piling up redundant syncs. BullMQ (5.81+)
     // rejects custom job IDs containing ":", so this uses "-" as the separator.
-    await this.connectorSyncQueue.add("sync", data, {
+    await this.addWithReusableJobId(this.connectorSyncQueue, "sync", data, {
       jobId: `${data.connectionId}-${data.kind}`,
       attempts: 5,
       backoff: { type: "exponential", delay: 5000 },
@@ -171,7 +262,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
    * completed, so there's no user-facing grace window this job's timing needs to respect.
    */
   async enqueueConnectionDataDeletion(data: ConnectionDataDeletionJobData): Promise<void> {
-    await this.connectionDataDeletionQueue.add("delete", data, {
+    await this.addWithReusableJobId(this.connectionDataDeletionQueue, "delete", data, {
       jobId: data.connectionId,
       attempts: 5,
       backoff: { type: "exponential", delay: 30_000 },
@@ -203,7 +294,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
    * IdentityService.requestDeletion) can't double-enqueue.
    */
   async enqueueAccountDeletion(data: AccountDeletionJobData, delayMs = 0): Promise<void> {
-    await this.accountDeletionQueue.add("delete", data, {
+    await this.addWithReusableJobId(this.accountDeletionQueue, "delete", data, {
       jobId: data.userId,
       delay: delayMs,
       attempts: 5,
@@ -236,6 +327,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
 
   /** PRIV-002 — runs in the background since a user's full data graph can be large. No delay; nothing to wait on. */
   async enqueueDataExport(data: DataExportJobData): Promise<void> {
+    // Not `addWithReusableJobId`: `exportJobId` names ONE export request, not a thing that gets
+    // exported repeatedly, so a new request already brings a new id and there is nothing to free.
     await this.dataExportQueue.add("export", data, {
       jobId: data.exportJobId,
       attempts: 3,
@@ -263,7 +356,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
    * off the synchronous upload request. jobId'd by versionId so a duplicate enqueue (there isn't a retry
    * path that would do this today, but matches every other job here) can't double-process one version. */
   async enqueueDocumentOcr(data: DocumentOcrJobData): Promise<void> {
-    await this.documentOcrQueue.add("ocr", data, {
+    await this.addWithReusableJobId(this.documentOcrQueue, "ocr", data, {
       jobId: data.versionId,
       attempts: 3,
       backoff: { type: "exponential", delay: 10_000 },
@@ -276,7 +369,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
    * by sourceEventId (mirroring enqueueDocumentOcr's jobId-by-versionId shape) so a duplicate enqueue can't
    * double-transcribe the same recording. */
   async enqueueVoiceTranscription(data: VoiceTranscriptionJobData): Promise<void> {
-    await this.voiceTranscriptionQueue.add("transcribe", data, {
+    await this.addWithReusableJobId(this.voiceTranscriptionQueue, "transcribe", data, {
       jobId: data.sourceEventId,
       attempts: 3,
       backoff: { type: "exponential", delay: 10_000 },
@@ -288,7 +381,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
   /** §29.1 SAVE-001/002 — see queue-names.ts's MemoryClassificationJobData doc comment. jobId'd by
    * savedMemoryId so a duplicate enqueue (e.g. a retried request) can't double-classify one memory. */
   async enqueueMemoryClassification(data: MemoryClassificationJobData): Promise<void> {
-    await this.memoryClassificationQueue.add("classify", data, {
+    await this.addWithReusableJobId(this.memoryClassificationQueue, "classify", data, {
       jobId: data.savedMemoryId,
       attempts: 3,
       backoff: { type: "exponential", delay: 10_000 },
@@ -309,7 +402,7 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
 
   /** §25 SCH-002 — one school/team ICS feed's sync (SchoolIcsService.sync), mirroring enqueueConnectorSync's jobId-dedup shape so a re-subscribe or an overlapping scan tick can't double-sync the same feed concurrently. */
   async enqueueSchoolSourceSync(data: SchoolSourceSyncJobData): Promise<void> {
-    await this.schoolSourceSyncQueue.add("sync", data, {
+    await this.addWithReusableJobId(this.schoolSourceSyncQueue, "sync", data, {
       jobId: data.schoolSourceId,
       attempts: 5,
       backoff: { type: "exponential", delay: 5000 },
@@ -321,6 +414,30 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
   /** Mirrors scheduleRecurringConnectorScan's identical shape: one repeatable tick whose processor (worker-main.ts) finds every still-subscribed school_sources row and enqueues a sync for each. */
   async scheduleRecurringSchoolSourceScan(): Promise<void> {
     await this.schoolSourceScanQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "school-source-scan" });
+  }
+
+  /** §31 SMART-001 — one smart-home connection's sync, jobId'd by connection so an overlapping scan tick cannot double-sync the same home server. */
+  async enqueueSmartHomeSync(data: SmartHomeSyncJobData): Promise<void> {
+    await this.addWithReusableJobId(this.smartHomeSyncQueue, "sync", data, {
+      jobId: data.smartConnectionId,
+      attempts: 5,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: { count: 200 },
+      removeOnFail: { count: 500 },
+    });
+  }
+
+  /**
+   * Every fifteen minutes, same cadence as the school and connector scans.
+   *
+   * Worth saying why it is not slower: a leak sensor's value is entirely in how soon somebody hears about
+   * it, and a wet basement discovered the next morning is a different event from one discovered at once.
+   * Worth saying why it is not faster: this is one `GET /api/states` against a server in someone's house,
+   * and hammering a Raspberry Pi every thirty seconds to catch a leak four minutes earlier is not a trade
+   * this should make on the user's behalf.
+   */
+  async scheduleRecurringSmartHomeScan(): Promise<void> {
+    await this.smartHomeScanQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "smart-home-scan" });
   }
 
   /** VEH-006/HOMEOS-008 — see queue-names.ts's RecallCheckJobData doc comment. jobId'd by subject so a
@@ -369,6 +486,27 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     await this.dataIntegrityScanQueue.add("scan", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "data-integrity-scan" });
   }
 
+  /**
+   * §44.3 "search documents ... deleted/reindexed with canonical data" — reconciles search_documents
+   * against the canonical tables (see SearchBackfillService). Daily for the same reason as the orphan
+   * scan above: divergence only appears when something wrote around a domain service, which is rare, so
+   * polling harder buys nothing but load.
+   */
+  /**
+   * Notifications backlog "expected-event monitor" (absent paycheck / missing bill detection) — finds
+   * essential recurring streams whose nextExpectedDate has passed and files attention items for them
+   * (AttentionService.scanForMissingExpectedEvents). Every 6 hours rather than attentionScan’s hourly
+   * cadence: this only ever fires after a multi-day grace window has already passed, so polling more
+   * often buys nothing but load.
+   */
+  async scheduleRecurringExpectedEventScan(): Promise<void> {
+    await this.expectedEventScanQueue.add("scan", {}, { repeat: { every: 6 * 60 * 60 * 1000 }, jobId: "expected-event-scan" });
+  }
+
+  async scheduleRecurringSearchIndexBackfill(): Promise<void> {
+    await this.searchIndexBackfillQueue.add("backfill", {}, { repeat: { every: 24 * 60 * 60 * 1000 }, jobId: "search-index-backfill" });
+  }
+
   /** All queues by name, for read-only inspection (AdminService's queue-health endpoint) — every
    * `enqueue*`/`scheduleRecurring*` method above adds to exactly one of these, kept in the same order. */
   private get queuesByName(): Record<string, Queue> {
@@ -388,12 +526,16 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       [QUEUE_NAMES.memoryClassification]: this.memoryClassificationQueue,
       [QUEUE_NAMES.resurfacingScan]: this.resurfacingScanQueue,
       [QUEUE_NAMES.schoolSourceSync]: this.schoolSourceSyncQueue,
+      [QUEUE_NAMES.smartHomeSync]: this.smartHomeSyncQueue,
+      [QUEUE_NAMES.smartHomeScan]: this.smartHomeScanQueue,
       [QUEUE_NAMES.schoolSourceScan]: this.schoolSourceScanQueue,
       [QUEUE_NAMES.recallCheck]: this.recallCheckQueue,
       [QUEUE_NAMES.recallScan]: this.recallScanQueue,
       [QUEUE_NAMES.caregiverDayPassScan]: this.caregiverDayPassScanQueue,
       [QUEUE_NAMES.legacyReleaseInactivityScan]: this.legacyReleaseInactivityScanQueue,
       [QUEUE_NAMES.dataIntegrityScan]: this.dataIntegrityScanQueue,
+      [QUEUE_NAMES.expectedEventScan]: this.expectedEventScanQueue,
+      [QUEUE_NAMES.searchIndexBackfill]: this.searchIndexBackfillQueue,
     };
   }
 
@@ -436,6 +578,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       this.documentOcrQueue.close(),
       this.voiceTranscriptionQueue.close(),
       this.schoolSourceSyncQueue.close(),
+      this.smartHomeSyncQueue.close(),
+      this.smartHomeScanQueue.close(),
       this.schoolSourceScanQueue.close(),
       this.memoryClassificationQueue.close(),
       this.resurfacingScanQueue.close(),
@@ -444,6 +588,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       this.caregiverDayPassScanQueue.close(),
       this.legacyReleaseInactivityScanQueue.close(),
       this.dataIntegrityScanQueue.close(),
+      this.expectedEventScanQueue.close(),
+      this.searchIndexBackfillQueue.close(),
     ]);
   }
 }

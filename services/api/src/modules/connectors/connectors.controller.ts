@@ -12,17 +12,46 @@ import { ConnectorsService } from "./connectors.service";
 import { GmailAdapter, ConnectorNotConfiguredError } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
+import { ImapAdapter } from "./imap.adapter";
+import { TokenTaskAdapter } from "./token-task.adapter";
+import { CalDavAdapter } from "./caldav.adapter";
+import { CardDavAdapter } from "./carddav.adapter";
+import { listDavProviders } from "./dav-providers";
+import { listImapProviders } from "./imap-providers";
+import { listTokenTaskProviders } from "./token-task-providers";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { GoogleContactsAdapter } from "./google-contacts.adapter";
 import { MicrosoftContactsAdapter } from "./microsoft-contacts.adapter";
 import { GoogleDriveAdapter } from "./google-drive.adapter";
 import { OneDriveAdapter } from "./onedrive.adapter";
+import { SharePointAdapter } from "./sharepoint.adapter";
 import { DropboxAdapter } from "./dropbox.adapter";
 import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./microsoft-todo.adapter";
 import { PlaidAdapter } from "./plaid.adapter";
-import { IcsConnectDtoSchema, type IcsConnectDto, PlaidExchangeDtoSchema, type PlaidExchangeDto } from "./dto";
+import {
+  IcsConnectDtoSchema,
+  type IcsConnectDto,
+  ImapConnectDtoSchema,
+  type ImapConnectDto,
+  TokenTaskConnectDtoSchema,
+  type TokenTaskConnectDto,
+  DavConnectDtoSchema,
+  type DavConnectDto,
+  PlaidExchangeDtoSchema,
+  type PlaidExchangeDto,
+  SetWriteBackDtoSchema,
+  type SetWriteBackDto,
+  DisconnectConnectionDtoSchema,
+  type DisconnectConnectionDto,
+  SetAiProcessingDtoSchema,
+  type SetAiProcessingDto,
+  SetPausedDtoSchema,
+  type SetPausedDto,
+  AddExclusionDtoSchema,
+  type AddExclusionDto,
+} from "./dto";
 
 /**
  * Deliberately no class-level `@UseGuards(AuthGuard)` — the four OAuth `*Callback` routes below must NOT
@@ -43,12 +72,17 @@ export class ConnectorsController {
     @Inject(GmailAdapter) private readonly gmail: GmailAdapter,
     @Inject(OutlookAdapter) private readonly outlook: OutlookAdapter,
     @Inject(IcsAdapter) private readonly ics: IcsAdapter,
+    @Inject(ImapAdapter) private readonly imap: ImapAdapter,
+    @Inject(TokenTaskAdapter) private readonly tokenTask: TokenTaskAdapter,
+    @Inject(CalDavAdapter) private readonly caldav: CalDavAdapter,
+    @Inject(CardDavAdapter) private readonly carddav: CardDavAdapter,
     @Inject(GoogleCalendarAdapter) private readonly googleCalendar: GoogleCalendarAdapter,
     @Inject(MicrosoftCalendarAdapter) private readonly microsoftCalendar: MicrosoftCalendarAdapter,
     @Inject(GoogleContactsAdapter) private readonly googleContacts: GoogleContactsAdapter,
     @Inject(MicrosoftContactsAdapter) private readonly microsoftContacts: MicrosoftContactsAdapter,
     @Inject(GoogleDriveAdapter) private readonly googleDrive: GoogleDriveAdapter,
     @Inject(OneDriveAdapter) private readonly oneDrive: OneDriveAdapter,
+    @Inject(SharePointAdapter) private readonly sharePoint: SharePointAdapter,
     @Inject(DropboxAdapter) private readonly dropbox: DropboxAdapter,
     @Inject(GoogleTasksAdapter) private readonly googleTasks: GoogleTasksAdapter,
     @Inject(MicrosoftToDoAdapter) private readonly microsoftToDo: MicrosoftToDoAdapter,
@@ -271,8 +305,9 @@ export class ConnectorsController {
    * (409); the client is expected to fall back to the reconnect flow above. */
   @Patch(":connectionId/write-back")
   @UseGuards(AuthGuard)
-  async setWriteBack(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body("enabled") enabled: boolean) {
-    await this.connectors.setWriteBack(connectionId, user.userId, Boolean(enabled));
+  @UsePipes(new ZodValidationPipe(SetWriteBackDtoSchema))
+  async setWriteBack(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body() dto: SetWriteBackDto) {
+    await this.connectors.setWriteBack(connectionId, user.userId, dto.enabled);
     return { success: true };
   }
 
@@ -426,6 +461,52 @@ export class ConnectorsController {
     }
   }
 
+  /**
+   * SharePoint — the same Microsoft application as Outlook, Calendar, To Do and OneDrive, so this needs no
+   * credential of its own; it is available wherever Microsoft OAuth is configured at all.
+   *
+   * Reads only the sites the user FOLLOWS in SharePoint. See SharePointAdapter's own doc comment for why:
+   * `Sites.Read.All` can reach everything the user can reach, which in a real tenant is hundreds of sites
+   * belonging to their employer, and syncing all of that would be a privacy problem wearing a feature's
+   * clothes.
+   */
+  @Get("sharepoint/authorize")
+  @UseGuards(AuthGuard)
+  async sharePointAuthorize(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
+    if (!this.sharePoint.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message: "SharePoint isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    await this.entitlements.assertConnectorQuota(user.userId, "storage");
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/sharepoint/callback`;
+    const state = await signConnectState(user.userId, detectPlatform(req));
+    const authorizationUrl = this.sharePoint.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("sharepoint/callback")
+  async sharePointCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
+    const env = loadEnv();
+    let platform: ClientPlatform = "web";
+    try {
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const verified = await verifyConnectState(state);
+      platform = verified.platform;
+      await this.sharePoint.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/sharepoint/callback`,
+        ownerUserId: verified.userId,
+        householdId: null,
+      });
+      return res.redirect(connectorRedirectUrl(env, platform, "connected=sharepoint"), 302);
+    } catch (err) {
+      return res.redirect(connectorErrorRedirect(env, platform, err), 302);
+    }
+  }
+
   @Get("dropbox/authorize")
   @UseGuards(AuthGuard)
   async dropboxAuthorize(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
@@ -565,6 +646,115 @@ export class ConnectorsController {
     return { connectionId };
   }
 
+  /**
+   * The mailboxes a user can connect over IMAP, and what credential each one needs.
+   *
+   * Deliberately a static capability list with nothing user-specific in it — it is what the Connections
+   * screen renders its provider picker from, including the one entry that exists to say it CANNOT be
+   * connected and why.
+   */
+  @Get("imap/providers")
+  @UseGuards(AuthGuard)
+  imapProviders() {
+    return { providers: listImapProviders() };
+  }
+
+  /**
+   * Connect a mailbox over IMAP — the six Appendix A email targets that previously had no path in at all.
+   *
+   * Unlike every OAuth connector here, this endpoint RECEIVES a password. It is validated by actually
+   * logging in before anything is written, stored encrypted in the vault, and never read back out by any
+   * endpoint. The adapter raises its own errors with provider-specific guidance, so — unlike the ICS route
+   * below — failures are NOT flattened into one generic message: "Yahoo needs an app password" and "that
+   * host does not resolve" are different problems with different fixes, and a user who is told the wrong
+   * one gives up.
+   */
+  @Post("imap/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(ImapConnectDtoSchema))
+  async imapConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: ImapConnectDto) {
+    const result = await this.imap.connect({
+      dto: { ...dto, requestedHistoryDepthDays: dto.historyDepthDays },
+      ownerUserId: user.userId,
+      householdId: null,
+    });
+    return { connectionId: result.connectionId };
+  }
+
+  /** Calendar and contact servers reachable over CalDAV/CardDAV, and what credential each needs. */
+  @Get("dav/providers")
+  @UseGuards(AuthGuard)
+  davProviders() {
+    return { providers: listDavProviders() };
+  }
+
+  /**
+   * Connect a calendar over CalDAV — the spec's 'CalDAV servers' and 'Apple Calendar' rows.
+   *
+   * Distinct from the mobile app's 'This phone's calendar' card, which is EventKit: a manual,
+   * one-device import. This is a server-side connection that syncs on its own.
+   */
+  @Post("caldav/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DavConnectDtoSchema))
+  async calDavConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: DavConnectDto) {
+    const result = await this.caldav.connect({
+      dto: { ...dto, requestedHistoryDepthDays: dto.historyDepthDays },
+      ownerUserId: user.userId,
+      householdId: null,
+    });
+    return { connectionId: result.connectionId };
+  }
+
+  /**
+   * Connect contacts over CardDAV — the spec's 'CardDAV' and 'Apple Contacts' rows.
+   *
+   * Distinct from the mobile app's device contact picker, which is a manual one-device import and
+   * stays. This is a server-side connection that keeps itself current.
+   */
+  @Post("carddav/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DavConnectDtoSchema))
+  async cardDavConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: DavConnectDto) {
+    const result = await this.carddav.connect({ dto, ownerUserId: user.userId, householdId: null });
+    return { connectionId: result.connectionId };
+  }
+
+  /**
+   * Task apps that can be connected with a token the user issues themselves, and what to create for each.
+   *
+   * Only providers that actually work are listed. TickTick, Any.do and Notion are absent rather than
+   * present-and-disabled: the IMAP list shows Proton with a reason because Proton's blocker is something
+   * the USER could change (Proton Bridge); nothing a user of TickTick can do makes an OAuth-only API
+   * connectable without this deployment registering an application, so offering it would only be a dead
+   * end with a promise attached.
+   */
+  @Get("task-apps/providers")
+  @UseGuards(AuthGuard)
+  taskAppProviders() {
+    return { providers: listTokenTaskProviders() };
+  }
+
+  /**
+   * Connect Todoist, Trello or Asana.
+   *
+   * Like the IMAP route, this receives a secret rather than completing an OAuth dance, so the same rules
+   * apply: the token is exercised against the provider before anything is stored, it is stored encrypted,
+   * and no endpoint reads it back. The adapter's own error messages are passed through unflattened —
+   * "Trello needs an API key too" and "that token was rejected" need different fixes.
+   */
+  @Post("task-apps/connect")
+  @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(TokenTaskConnectDtoSchema))
+  async taskAppConnect(@CurrentUser() user: AuthenticatedUser, @Body() dto: TokenTaskConnectDto) {
+    // No `assertConnectorQuota` call, for the same reason the contacts routes above have none: there is no
+    // "tasks" category and no capability key backing one. Google Tasks and Microsoft To Do have never been
+    // metered, and adding a cap to the two providers a user can self-serve while leaving the OAuth ones
+    // uncapped would be an arbitrary limit dressed up as a plan boundary.
+    const result = await this.tokenTask.connect({ dto, ownerUserId: user.userId, householdId: null });
+    return { connectionId: result.connectionId };
+  }
+
   @Post("ics/connect")
   @UseGuards(AuthGuard)
   @UsePipes(new ZodValidationPipe(IcsConnectDtoSchema))
@@ -583,13 +773,13 @@ export class ConnectorsController {
 
   @Post(":connectionId/disconnect")
   @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(DisconnectConnectionDtoSchema))
   async disconnect(
     @CurrentUser() user: AuthenticatedUser,
     @Param("connectionId") connectionId: string,
-    @Body("deleteDerivedData") deleteDerivedData?: boolean,
-    @Body("password") password?: string,
+    @Body() dto: DisconnectConnectionDto,
   ) {
-    await this.connectors.disconnect(connectionId, user.userId, Boolean(deleteDerivedData), password);
+    await this.connectors.disconnect(connectionId, user.userId, dto.deleteDerivedData ?? false, dto.password);
     return { success: true };
   }
 
@@ -597,21 +787,23 @@ export class ConnectorsController {
    * the account-wide setting; true/false pins this connection. See ConnectorsService.setAiProcessingOverride. */
   @Patch(":connectionId/ai-processing")
   @UseGuards(AuthGuard)
+  @UsePipes(new ZodValidationPipe(SetAiProcessingDtoSchema))
   async setAiProcessing(
     @CurrentUser() user: AuthenticatedUser,
     @Param("connectionId") connectionId: string,
-    @Body("enabled") enabled: boolean | null,
+    @Body() dto: SetAiProcessingDto,
   ) {
-    await this.connectors.setAiProcessingOverride(connectionId, user.userId, enabled);
-    return { success: true, enabled };
+    await this.connectors.setAiProcessingOverride(connectionId, user.userId, dto.enabled);
+    return { success: true, enabled: dto.enabled };
   }
 
   /** PRIV-001 "pause/resume a connection without disconnecting it." */
   @Patch(":connectionId/pause")
   @UseGuards(AuthGuard)
-  async setPaused(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body("paused") paused: boolean) {
-    await this.connectors.setPaused(connectionId, user.userId, Boolean(paused));
-    return { success: true, paused: Boolean(paused) };
+  @UsePipes(new ZodValidationPipe(SetPausedDtoSchema))
+  async setPaused(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body() dto: SetPausedDto) {
+    await this.connectors.setPaused(connectionId, user.userId, dto.paused);
+    return { success: true, paused: dto.paused };
   }
 
   /** PRIV-001 "exclude specific senders" — simple per-connection list management. */
@@ -623,8 +815,9 @@ export class ConnectorsController {
 
   @Post(":connectionId/exclusions")
   @UseGuards(AuthGuard)
-  async addExclusion(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body("excludedSenderDomain") excludedSenderDomain: string) {
-    return this.connectors.addExclusion(connectionId, user.userId, String(excludedSenderDomain ?? ""));
+  @UsePipes(new ZodValidationPipe(AddExclusionDtoSchema))
+  async addExclusion(@CurrentUser() user: AuthenticatedUser, @Param("connectionId") connectionId: string, @Body() dto: AddExclusionDto) {
+    return this.connectors.addExclusion(connectionId, user.userId, dto.excludedSenderDomain);
   }
 
   @Delete(":connectionId/exclusions/:exclusionId")

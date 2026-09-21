@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId, type RecurrenceRule } from "@veynlo/core";
 import { ConflictService } from "./conflict.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubHouseholds = { activeHouseholdIds: async () => [] } as unknown as HouseholdService;
 
@@ -32,8 +33,7 @@ describe("ConflictService.detectOverlaps — recurring expansion", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `conflict-recur-test-${ownerUserId}@example.com`, displayName: "Conflict Recur Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ConflictService recurring-expansion tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ConflictService recurring-expansion tests");
     }
   });
 

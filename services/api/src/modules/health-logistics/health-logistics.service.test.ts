@@ -16,6 +16,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { ObjectStorage } from "../documents/object-storage.interface";
 import type { ModelProvider } from "../intelligence/model-provider.interface";
 import type { MalwareScannerService } from "../documents/malware-scanner.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §27 "Health Logistics" business-logic coverage: HLTH-001 manual appointment creation, HLTH-003 refill
@@ -25,7 +26,7 @@ import type { MalwareScannerService } from "../documents/malware-scanner.service
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubOnboarding = { initializeForNewUser: async () => {} } as unknown as OnboardingService;
 const stubQueue = { enqueueDocumentOcr: async () => {} } as unknown as QueueProducer;
@@ -60,8 +61,7 @@ describe("HealthLogisticsService — business logic", () => {
       await db.insert(schema.households).values({ id: householdId, name: "Biz Test Household", billingOwnerUserId: ownerUserId });
       await db.insert(schema.householdMemberships).values({ id: generateId("membership"), householdId, userId: ownerUserId, role: "household_owner", status: "active", joinedAt: new Date() });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping HealthLogisticsService business-logic tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "HealthLogisticsService business-logic tests");
     }
   });
 

@@ -1,15 +1,17 @@
-import { BadRequestException, Body, Controller, Get, Inject, NotFoundException, Param, Post, Req, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Req, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { FastifyRequest } from "fastify";
 import type { TemporalValue } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
+import { readMultipartFile } from "../../common/multipart";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { detectPlatform } from "../../common/platform";
 import { toAnalyticsPlatform } from "../analytics/analytics.service";
 import { IngestionService } from "./ingestion.service";
 import { SafeUrlFetcher } from "./safe-url-fetcher";
+import { LinkPreviewService } from "./link-preview.service";
 import {
   IngestManualDtoSchema,
   IngestDeviceCalendarDtoSchema,
@@ -37,6 +39,7 @@ export class IngestionController {
   constructor(
     @Inject(IngestionService) private readonly ingestion: IngestionService,
     @Inject(SafeUrlFetcher) private readonly urlFetcher: SafeUrlFetcher,
+    @Inject(LinkPreviewService) private readonly linkPreview: LinkPreviewService,
   ) {}
 
   @Post("manual")
@@ -64,14 +67,21 @@ export class IngestionController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @UsePipes(new ZodValidationPipe(IngestUrlDtoSchema))
   async ingestUrl(@CurrentUser() user: AuthenticatedUser, @Body() dto: IngestUrlDto, @Req() req: FastifyRequest) {
-    const { title, text, finalUrl } = await this.urlFetcher.fetchReadableText(dto.url);
+    // Through LinkPreviewService rather than straight to the fetcher: for a link shared out of YouTube,
+    // TikTok, Pinterest, Reddit, Instagram, Facebook or a maps app, reading the page's text produces a
+    // login wall or an empty JavaScript shell. Measured before this changed: one of ten such links
+    // produced a title that named the thing shared rather than the site it came from.
+    const { title, text, finalUrl } = await this.linkPreview.describe(dto.url);
     return this.ingestion.ingestManualText({
       ownerUserId: user.userId,
       householdId: null,
       subject: title,
-      bodyText: text,
+      // The user's own words go FIRST. "for Saturday?" is why they saved it; the page's text is context.
+      bodyText: dto.note ? [dto.note, text].join("\n\n").slice(0, 20_000) : text,
       fromAddress: finalUrl,
-      kind: "url_capture",
+      // A deliberate share stays distinguishable from a link typed into the app, the same distinction
+      // /v1/ingestion/manual already draws.
+      kind: dto.kind === "share_capture" ? "share_capture" : "url_capture",
       platform: toAnalyticsPlatform(detectPlatform(req)),
     });
   }
@@ -133,8 +143,7 @@ export class IngestionController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("voice-note")
   async ingestVoiceNote(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
-    const file = await req.file();
-    if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No recording was uploaded." });
+    const file = await readMultipartFile(req, "No recording was uploaded.");
     const buffer = await file.toBuffer();
     return this.ingestion.ingestVoiceNote({ ownerUserId: user.userId, householdId: null, buffer, mimeType: file.mimetype, platform: toAnalyticsPlatform(detectPlatform(req)) });
   }
@@ -151,8 +160,7 @@ export class IngestionController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("share-screenshot")
   async ingestShareScreenshot(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
-    const file = await req.file();
-    if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No image was uploaded." });
+    const file = await readMultipartFile(req, "No image was uploaded.");
     const buffer = await file.toBuffer();
     return this.ingestion.ingestShareScreenshot({ ownerUserId: user.userId, householdId: null, buffer, mimeType: file.mimetype, platform: toAnalyticsPlatform(detectPlatform(req)) });
   }

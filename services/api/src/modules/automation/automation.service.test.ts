@@ -10,6 +10,7 @@ import type { NotificationDeliveryService } from "../notifications/notification-
 import type { HouseholdService } from "../household/household.service";
 import type { AssetsService } from "../assets/assets.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "automation/rule center with safe suggest/prepare modes" — real integration test, same
@@ -56,8 +57,7 @@ describe("AutomationService", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `automation-test-${ownerUserId}@example.com`, displayName: "Automation Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AutomationService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AutomationService tests");
     }
   });
 

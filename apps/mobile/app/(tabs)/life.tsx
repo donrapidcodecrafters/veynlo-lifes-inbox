@@ -38,7 +38,6 @@ const LIFE_TABS = [
   { value: "health", label: "Health" },
   { value: "documents", label: "Documents" },
 ] as const;
-type LifeTab = (typeof LIFE_TABS)[number]["value"];
 
 // CAL-001 "duplicate copies visually collapse while preserving original records" — a cross-source-linked
 // member's own minimal fields (see ScheduleService.upcomingEvents' lean list projection — no per-member
@@ -544,6 +543,9 @@ const SCHOOL_KIND_LABELS: Record<string, string> = {
   game: "Game",
   practice: "Practice",
   announcement: "Announcement",
+  // Canvas. Without an entry here the badge falls through to the raw lowercase enum — the same leak the
+  // income-cadence phrasing had.
+  assignment: "Assignment",
   other: "School",
 };
 
@@ -568,48 +570,159 @@ const SUGGESTED_PREP_ITEMS: Record<string, string[]> = {
   picture_day: ["Picture-day outfit"],
 };
 
+/**
+ * Subscribe to a school source — a calendar feed, or a Canvas account.
+ *
+ * Two kinds behind one control rather than two separate "+ add" rows, because from a parent's point of
+ * view these are the same errand: get this school's stuff into the app. What differs is only what has to
+ * be pasted, so the form asks for that and nothing else.
+ *
+ * Canvas needs an address as well as a token because Canvas is per-institution — every district runs its
+ * own.
+ */
 function AddSchoolSourceRow({ householdId, onAdded }: { householdId: string; onAdded: () => void }) {
   const { theme } = useAppTheme();
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<"ics" | "canvas">("ics");
   const [label, setLabel] = useState("");
   const [icsUrl, setIcsUrl] = useState("");
+  const [canvasBaseUrl, setCanvasBaseUrl] = useState("");
+  const [canvasToken, setCanvasToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) {
     return (
-      <Pressable onPress={() => setOpen(true)} accessibilityRole="button">
-        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.brandDefault }}>+ Subscribe to a school/team calendar feed</Text>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        // `accessible` merges the inner Text into this node, so the control that is clickable is also the
+        // one that carries the label. Without it Android reports two separate nodes — a clickable ViewGroup
+        // with no text, and a TextView with the text and clickable: false — which is what a screen reader
+        // and a voice-control user actually run into.
+        accessible
+        // Exactly the visible text. It previously read "Add a school calendar feed or Canvas account"
+        // while the button showed "+ Add a feed or Canvas account": a screen-reader user would hear one
+        // thing and see another, and "tap Add a feed" would find nothing.
+        accessibilityLabel="+ Add a feed or Canvas account"
+        hitSlop={6}
+        style={{
+          alignSelf: "flex-start",
+          minHeight: 36,
+          justifyContent: "center",
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: theme.radius.md,
+          // This was bare text with no border — nothing told a user it was a control. Every button in this
+          // app carries a visible outline.
+          borderWidth: 1,
+          borderColor: theme.colors.borderDefault,
+        }}
+      >
+        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.brandDefault }}>+ Add a feed or Canvas account</Text>
       </Pressable>
     );
   }
 
+  const ready = kind === "ics" ? Boolean(label.trim() && icsUrl.trim()) : Boolean(label.trim() && canvasBaseUrl.trim() && canvasToken.trim());
+
   async function submit() {
-    if (!label.trim() || !icsUrl.trim()) return;
+    if (!ready) return;
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/v1/school/sources", { householdId, label, kind: "ics", icsUrl });
+      await api.post(
+        "/v1/school/sources",
+        kind === "ics"
+          ? { householdId, label, kind: "ics", icsUrl }
+          : { householdId, label, kind: "canvas", canvasBaseUrl, canvasToken },
+      );
       setLabel("");
       setIcsUrl("");
+      setCanvasBaseUrl("");
+      setCanvasToken("");
       setOpen(false);
       onAdded();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't subscribe to that feed. Check the URL and try again.");
+      // The API answers with its own guidance — "that address has to start with https" and "Canvas
+      // rejected that token" need different fixes, so it is shown as sent rather than flattened.
+      setError(err instanceof ApiError ? err.message : "Couldn't add that source. Check the details and try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Card style={{ gap: 8 }}>
-      <TextField label="Name" placeholder="e.g. Travel soccer team" value={label} onChangeText={setLabel} />
-      <TextField label="ICS feed URL" value={icsUrl} onChangeText={setIcsUrl} autoCapitalize="none" keyboardType="url" />
+    <Card style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>What are you adding?</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {(
+          [
+            { key: "ics" as const, label: "Calendar feed" },
+            { key: "canvas" as const, label: "Canvas" },
+          ]
+        ).map((option) => {
+          const active = option.key === kind;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => setKind(option.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={option.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                // Always outlined — a control with no border is not visibly a control.
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? theme.colors.brandDefault : theme.colors.textPrimary }}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <TextField
+        label="Name"
+        placeholder={kind === "ics" ? "e.g. Travel soccer team" : "e.g. Maya's school work"}
+        value={label}
+        onChangeText={setLabel}
+      />
+
+      {kind === "ics" ? (
+        <TextField label="Calendar feed URL" value={icsUrl} onChangeText={setIcsUrl} autoCapitalize="none" keyboardType="url" />
+      ) : (
+        <>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            Canvas issues an access token under Account, Settings, New Access Token. Assignment due dates and announcements come across — grades
+            are never read.
+          </Text>
+          <TextField
+            label="Your school's Canvas address"
+            placeholder="yourschool.instructure.com"
+            value={canvasBaseUrl}
+            onChangeText={setCanvasBaseUrl}
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+          <TextField label="Access token" value={canvasToken} onChangeText={setCanvasToken} secureTextEntry autoCapitalize="none" />
+        </>
+      )}
+
       {error && <Text style={{ fontSize: 12, color: theme.colors.critical }}>{error}</Text>}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <Button onPress={submit} loading={submitting} disabled={!label.trim() || !icsUrl.trim()}>
-            Subscribe
+          <Button onPress={submit} loading={submitting} disabled={!ready}>
+            {kind === "ics" ? "Subscribe" : "Connect Canvas"}
           </Button>
         </View>
         <View style={{ flex: 1 }}>
@@ -671,11 +784,19 @@ function SchoolSection() {
     }, [load]),
   );
 
+  // Found by the same sweep that produced DEF-091: this section's three actions fired an api.put/post
+  // with no catch, so a failure propagated unhandled - the crash-overlay class already fixed in the
+  // ConflictBanner component further down this same file.
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function assignChild(eventId: string, dependentId: string) {
     setAssigningId(eventId);
+    setActionError(null);
     try {
       await api.put(`/v1/school/events/${eventId}/assign-child`, { dependentId });
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't assign that child. Please try again.");
     } finally {
       setAssigningId(null);
     }
@@ -683,9 +804,12 @@ function SchoolSection() {
 
   async function advanceForm(id: string, state: string) {
     setAdvancingId(id);
+    setActionError(null);
     try {
       await api.put(`/v1/school/forms/${id}/state`, { state });
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't update that form. Please try again.");
     } finally {
       setAdvancingId(null);
     }
@@ -693,9 +817,12 @@ function SchoolSection() {
 
   async function resolveTransportConflict(id: string) {
     setResolvingConflictId(id);
+    setActionError(null);
     try {
       await api.post(`/v1/schedule-conflicts/${id}/resolve`);
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't resolve that conflict. Please try again.");
     } finally {
       setResolvingConflictId(null);
     }
@@ -707,10 +834,11 @@ function SchoolSection() {
   return (
     <View style={{ gap: 8 }}>
       <SectionHeading title="School & activities" />
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
 
       {transportConflicts && transportConflicts.length > 0 && (
         <Card style={{ gap: 8, backgroundColor: theme.colors.warningSubtleBg }}>
-          <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warning }}>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warningSubtleText }}>
             {transportConflicts.length === 1 ? "1 drop-off/pickup conflict" : `${transportConflicts.length} drop-off/pickup conflicts`}
           </Text>
           {transportConflicts.map((c) => {
@@ -777,6 +905,7 @@ function SchoolSection() {
                     {dependents.map((d) => (
                       <Pressable accessibilityRole="button"
                         key={d.id}
+                        accessibilityState={{ disabled: assigningId === e.id }}
                         disabled={assigningId === e.id}
                         onPress={() => assignChild(e.id, d.id)}
                         style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.borderDefault }}
@@ -1012,11 +1141,16 @@ function HealthSection() {
     }, [load]),
   );
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function markPickedUp(id: string) {
     setMarkingId(id);
+    setActionError(null);
     try {
       await api.post(`/v1/health/refill-reminders/${id}/picked-up`);
       await load();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't mark that as picked up. Please try again.");
     } finally {
       setMarkingId(null);
     }
@@ -1027,6 +1161,7 @@ function HealthSection() {
   return (
     <View style={{ gap: 8 }}>
       <SectionHeading title="Health" />
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
       <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>
         Private by default — a household member can&apos;t see these unless you share them individually.
       </Text>
@@ -1246,6 +1381,8 @@ function AddPersonRow({ organizations, onAdded }: { organizations: OrganizationR
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Organization (optional)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityLabel="Organization: none"
+              accessibilityState={{ selected: organizationId === null }}
               onPress={() => setOrganizationId(null)}
               style={{
                 paddingHorizontal: 10,
@@ -1259,6 +1396,7 @@ function AddPersonRow({ organizations, onAdded }: { organizations: OrganizationR
             </Pressable>
             {organizations.map((o) => (
               <Pressable accessibilityRole="button"
+                accessibilityState={{ selected: organizationId === o.id }}
                 key={o.id}
                 onPress={() => setOrganizationId(o.id)}
                 style={{
@@ -1637,6 +1775,8 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
           <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary }}>Vehicle (optional)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityLabel="Vehicle: none"
+              accessibilityState={{ selected: vehicleProfileId === null }}
               onPress={() => setVehicleProfileId(null)}
               style={{
                 paddingVertical: 6,
@@ -1653,6 +1793,7 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
             </Pressable>
             {vehicles.map((v) => (
               <Pressable accessibilityRole="button"
+                accessibilityState={{ selected: vehicleProfileId === v.id }}
                 key={v.id}
                 onPress={() => setVehicleProfileId(v.id)}
                 style={{
@@ -1673,7 +1814,7 @@ function AddEventRow({ onAdded }: { onAdded: () => void }) {
         </View>
       )}
       {error && <Text style={{ fontSize: 12, color: theme.colors.critical }}>{error}</Text>}
-      {conflictNote && <Text style={{ fontSize: 12, color: theme.colors.warning }}>{conflictNote}</Text>}
+      {conflictNote && <Text style={{ fontSize: 12, color: theme.colors.warningSubtleText }}>{conflictNote}</Text>}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <View style={{ flex: 1 }}>
           <Button onPress={submit} loading={submitting} disabled={!title.trim() || !start}>
@@ -1703,11 +1844,16 @@ function ConflictBanner({ conflicts, events, onResolved }: { conflicts: Schedule
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const titleFor = (id: string) => events?.find((e) => e.id === id)?.title ?? "another event";
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function resolve(id: string) {
     setResolvingId(id);
+    setActionError(null);
     try {
       await api.post(`/v1/schedule-conflicts/${id}/resolve`);
       onResolved();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't resolve that conflict. Please try again.");
     } finally {
       setResolvingId(null);
     }
@@ -1716,12 +1862,13 @@ function ConflictBanner({ conflicts, events, onResolved }: { conflicts: Schedule
   if (conflicts.length === 0) return null;
   return (
     <Card style={{ gap: 8, backgroundColor: theme.colors.warningSubtleBg }}>
-      <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warning }}>
+      {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
+      <Text style={{ fontSize: 13, fontWeight: "700", color: theme.colors.warningSubtleText }}>
         {conflicts.length === 1 ? "1 scheduling conflict" : `${conflicts.length} scheduling conflicts`}
       </Text>
       {conflicts.map((c) => (
         <View key={c.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <Text style={{ fontSize: 13, color: theme.colors.warning, flex: 1 }}>{c.involvedEventIds.map((id) => titleFor(id)).join(" overlaps with ")}</Text>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText, flex: 1 }}>{c.involvedEventIds.map((id) => titleFor(id)).join(" overlaps with ")}</Text>
           <Button variant="secondary" onPress={() => resolve(c.id)} loading={resolvingId === c.id}>
             Dismiss
           </Button>
@@ -1893,7 +2040,13 @@ export default function LifeScreen() {
 
       {loadError && <FetchError what="your Life page" message={loadError} onRetry={load} />}
       {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
-      {conflicts && conflicts.length > 0 && <ConflictBanner conflicts={conflicts} events={events} onResolved={load} />}
+      {/* §19 — a scheduling conflict is Schedule context, not every context. This banner sat above every
+          show* gate, so it appeared on Family, Health, Home & Vehicles and Documents too. Exactly the same
+          defect as the money cards below, and it survived that fix because schedule_conflicts was empty at
+          the time — the banner could not render for anyone to notice. Now seeded, so it shows.
+          transportConflicts is NOT this: it lives inside the School & Activities section and is already
+          scoped by that section's own gate. */}
+      {showSchedule && conflicts && conflicts.length > 0 && <ConflictBanner conflicts={conflicts} events={events} onResolved={load} />}
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <View style={{ flex: 1, minWidth: 100 }}>
@@ -1923,7 +2076,11 @@ export default function LifeScreen() {
         </View>
       </View>
 
-      {savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
+      {/* §19 — money metrics belong to the Money context, not every context. These two cards sat ABOVE the
+          first show* gate, so picking Family to check a child's school events opened the screen with
+          subscription spend and store-credit totals instead. Gated on showMoney like every other money
+          section on this screen ("all" still shows them, which is the overview case §18 asks for). */}
+      {showMoney && savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
         <Card style={{ gap: 6 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>Saved from returns</Text>
@@ -1944,7 +2101,7 @@ export default function LifeScreen() {
         </Card>
       )}
 
-      {monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={load} />}
+      {showMoney && monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={load} />}
 
       {showSchedule && (
       <View style={{ gap: 8 }}>
@@ -1967,6 +2124,11 @@ export default function LifeScreen() {
               return (
                 <View key={e.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: theme.colors.borderSubtle }}>
                   <Pressable accessibilityRole="button"
+                    accessibilityState={memberCount > 1 ? { expanded } : undefined}
+                    accessibilityActions={memberCount > 1 ? [{ name: "expand", label: expanded ? "Collapse sources" : "Show sources" }] : undefined}
+                    onAccessibilityAction={(evt) => {
+                      if (evt.nativeEvent.actionName === "expand") setExpandedEventId(expanded ? null : e.id);
+                    }}
                     onPress={() => router.push(`/event/${e.id}`)}
                     style={{
                       flexDirection: "row",
@@ -1992,6 +2154,7 @@ export default function LifeScreen() {
                       {when && <Text style={{ fontSize: 12, color: theme.colors.textTertiary, textAlign: "right" }}>{when}</Text>}
                       {memberCount > 1 && (
                         <Pressable accessibilityRole="button"
+                          importantForAccessibility="no"
                           onPress={(evt) => {
                             evt.stopPropagation();
                             setExpandedEventId(expanded ? null : e.id);

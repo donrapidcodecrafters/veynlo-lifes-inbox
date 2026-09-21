@@ -146,6 +146,11 @@ export default function MergePropertiesScreen() {
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {group.properties.map((p) => (
                     <Pressable
+                      accessibilityRole="button"
+                      // The survivor pick is the highest-stakes control on this screen and announced
+                      // nothing about which candidate was selected. The chip's own text is its name,
+                      // so only the state was missing.
+                      accessibilityState={{ selected: survivorId === p.id }}
                       key={p.id}
                       onPress={() => setSurvivorByGroup((prev) => ({ ...prev, [i]: p.id }))}
                       style={{
@@ -161,8 +166,8 @@ export default function MergePropertiesScreen() {
                   ))}
                 </View>
                 {others.map((p) => (
-                  <View key={p.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Merge &quot;{p.label}&quot; into the one you kept</Text>
+                  <View key={p.id} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <Text style={{ flexShrink: 1, fontSize: 13, color: theme.colors.textTertiary }}>Merge &quot;{p.label}&quot; into the one you kept</Text>
                     <Button variant="secondary" onPress={() => merge(survivorId, p.id)} loading={mergingId === p.id}>
                       Merge
                     </Button>

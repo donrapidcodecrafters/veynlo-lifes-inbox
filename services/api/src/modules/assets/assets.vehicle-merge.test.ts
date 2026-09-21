@@ -9,6 +9,7 @@ import { SafeUrlFetcher } from "../ingestion/safe-url-fetcher";
 import type { HouseholdService } from "../household/household.service";
 import type { RecallMonitorService } from "./recall-monitor.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -49,8 +50,7 @@ describe("AssetsService — vehicle merge candidates and reversible merge/unmerg
         { id: otherOwnerUserId, email: `veh-merge-other-${otherOwnerUserId}@example.com`, displayName: "Other Owner" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AssetsService vehicle merge tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AssetsService vehicle merge tests");
     }
   });
 

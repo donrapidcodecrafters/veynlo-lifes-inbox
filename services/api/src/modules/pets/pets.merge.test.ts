@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { PetsService } from "./pets.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = { delegatedHouseholdIds: async () => [], activeHouseholdIds: async () => [] } as unknown as HouseholdService;
@@ -42,8 +43,7 @@ describe("PetsService — merge candidates and reversible merge/unmerge", () => 
         { id: otherOwnerUserId, email: `pet-merge-other-${otherOwnerUserId}@example.com`, displayName: "Other Owner" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PetsService merge tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PetsService merge tests");
     }
   });
 

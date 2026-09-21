@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * SHARE-001 "Set view/edit/manage" — same adversarial goal as lists.rights-enforcement.test.ts, applied to
@@ -80,8 +81,7 @@ describe("CommerceService SHARE-001 right enforcement (view/edit/manage)", () =>
       await commerce.createResourceGrant(purchaseId, ownerUserId, editorRow!.email!, undefined, "edit");
       await commerce.createResourceGrant(purchaseId, ownerUserId, managerRow!.email!, undefined, "manage");
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping purchase rights-enforcement tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "purchase rights-enforcement tests");
     }
   });
 

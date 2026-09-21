@@ -12,6 +12,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { OnboardingService } from "../onboarding/onboarding.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * "Identity & Legal Continuity" (ID-001..005). The adversarial access-control matrix
@@ -24,7 +25,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubOnboarding = { initializeForNewUser: async () => {} } as unknown as OnboardingService;
 const stubQueue = { enqueueDocumentOcr: async () => {} } as unknown as QueueProducer;
@@ -90,8 +91,7 @@ describe("IdentityRecordsService — private-by-default access control, reveal g
       });
       passportId = created.id;
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping IdentityRecordsService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "IdentityRecordsService tests");
     }
   });
 

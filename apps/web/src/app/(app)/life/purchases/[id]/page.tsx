@@ -15,7 +15,8 @@ import { FetchError } from "@/components/ui/fetch-error";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { ShareResourcePanel } from "@/components/sharing/share-resource-panel";
 import { SharedNoteBanner } from "@/components/sharing/shared-note-banner";
-import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
+import { formatTemporal, type TemporalValueLike } from "@/lib/format";
+import { useFinancialPrivacy, useMaskedMoney } from "@/lib/financial-privacy-context";
 
 // Same mapping apps/web's inbox page already uses for confidenceBand — kept in sync so a purchase flagged
 // "needs_review" or "conflicting" doesn't read as identically trustworthy as one "verified" (Badge's own
@@ -130,7 +131,7 @@ function PolicyEditor({ merchantId, merchantName, policy, onSaved }: { merchantI
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="text-xs font-medium text-brand hover:underline">
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
         {policy.confidence === "user_confirmed" ? "Edit your policy" : `Know ${merchantName ?? "this merchant"}'s real policy?`}
       </button>
     );
@@ -297,6 +298,7 @@ function LineItemRow({
   priceAdjustmentPolicy: PriceAdjustmentPolicy | null;
   onSaved: () => void;
 }) {
+  const maskedMoney = useMaskedMoney();
   const [editing, setEditing] = useState(false);
   const [serial, setSerial] = useState(line.serialNumber ?? "");
   const [gift, setGift] = useState(line.giftFlag);
@@ -326,7 +328,7 @@ function LineItemRow({
         </span>
         <div className="flex items-center gap-2">
           {line.giftFlag && <Badge tone="info">Gift</Badge>}
-          {line.unitPriceMinorUnits != null && <span className="text-tertiary">{formatMoneyMinorUnits(line.unitPriceMinorUnits, currency)}</span>}
+          {line.unitPriceMinorUnits != null && <span className="text-tertiary">{maskedMoney(line.unitPriceMinorUnits, currency)}</span>}
         </div>
       </div>
 
@@ -344,7 +346,7 @@ function LineItemRow({
           <div className="flex items-start gap-2">
             <Badge tone="warning">Price dropped</Badge>
             <span>
-              {formatMoneyMinorUnits(line.unitPriceMinorUnits, currency)} → {formatMoneyMinorUnits(priceAdjustment.observedAmountMinorUnits, priceAdjustment.observedAmountCurrency)} —
+              {maskedMoney(line.unitPriceMinorUnits, currency)} → {maskedMoney(priceAdjustment.observedAmountMinorUnits, priceAdjustment.observedAmountCurrency)} —
               you may be eligible for a price adjustment.
             </span>
           </div>
@@ -376,7 +378,7 @@ function LineItemRow({
       {!editing && (
         <div className="flex items-center gap-3 text-xs text-tertiary">
           {line.serialNumber ? <span>Serial: {line.serialNumber}</span> : <span>No serial number recorded</span>}
-          <button type="button" onClick={() => setEditing(true)} className="font-medium text-brand hover:underline">
+          <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle font-medium text-brand">
             Edit
           </button>
         </div>
@@ -486,7 +488,12 @@ function PurchaseActions({ purchase, onSaved }: { purchase: PurchaseDetail["purc
   );
 }
 
+/** What a masked payment note reads as — the same four bullets the amounts use. */
+const MASKED_PAYMENT = "••••";
+
 export default function PurchaseDetailPage() {
+  const { masked } = useFinancialPrivacy();
+  const maskedMoney = useMaskedMoney();
   const { id } = useParams<{ id: string }>();
   const { data, error, isLoading, mutate } = useSWR<PurchaseDetail | null>(`/v1/purchases/${id}`, swrFetcher);
   const [sharing, setSharing] = useState(false);
@@ -515,7 +522,7 @@ export default function PurchaseDetailPage() {
 
   const { purchase, merchantName, lines, returns, shipments, evidence, priceAdjustments, priceAdjustmentPolicy } = data;
   const date = formatTemporal(purchase.purchaseDate);
-  const total = formatMoneyMinorUnits(purchase.totalMinorUnits, purchase.totalCurrency);
+  const total = maskedMoney(purchase.totalMinorUnits, purchase.totalCurrency);
 
   return (
     <div className="space-y-6">
@@ -558,19 +565,22 @@ export default function PurchaseDetailPage() {
             {purchase.taxMinorUnits != null && (
               <>
                 <dt className="text-tertiary">Tax</dt>
-                <dd className="text-primary">{formatMoneyMinorUnits(purchase.taxMinorUnits, purchase.totalCurrency)}</dd>
+                <dd className="text-primary">{maskedMoney(purchase.taxMinorUnits, purchase.totalCurrency)}</dd>
               </>
             )}
             {purchase.shippingMinorUnits != null && (
               <>
                 <dt className="text-tertiary">Shipping</dt>
-                <dd className="text-primary">{formatMoneyMinorUnits(purchase.shippingMinorUnits, purchase.totalCurrency)}</dd>
+                <dd className="text-primary">{maskedMoney(purchase.shippingMinorUnits, purchase.totalCurrency)}</dd>
               </>
             )}
             {purchase.paymentMethodHint && (
               <>
                 <dt className="text-tertiary">Payment</dt>
-                <dd className="text-primary">{purchase.paymentMethodHint}</dd>
+                {/* Masked with the amounts, not beside them: a card brand and its last four digits are
+                    exactly what this mode is for, and leaving them visible under it would be the one
+                    reading on the page that gives away an account. */}
+                <dd className="text-primary">{masked ? MASKED_PAYMENT : purchase.paymentMethodHint}</dd>
               </>
             )}
             <dt className="text-tertiary">Status</dt>

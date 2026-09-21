@@ -10,6 +10,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MalwareScannerService } from "./malware-scanner.service";
 import type { HouseholdService } from "../household/household.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "bulk management" surfaced that `documents.deletedAt` had existed since the table was
@@ -48,8 +49,7 @@ describe("DocumentsService.delete / bulkDelete", () => {
         { id: otherUserId, email: `doc-delete-test-${otherUserId}@example.com`, displayName: "Doc Delete Test Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping documents delete tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "documents delete tests");
     }
   });
 

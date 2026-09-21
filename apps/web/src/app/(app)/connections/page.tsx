@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import useSWR from "swr";
 import { useLocale } from "next-intl";
 import { swrFetcher, api, ApiError } from "@/lib/api-client";
@@ -12,10 +13,23 @@ import { FetchError } from "@/components/ui/fetch-error";
 import { Input, Label, FieldError } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState, type FormEvent } from "react";
+import { providerLabel } from "@veynlo/core";
 
 interface InboundAliasInfo {
   configured: boolean;
   address: string | null;
+}
+
+/** §31 SMART-001 — one smart-home connection, exactly as GET /v1/smart-home/connections returns it. */
+interface SmartHomeConnection {
+  id: string;
+  provider: string;
+  status: string;
+  healthDetail: string | null;
+  baseUrl: string | null;
+  lastSuccessfulSyncAt: string | null;
+  createdAt: string;
+  selectedDevices: { id: string; label: string; deviceType: string }[];
 }
 
 // Keyed by the lowercased `code` field of whatever exception the OAuth callback threw — see
@@ -119,6 +133,42 @@ interface FinanceSummary {
   totalsByCurrency: Array<{ currency: string; totalMinorUnits: number }>;
 }
 
+/** FIN-006 — one position, as GET /v1/finance/holdings returns it. */
+interface Holding {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountMask: string | null;
+  isIncluded: boolean;
+  /** A decimal STRING, not a number — see the schema's note on why fractional shares never touch a float. */
+  quantity: string;
+  institutionPrice: string | null;
+  institutionPriceAsOf: string | null;
+  institutionValueMinorUnits: number | null;
+  costBasisMinorUnits: number | null;
+  unrealizedGainMinorUnits: number | null;
+  currency: string;
+  security: {
+    id: string;
+    name: string | null;
+    tickerSymbol: string | null;
+    type: string | null;
+    isCashEquivalent: boolean;
+    closePrice: string | null;
+    closePriceAsOf: string | null;
+  };
+}
+
+interface HoldingsResponse {
+  holdings: Holding[];
+  totalsByCurrency: Array<{
+    currency: string;
+    totalMinorUnits: number;
+    costBasisMinorUnits: number | null;
+    unrealizedGainMinorUnits: number | null;
+  }>;
+}
+
 interface IncomeStream {
   id: string;
   description: string;
@@ -171,6 +221,18 @@ const REVISION_REASON_LABEL: Record<TransactionRevision["reason"], string> = {
 /** FIN-002 UI surface for `GET /v1/finance/transactions/:id/revisions` — deliberately a lightweight inline
  * disclosure on the existing transaction row (no dedicated transaction detail page exists in this app yet)
  * rather than a new route, matching this page's own existing density. */
+/**
+ * FIN-006 — render a share quantity without lying about its precision.
+ *
+ * The API sends an exact decimal string ("12.34567890"). Trailing zeros are noise from the column's
+ * declared scale rather than anything the institution said, so they are trimmed — but the significant
+ * digits are never rounded away, because "12" and "12.3456789" are different amounts of money and the
+ * whole point of the NUMERIC column upstream was to keep them distinguishable.
+ */
+function formatQuantity(quantity: string): string {
+  return quantity.includes(".") ? quantity.replace(/0+$/, "").replace(/\.$/, "") : quantity;
+}
+
 function TransactionHistoryDisclosure({ transactionId, currency }: { transactionId: string; currency: string }) {
   const [open, setOpen] = useState(false);
   const locale = useLocale();
@@ -178,7 +240,7 @@ function TransactionHistoryDisclosure({ transactionId, currency }: { transaction
 
   return (
     <div className="mt-1">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs font-medium text-brand hover:underline">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-xs font-medium text-brand">
         {open ? "Hide history" : "History"}
       </button>
       {open && (
@@ -198,25 +260,6 @@ function TransactionHistoryDisclosure({ transactionId, currency }: { transaction
   );
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  ics: "Calendar feed",
-  google_calendar: "Google Calendar",
-  microsoft_calendar: "Microsoft Calendar",
-  google_drive: "Google Drive",
-  onedrive: "OneDrive",
-  dropbox: "Dropbox",
-  google_tasks: "Google Tasks",
-  microsoft_todo: "Microsoft To Do",
-  google_contacts: "Google Contacts",
-  microsoft_contacts: "Microsoft Contacts",
-  // Found live: missing here, so a connected Plaid connection fell through to the `?? c.provider` raw-
-  // string fallback below and rendered as lowercase "plaid" — the only connected card on this page not
-  // showing a proper display name — and the disconnect confirm dialog read "Disconnect plaid?" instead of
-  // a real name. Matches the "Bank accounts" heading its own not-yet-connected card already uses.
-  plaid: "Bank accounts",
-};
 
 const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   healthy: "positive",
@@ -267,6 +310,15 @@ const AVAILABLE_CONNECTORS = [
     notConfiguredMessage: "OneDrive isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
   },
   {
+    provider: "sharepoint",
+    name: "SharePoint",
+    // The scope limit is stated up front, not discovered later. SharePoint can reach every site the user
+    // can reach — usually hundreds belonging to their employer — and this deliberately reads only the ones
+    // they follow. Someone whose file never appears deserves to know why before they connect, not after.
+    description: "Scans the SharePoint sites you follow for documents — not every site you can reach.",
+    notConfiguredMessage: "SharePoint isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
+  },
+  {
     provider: "dropbox",
     name: "Dropbox",
     description: "The same file scan — for documents saved in a Dropbox account.",
@@ -308,6 +360,11 @@ export default function ConnectionsPage() {
     refreshInterval: (latest) => (latest?.some((c) => c.health === "initializing") ? 3000 : 0),
   });
   const { data: inboundAlias, mutate: mutateInboundAlias } = useSWR<InboundAliasInfo>("/v1/auth/inbound-alias", swrFetcher);
+  const {
+    data: smartHome,
+    isLoading: smartHomeLoading,
+    mutate: mutateSmartHome,
+  } = useSWR<SmartHomeConnection[]>("/v1/smart-home/connections", swrFetcher);
   const { data: financialAccounts, mutate: mutateAccounts } = useSWR<FinancialAccount[]>("/v1/finance/accounts", swrFetcher);
   const { data: financialTransactions, mutate: mutateTransactions } = useSWR<FinancialTransaction[]>("/v1/finance/transactions", swrFetcher);
   // FIN-001 — total balance across only the accounts the user hasn't excluded.
@@ -316,6 +373,12 @@ export default function ConnectionsPage() {
     swrFetcher,
   );
   // FIN-003 — read-only detected paycheck/income streams; only fetched once there's at least one account.
+  // FIN-006 — only asked for once there is a financial account at all, matching how summary/income
+  // streams are gated just above: an account-less user should not fire three pointless requests.
+  const { data: holdingsData } = useSWR<HoldingsResponse>(
+    financialAccounts && financialAccounts.length > 0 ? "/v1/finance/holdings" : null,
+    swrFetcher,
+  );
   const { data: incomeStreams, mutate: mutateIncomeStreams } = useSWR<IncomeStream[]>(
     financialAccounts && financialAccounts.length > 0 ? "/v1/finance/income-streams" : null,
     swrFetcher,
@@ -327,6 +390,10 @@ export default function ConnectionsPage() {
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [showImapForm, setShowImapForm] = useState(false);
+  const [showTaskAppForm, setShowTaskAppForm] = useState(false);
+  const [showDavForm, setShowDavForm] = useState(false);
+  const [showHomeAssistantForm, setShowHomeAssistantForm] = useState(false);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -347,7 +414,7 @@ export default function ConnectionsPage() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected) setConnectedMessage(`${PROVIDER_LABEL[connected] ?? connected} connected.`);
+    if (connected) setConnectedMessage(`${providerLabel(connected)} connected.`);
     if (error) setConnectError(CONNECT_ERROR_MESSAGE[error] ?? "Couldn't complete that connection. Please try again.");
     if (connected || error) window.history.replaceState(null, "", window.location.pathname);
   }, []);
@@ -552,10 +619,22 @@ export default function ConnectionsPage() {
                   </p>
                 )}
                 {accountToggleError && <FieldError>{accountToggleError}</FieldError>}
+                {/* An excluded account used to be de-emphasised with `opacity-50`, which dropped this row's
+                    text to 2.62:1 in dark and 2.08:1 in light — well under WCAG AA's 4.5:1, measured rather
+                    than guessed. No opacity value passes in both themes (0.8 clears dark at 4.65:1 and still
+                    fails light at 3.65:1), so opacity is the wrong mechanism for de-emphasising text. The row
+                    already says "(excluded)" in words, which is the accessible signal and does not depend on
+                    contrast at all. */}
                 {financialAccounts.map((account) => (
-                  <div key={account.id} className={`space-y-1 ${account.isIncluded ? "" : "opacity-50"}`}>
+                  <div key={account.id} className="space-y-1">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate text-primary">
+                      {/* Truncation with no tooltip clipped real account names at 390px ("Rewards Card
+                          ····1187(excluded)" showed 154 of 208px), leaving no way to tell two similarly
+                          named accounts apart. Same `title` affordance documents/page.tsx already uses. */}
+                      <span
+                        className="min-w-0 truncate text-primary"
+                        title={`${account.name}${account.mask ? ` ····${account.mask}` : ""}${account.isIncluded ? "" : " (excluded)"}`}
+                      >
                         {account.name}
                         {account.mask && <span className="text-tertiary"> ····{account.mask}</span>}
                         {!account.isIncluded && <span className="ml-1.5 text-xs font-medium text-tertiary">(excluded)</span>}
@@ -591,6 +670,72 @@ export default function ConnectionsPage() {
                 ))}
               </div>
             )}
+            {/* FIN-006 "Investments" — positions behind an investment account's balance. Plaid's investments
+                product was licensed all along but never requested at Link time, so a brokerage showed a
+                balance with nothing behind it. An account the user has EXCLUDED still lists its positions
+                (excluded means "not counted", not "hidden") but is marked and left out of the total. */}
+            {holdingsData && holdingsData.holdings.length > 0 && (
+              <div className="space-y-2 border-t border-border-subtle pt-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Investments</p>
+                  {holdingsData.totalsByCurrency.map((total) => (
+                    <span key={total.currency} className="text-sm font-medium text-primary">
+                      {formatMoney(total.totalMinorUnits, total.currency, locale)}
+                      {total.unrealizedGainMinorUnits !== null && (
+                        <span
+                          className={`ml-1.5 text-xs font-normal ${
+                            total.unrealizedGainMinorUnits >= 0 ? "text-positive-subtle-text" : "text-critical-subtle-text"
+                          }`}
+                        >
+                          {total.unrealizedGainMinorUnits >= 0 ? "+" : "\u2212"}
+                          {formatMoney(Math.abs(total.unrealizedGainMinorUnits), total.currency, locale)}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+                {holdingsData.holdings.map((holding) => {
+                  const label = holding.security.tickerSymbol ?? holding.security.name ?? "Unnamed holding";
+                  const gain = holding.unrealizedGainMinorUnits;
+                  return (
+                    <div key={holding.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span
+                        className="min-w-0 truncate text-primary"
+                        title={`${holding.security.name ?? label}\u2003${formatQuantity(holding.quantity)} ${
+                          holding.security.isCashEquivalent ? "" : "shares"
+                        } in ${holding.accountName}${holding.isIncluded ? "" : " (excluded from totals)"}`}
+                      >
+                        {label}
+                        <span className="text-tertiary"> · {formatQuantity(holding.quantity)}</span>
+                        {!holding.isIncluded && <span className="ml-1.5 text-xs font-medium text-tertiary">(excluded)</span>}
+                      </span>
+                      <span className="flex shrink-0 items-baseline gap-2">
+                        {holding.institutionValueMinorUnits !== null && (
+                          <span className="font-medium text-primary">
+                            {formatMoney(holding.institutionValueMinorUnits, holding.currency, locale)}
+                          </span>
+                        )}
+                        {gain === null ? (
+                          // Withheld, not guessed. An absent cost basis is not a basis of zero, and showing
+                          // a "+100%" gain derived from nothing would be a fabricated number wearing the
+                          // same styling as a real one.
+                          <span className="text-xs text-tertiary" title="No cost basis reported for this position">
+                            {"\u2014"}
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-xs ${gain >= 0 ? "text-positive-subtle-text" : "text-critical-subtle-text"}`}
+                          >
+                            {gain >= 0 ? "+" : "\u2212"}
+                            {formatMoney(Math.abs(gain), holding.currency, locale)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {/* FIN-003 "Recurring income/outflow" — read-only detected paycheck streams; a stream only
                 ever shows up here once (occurrenceCount >= 3, see FinanceService.detectIncomeStreams'
                 precision-first tolerances), and "Not income" is a permanent per-stream dismissal. */}
@@ -599,8 +744,11 @@ export default function ConnectionsPage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-tertiary">Recurring income detected</p>
                 {incomeStreams.map((stream) => (
                   <div key={stream.id} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate text-primary">
-                      ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every {stream.cadenceLabel} from {stream.description}
+                    <span
+                      className="min-w-0 truncate text-primary"
+                      title={`~${formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} ${stream.cadenceLabel} from ${stream.description}`}
+                    >
+                      ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} {stream.cadenceLabel} from {stream.description}
                     </span>
                     <Button variant="ghost" size="sm" onClick={() => dismissIncomeStream(stream.id)}>
                       Not income
@@ -615,7 +763,7 @@ export default function ConnectionsPage() {
                 {financialTransactions.slice(0, 15).map((txn) => (
                   <div key={txn.id} className="text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="min-w-0 truncate text-primary">
+                      <span className="min-w-0 truncate text-primary" title={txn.merchantName ?? txn.name}>
                         {txn.merchantName ?? txn.name}
                         {txn.pending && <span className="ml-1.5 text-xs text-tertiary">(pending)</span>}
                         {(txn.matchedPurchaseId || txn.matchedBillId) && <span className="ml-1.5 text-xs text-positive-subtle-text">matched</span>}
@@ -626,6 +774,98 @@ export default function ConnectionsPage() {
                   </div>
                 ))}
               </div>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Calendar and contacts over CalDAV/CardDAV — the register's "CalDAV servers", "CardDAV",
+            "Apple Calendar" and "Apple Contacts" rows. Distinct from the phone's own calendar and
+            contacts cards, which are device imports: this is a server-side connection that keeps itself
+            current for the whole account, not just the handset it was set up on. */}
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Calendar &amp; contacts server (CalDAV/CardDAV)</p>
+                <p className="text-sm text-tertiary">
+                  iCloud, Fastmail, Nextcloud, or any server that speaks CalDAV or CardDAV.
+                </p>
+              </div>
+              {!showDavForm && (
+                <Button variant="secondary" onClick={() => setShowDavForm(true)}>
+                  Connect server
+                </Button>
+              )}
+            </div>
+            {showDavForm && (
+              <DavConnectForm
+                onDone={() => {
+                  setShowDavForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowDavForm(false)}
+              />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* The six Appendix A email targets that previously had no path in at all. Kept next to the ICS
+            card rather than in AVAILABLE_CONNECTORS above, because those are all one-click OAuth buttons
+            and this needs a real form: a provider, an address, and an app password. */}
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Other mailbox (IMAP)</p>
+                <p className="text-sm text-tertiary">
+                  Yahoo, iCloud, AOL, Fastmail, or your own domain — anything that speaks IMAP.
+                </p>
+              </div>
+              {!showImapForm && (
+                <Button variant="secondary" onClick={() => setShowImapForm(true)}>
+                  Connect mailbox
+                </Button>
+              )}
+            </div>
+            {showImapForm && (
+              <ImapConnectForm
+                onDone={() => {
+                  setShowImapForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowImapForm(false)}
+              />
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Three more Appendix A task targets. Next to the IMAP card rather than in AVAILABLE_CONNECTORS
+            above for the same reason that one is: those are one-click OAuth buttons, and this needs a
+            pasted token. TickTick, Any.do and Notion are deliberately not offered — see the API's
+            token-task-providers.ts for why each one is absent. */}
+        <Card>
+          <CardBody className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[0.9375rem] font-medium text-primary">Todoist, Trello or Asana</p>
+                <p className="text-sm text-tertiary">
+                  Bring your tasks in from a task app, using a token you create in your own account — no admin setup needed.
+                </p>
+              </div>
+              {!showTaskAppForm && (
+                <Button variant="secondary" onClick={() => setShowTaskAppForm(true)}>
+                  Connect app
+                </Button>
+              )}
+            </div>
+            {showTaskAppForm && (
+              <TaskAppConnectForm
+                onDone={() => {
+                  setShowTaskAppForm(false);
+                  mutate();
+                }}
+                onCancel={() => setShowTaskAppForm(false)}
+              />
             )}
           </CardBody>
         </Card>
@@ -673,17 +913,47 @@ export default function ConnectionsPage() {
           </CardBody>
         </Card>
 
-        {/* Phase 3 SMART-001 — data model + adapter interface only, no real provider access exists yet
-            (see docs/PHASE3_PENDING_CREDENTIALS.md). Deliberately no "Connect" button — every named
-            provider needs its own OAuth app registration/partner agreement this dev environment doesn't
-            have, and a working-looking button with no real backend behind it would mislead a user into
-            thinking a device is actually connected. */}
+        {/* Phase 3 SMART-001. Home Assistant is real and connectable; the rest still are not, and the copy
+            below says which is which rather than implying the whole category works. Every other named
+            provider needs its own OAuth app registration or partner agreement (see
+            docs/PHASE3_PENDING_CREDENTIALS.md), and a working-looking button with nothing behind it would
+            leave someone believing a smoke alarm was being watched when it was not. */}
         <Card>
-          <CardBody className="space-y-2">
-            <p className="text-[0.9375rem] font-medium text-primary">Smart home</p>
+          <CardBody className="space-y-3">
+            <div>
+              <p className="text-[0.9375rem] font-medium text-primary">Smart home</p>
+              <p className="text-sm text-tertiary">
+                Hear about a leak, smoke, a flat battery, or a device that&apos;s stopped responding, from the Home Assistant you already run. You choose
+                which devices Veynlo watches.
+              </p>
+            </div>
+
+            {smartHomeLoading && <div className="h-9 w-56 animate-pulse rounded-lg bg-subtle" />}
+
+            {smartHome?.map((connection) => (
+              <SmartHomeConnectionRow key={connection.id} connection={connection} onChanged={() => mutateSmartHome()} />
+            ))}
+
+            {!smartHomeLoading && (smartHome?.length ?? 0) === 0 && !showHomeAssistantForm && (
+              <Button variant="secondary" onClick={() => setShowHomeAssistantForm(true)}>
+                Connect Home Assistant
+              </Button>
+            )}
+
+            {showHomeAssistantForm && (
+              <HomeAssistantConnectForm
+                onDone={() => {
+                  setShowHomeAssistantForm(false);
+                  mutateSmartHome();
+                }}
+                onCancel={() => setShowHomeAssistantForm(false)}
+              />
+            )}
+
             <p className="text-sm text-tertiary">
-              Home Assistant, SmartThings, Nest, Ring, Ecobee, and Philips Hue integrations are planned but not yet available on this
-              deployment.
+              SmartThings, Nest, Ring, Ecobee and Philips Hue each need an approved partner application, which isn&apos;t something this
+              deployment can set up on its own. Home Assistant already talks to most of them, so connecting it is often the way to reach
+              those devices anyway.
             </p>
           </CardBody>
         </Card>
@@ -711,7 +981,7 @@ export default function ConnectionsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-[0.9375rem] font-medium text-primary">{PROVIDER_LABEL[c.provider] ?? c.provider}</p>
+                      <p className="text-[0.9375rem] font-medium text-primary">{providerLabel(c.provider)}</p>
                       <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace("_", " ")}</Badge>
                       {/* PRIV-001 "pause a connection's processing without fully disconnecting it" —
                           distinct from `health`, so a paused-but-healthy connection still needs its own
@@ -738,8 +1008,11 @@ export default function ConnectionsPage() {
                       <p className="mt-1 break-all text-xs text-tertiary">Granted access: {c.scopes.join(", ")}</p>
                     )}
                   </div>
+                  {/* The button row is intentionally NOT shrink-0: these three buttons total ~390px, so
+                      pinning them to one unshrinkable row pushed "Disconnect & delete data" 15px past a
+                      390px viewport. Wrapping stacks them on narrow screens, inline on wide ones. */}
                   {confirmingDeleteId !== c.id && (
-                    <div className="flex shrink-0 gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -751,7 +1024,7 @@ export default function ConnectionsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => disconnect(c.id, false, undefined, PROVIDER_LABEL[c.provider] ?? c.provider)}
+                        onClick={() => disconnect(c.id, false, undefined, providerLabel(c.provider))}
                       >
                         Disconnect
                       </Button>
@@ -779,7 +1052,7 @@ export default function ConnectionsPage() {
                       <button
                         type="button"
                         onClick={() => setAiProcessing(c, null)}
-                        className="text-sm font-medium text-brand hover:underline"
+                        className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand"
                       >
                         Go back to following the account-wide setting
                       </button>
@@ -929,6 +1202,560 @@ function PlaidConnectCard({ onConnected }: { onConnected: () => void }) {
   );
 }
 
+interface DavProviderOption {
+  key: string;
+  label: string;
+  serverUrl: string;
+  services: Array<"caldav" | "carddav">;
+  credentialHint: string;
+  credentialUrl: string | null;
+}
+
+/**
+ * Connect a CalDAV/CardDAV server.
+ *
+ * One form for both protocols, because they are one credential: iCloud, Fastmail and Nextcloud each hand
+ * out a single app password that opens calendars and contacts alike, so asking twice would be asking the
+ * same question twice. What the user picks instead is WHAT to sync, and both are on by default — a server
+ * that offers both and quietly syncs one is a surprise.
+ *
+ * Each choice becomes a separate connection underneath. They sync, fail and disconnect independently,
+ * which is exactly why a partial result is reported rather than flattened: Apple serves calendars and
+ * contacts from different hosts, so "calendars connected, contacts did not" is a real outcome and
+ * reporting it as "failed" would be wrong.
+ */
+function DavConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { data } = useSWR<{ providers: DavProviderOption[] }>("/v1/connectors/dav/providers", swrFetcher);
+  const [providerKey, setProviderKey] = useState("icloud");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [syncCalendars, setSyncCalendars] = useState(true);
+  const [syncContacts, setSyncContacts] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const providers = data?.providers ?? [];
+  const selected = providers.find((p) => p.key === providerKey);
+  const needsUrl = providerKey === "custom" || providerKey === "nextcloud";
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!syncCalendars && !syncContacts) {
+      setError("Choose at least one of calendars or contacts.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    const body = { providerKey, username, password, serverUrl: needsUrl ? serverUrl : undefined };
+    const failures: string[] = [];
+    let anySucceeded = false;
+
+    const services: Array<[boolean, string, string]> = [
+      [syncCalendars, "/v1/connectors/caldav/connect", "Calendars"],
+      [syncContacts, "/v1/connectors/carddav/connect", "Contacts"],
+    ];
+
+    for (const [enabled, path, label] of services) {
+      if (!enabled) continue;
+      try {
+        await api.post(path, body);
+        anySucceeded = true;
+      } catch (err) {
+        failures.push(label + ": " + (err instanceof ApiError ? err.message : "something went wrong"));
+      }
+    }
+
+    if (failures.length === 0) {
+      onDone();
+      return;
+    }
+    setError((anySucceeded ? "Partly connected. " : "") + failures.join(" "));
+    setSubmitting(false);
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="dav-provider">Provider</Label>
+        <select
+          id="dav-provider"
+          value={providerKey}
+          onChange={(e) => setProviderKey(e.target.value)}
+          className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+        >
+          {providers.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <p className="text-sm text-tertiary">
+          {selected.credentialHint}
+          {selected.credentialUrl && (
+            <>
+              {" "}
+              <a href={selected.credentialUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-brand underline">
+                Open {selected.label} security settings
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {needsUrl && (
+        <div>
+          <Label htmlFor="dav-url">Server address</Label>
+          <Input
+            id="dav-url"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            placeholder="https://your-server/remote.php/dav"
+            required
+          />
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="dav-username">Username</Label>
+        <Input id="dav-username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="you@example.com" required />
+      </div>
+      <div>
+        <Label htmlFor="dav-password">App password</Label>
+        <Input id="dav-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+      </div>
+
+      <fieldset className="space-y-1.5">
+        <legend className="text-sm font-medium text-secondary">What to sync</legend>
+        <label className="flex items-center gap-2 text-sm text-primary">
+          <input
+            type="checkbox"
+            checked={syncCalendars}
+            onChange={(e) => setSyncCalendars(e.target.checked)}
+            className="rounded border-border-default"
+          />
+          Calendars
+        </label>
+        <label className="flex items-center gap-2 text-sm text-primary">
+          <input
+            type="checkbox"
+            checked={syncContacts}
+            onChange={(e) => setSyncContacts(e.target.checked)}
+            className="rounded border-border-default"
+          />
+          Contacts
+        </label>
+      </fieldset>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+interface ImapProviderOption {
+  key: string;
+  label: string;
+  host: string;
+  port: number;
+  credentialHint: string;
+  credentialUrl: string | null;
+  unavailableReason?: string;
+}
+
+/**
+ * Connect a mailbox over IMAP.
+ *
+ * The provider picker is not decoration. Every one of these providers rejects a normal account password at
+ * the IMAP endpoint and requires an app password instead, and each one puts that setting somewhere
+ * different. "Authentication failed" is the least useful thing this form could say, so the selected
+ * provider's own instructions — and a link to the page that issues the credential — are shown BEFORE the
+ * password field, not after a failure.
+ *
+ * Proton appears in the list and cannot be selected through to a connection: its mail is decrypted by
+ * Proton Bridge on the user's own machine, which no server can reach. The form says so instead of letting
+ * the attempt fail mysteriously.
+ */
+function ImapConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { data } = useSWR<{ providers: ImapProviderOption[] }>("/v1/connectors/imap/providers", swrFetcher);
+  const [providerKey, setProviderKey] = useState("yahoo");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("993");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const providers = data?.providers ?? [];
+  const selected = providers.find((p) => p.key === providerKey);
+  const isCustom = providerKey === "custom";
+  const unavailable = Boolean(selected?.unavailableReason);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/imap/connect", {
+        providerKey,
+        username,
+        password,
+        host: isCustom ? host : undefined,
+        port: isCustom ? Number(port) : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API returns provider-specific guidance here rather than a generic failure — show it verbatim.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="imap-provider">Mail provider</Label>
+        <select
+          id="imap-provider"
+          value={providerKey}
+          onChange={(e) => setProviderKey(e.target.value)}
+          className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+        >
+          {providers.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <p className="text-sm text-tertiary">
+          {selected.unavailableReason ?? selected.credentialHint}
+          {selected.credentialUrl && !selected.unavailableReason && (
+            <>
+              {" "}
+              <a href={selected.credentialUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-brand underline">
+                Open {selected.label} security settings
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {!unavailable && (
+        <>
+          {isCustom && (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label htmlFor="imap-host">IMAP server</Label>
+                <Input id="imap-host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="imap.example.com" required />
+              </div>
+              <div className="w-28">
+                <Label htmlFor="imap-port">Port</Label>
+                <Input id="imap-port" inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} required />
+              </div>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="imap-username">Email address</Label>
+            <Input
+              id="imap-username"
+              type="email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="imap-password">App password</Label>
+            <Input id="imap-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </div>
+        </>
+      )}
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={submitting || unavailable}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+interface TaskAppProviderOption {
+  key: string;
+  label: string;
+  credentialHint: string;
+  credentialUrl: string | null;
+  requiresApiKey: boolean;
+}
+
+/**
+ * Connect Todoist, Trello or Asana.
+ *
+ * A form rather than a one-click button, for the same reason the IMAP card above is one: there is no OAuth
+ * application behind these. The user issues a token in their own account settings and pastes it, which
+ * means the form's real job is telling them exactly where that setting is — each provider buries it
+ * somewhere different, and "invalid token" is the least useful thing this could say after the fact.
+ *
+ * Trello is the one provider needing two secrets. The second field appears only for Trello, driven by the
+ * provider's own `requiresApiKey` flag rather than a hardcoded key check here, so the API stays the single
+ * place that knows which providers need what.
+ */
+function TaskAppConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { data } = useSWR<{ providers: TaskAppProviderOption[] }>("/v1/connectors/task-apps/providers", swrFetcher);
+  const [providerKey, setProviderKey] = useState("todoist");
+  const [token, setToken] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const providers = data?.providers ?? [];
+  const selected = providers.find((p) => p.key === providerKey);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/task-apps/connect", {
+        providerKey,
+        token,
+        apiKey: selected?.requiresApiKey ? apiKey : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API answers with that provider's own guidance — "Trello needs an API key too" and "that token
+      // was rejected" need different fixes, so it is shown verbatim rather than flattened.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="task-app-provider">Task app</Label>
+        <select
+          id="task-app-provider"
+          value={providerKey}
+          onChange={(e) => setProviderKey(e.target.value)}
+          className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+        >
+          {providers.map((provider) => (
+            <option key={provider.key} value={provider.key}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <p className="text-sm text-tertiary">
+          {selected.credentialHint}
+          {selected.credentialUrl && (
+            <>
+              {" "}
+              <a href={selected.credentialUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-brand underline">
+                Open {selected.label} settings
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {selected?.requiresApiKey && (
+        <div>
+          <Label htmlFor="task-app-key">API key</Label>
+          <Input id="task-app-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required />
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="task-app-token">Token</Label>
+        <Input id="task-app-token" type="password" value={token} onChange={(e) => setToken(e.target.value)} required />
+      </div>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * One connected Home Assistant.
+ *
+ * Deliberately shows the address. A household can run more than one server — a house and a rental, a
+ * parent's place — and "Home Assistant · connected" on two identical cards tells nobody which is which.
+ * The token is never shown and is not in the response at all.
+ */
+function SmartHomeConnectionRow({ connection, onChanged }: { connection: SmartHomeConnection; onChanged: () => void }) {
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function disconnect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(`/v1/smart-home/connections/${connection.id}`);
+      setConfirmingDisconnect(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't disconnect. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const selected = connection.selectedDevices.length;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3">
+      {/* min-w-0 on the text side and flex-wrap on the row: the address can be long, and without both the
+          buttons were pushed off the card at 390px — the same defect found live on the connector rows. */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[0.9375rem] font-medium text-primary">Home Assistant</p>
+          <p className="truncate text-sm text-tertiary">{connection.baseUrl}</p>
+        </div>
+        <Badge tone={connection.status === "error" ? "critical" : "positive"}>
+          {connection.status === "error" ? "Needs attention" : "Connected"}
+        </Badge>
+      </div>
+
+      {connection.healthDetail && <p className="text-sm text-critical-subtle-text">{connection.healthDetail}</p>}
+
+      <p className="text-sm text-tertiary">
+        {selected === 0
+          ? "No devices chosen yet — nothing from this server is being read."
+          : `Watching ${selected} ${selected === 1 ? "device" : "devices"}.`}
+      </p>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      {!confirmingDisconnect && (
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/connections/smart-home/${connection.id}`}>
+            <Button variant="secondary" size="sm">
+              Choose devices
+            </Button>
+          </Link>
+          <Button variant="secondary" size="sm" onClick={() => setConfirmingDisconnect(true)}>
+            Disconnect
+          </Button>
+        </div>
+      )}
+
+      {confirmingDisconnect && (
+        <div className="space-y-2">
+          <p className="text-sm text-primary">
+            Disconnect this Home Assistant? Your access token is deleted and nothing more will be read from it. What it already reported
+            stays.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="critical" size="sm" onClick={disconnect} disabled={busy}>
+              {busy ? "Disconnecting…" : "Disconnect"}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmingDisconnect(false)} disabled={busy}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HomeAssistantConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [baseUrl, setBaseUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/smart-home/connections/home-assistant", { baseUrl, token });
+      onDone();
+    } catch (err) {
+      // Shown verbatim. The API distinguishes a home-network address from a rejected token from a server
+      // that isn't Home Assistant, and those need three different things from the user — flattening them
+      // to "couldn't connect" would send someone to regenerate a token that was never the problem.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-border-subtle bg-subtle p-3" noValidate>
+      <div>
+        <Label htmlFor="ha-url">Home Assistant address</Label>
+        <Input
+          id="ha-url"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://abc123.ui.nabu.casa"
+          required
+        />
+        <p className="mt-1 text-sm text-tertiary">
+          This has to be an address reachable from outside your home — a Home Assistant Cloud address, or your own remote address. A
+          local one like <span className="whitespace-nowrap">homeassistant.local</span> only works inside your house.
+        </p>
+      </div>
+
+      <div>
+        <Label htmlFor="ha-token">Long-Lived Access Token</Label>
+        <Input id="ha-token" type="password" value={token} onChange={(e) => setToken(e.target.value)} required />
+        <p className="mt-1 text-sm text-tertiary">
+          In Home Assistant: your profile, then Security, then Long-Lived Access Tokens, then Create Token.
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-critical-subtle-text">{error}</p>}
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Connecting…" : "Connect"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [url, setUrl] = useState("");
   const [feedName, setFeedName] = useState("");
@@ -974,7 +1801,7 @@ function IcsConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
         <Input id="ics-name" value={feedName} onChange={(e) => setFeedName(e.target.value)} placeholder="e.g. Kid's soccer schedule" />
       </div>
       {!showAuth ? (
-        <button type="button" onClick={() => setShowAuth(true)} className="text-sm font-medium text-brand hover:underline">
+        <button type="button" onClick={() => setShowAuth(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
           This feed needs a username and password
         </button>
       ) : (
@@ -1039,7 +1866,7 @@ function ForwardingAddress({ address, onRotate }: { address: string; onRotate: (
         </Button>
       </div>
       {!confirmingRotate ? (
-        <button type="button" onClick={() => setConfirmingRotate(true)} className="text-sm font-medium text-brand hover:underline">
+        <button type="button" onClick={() => setConfirmingRotate(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
           Generate a new address
         </button>
       ) : (
@@ -1100,7 +1927,7 @@ function ExclusionsManager({ connectionId, open, onToggle }: { connectionId: str
 
   return (
     <div>
-      <button type="button" onClick={onToggle} className="text-sm font-medium text-brand hover:underline">
+      <button type="button" onClick={onToggle} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         {open ? "Hide excluded senders" : "Exclude specific senders from this connection"}
       </button>
       {open && (

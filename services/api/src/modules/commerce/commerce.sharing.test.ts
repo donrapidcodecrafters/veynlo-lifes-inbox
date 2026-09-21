@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "object sharing" (spec SHARE-001/SHARE-002), generalized off documents onto purchases —
@@ -69,8 +70,7 @@ describe("CommerceService purchase sharing", () => {
         currency: "USD",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping purchase sharing tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "purchase sharing tests");
     }
   });
 

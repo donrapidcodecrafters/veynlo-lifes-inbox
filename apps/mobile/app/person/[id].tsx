@@ -2,8 +2,10 @@ import { useCallback, useState } from "react";
 import { Pressable, Switch, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -150,6 +152,11 @@ export default function PersonDetailScreen() {
   // Same "map a 404 to setData(null), everything else to an inline error" fix pet/[id].tsx's own doc
   // comment explains — a bare .then with no .catch on a mount-time fetch becomes an unhandled promise
   // rejection that crashes the whole app on React Native Web.
+  // The raw error, kept alongside the message: a merged record's 404 carries the id it was merged
+  // into, and mapping straight to a string threw that away.
+  const [fetchError, setFetchError] = useState<unknown>(null);
+  useMergeRedirect(fetchError, (survivingId) => `/person/${survivingId}`);
+
   const load = useCallback(() => {
     setError(null);
     api
@@ -171,6 +178,7 @@ export default function PersonDetailScreen() {
         }
       })
       .catch((err) => {
+        setFetchError(err);
         if (err instanceof ApiError && err.status === 404) {
           setData(null);
         } else {
@@ -417,9 +425,7 @@ function RelationshipLabelEditor({ person, onSaved }: { person: Person; onSaved:
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Relationship</Text>
         {!editing && (
-          <Pressable accessibilityRole="button" onPress={() => setEditing(true)}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}>Edit</Text>
-          </Pressable>
+          <InlineButton onPress={() => setEditing(true)}>Edit</InlineButton>
         )}
       </View>
       {!editing ? (
@@ -501,9 +507,7 @@ function OrganizationEditor({ person, organizations, onSaved }: { person: Person
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>Organization</Text>
         {!editing && (
-          <Pressable accessibilityRole="button" onPress={() => setEditing(true)}>
-            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}>Edit</Text>
-          </Pressable>
+          <InlineButton onPress={() => setEditing(true)}>Edit</InlineButton>
         )}
       </View>
       {!editing ? (
@@ -512,6 +516,8 @@ function OrganizationEditor({ person, organizations, onSaved }: { person: Person
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Pressable accessibilityRole="button"
+              accessibilityLabel="Organization: none"
+              accessibilityState={{ selected: organizationId === null }}
               onPress={() => setOrganizationId(null)}
               style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: organizationId === null ? theme.colors.brandDefault : theme.colors.borderSubtle }}
             >
@@ -520,6 +526,7 @@ function OrganizationEditor({ person, organizations, onSaved }: { person: Person
             {organizations.map((o) => (
               <Pressable accessibilityRole="button"
                 key={o.id}
+                accessibilityState={{ selected: organizationId === o.id }}
                 onPress={() => setOrganizationId(o.id)}
                 style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: organizationId === o.id ? theme.colors.brandDefault : theme.colors.borderSubtle }}
               >
@@ -611,6 +618,7 @@ function AliasesCard({ personId, aliases, contactSources, onChanged }: { personI
             {(["email", "phone", "name_variant"] as const).map((k) => (
               <Pressable accessibilityRole="button"
                 key={k}
+                accessibilityState={{ selected: kind === k }}
                 onPress={() => setKind(k)}
                 style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: kind === k ? theme.colors.brandDefault : theme.colors.borderSubtle }}
               >
@@ -912,6 +920,7 @@ function RelationshipsCard({
               {(["person", "dependent"] as const).map((k) => (
                 <Pressable accessibilityRole="button"
                   key={k}
+                  accessibilityState={{ selected: targetKind === k }}
                   onPress={() => {
                     setTargetKind(k);
                     setTargetId(null);
@@ -934,6 +943,7 @@ function RelationshipsCard({
               {candidates.map((c) => (
                 <Pressable accessibilityRole="button"
                   key={c.id}
+                  accessibilityState={{ selected: targetId === c.id }}
                   onPress={() => setTargetId(c.id)}
                   style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: targetId === c.id ? theme.colors.brandDefault : theme.colors.borderSubtle }}
                 >

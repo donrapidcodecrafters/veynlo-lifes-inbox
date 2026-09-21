@@ -12,6 +12,7 @@ import { loadEnv } from "../../config/env";
 import { hashWebhookSecret, verifyGmailPushToken } from "./webhook-verification";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §43 CONN-001 "Webhook endpoint verifies provider/channel signature/secret... enqueues processing" — for
@@ -72,8 +73,7 @@ describe("WebhooksController — real signature verification per provider", () =
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `webhook-test-${ownerUserId}@example.com`, displayName: "Webhook Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping WebhooksController tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "WebhooksController tests");
     }
   });
 

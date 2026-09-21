@@ -52,8 +52,16 @@ export const schools = pgTable(
  * email routes through the same domain classifier (including the new "school" domain below), so a
  * forwarding-based school source is just a UI affordance ("forward this school's email to your Veynlo
  * address") over that existing pipeline, not a second ingestion path — `icsUrl` stays null for this kind.
+ *
+ * `kind: "canvas"` is the first school source that is a real API rather than a feed or a mailbox. Canvas
+ * is per-institution — every district runs its own host — so BOTH the host and the token come from the
+ * user, which is also why the host is treated as untrusted input and checked against the same SSRF guard
+ * the IMAP connector uses before any request goes out. It reaches this table rather than `connections`
+ * for the same reason the ICS feeds do: what it produces is school events for a household, not a personal
+ * connection, and `school_events` already has the dedup key, the child-assignment path and the transport
+ * conflict detection that this data needs.
  */
-export const schoolSourceKindEnum = pgEnum("school_source_kind", ["ics", "forwarding_email"]);
+export const schoolSourceKindEnum = pgEnum("school_source_kind", ["ics", "forwarding_email", "canvas"]);
 
 export const schoolSources = pgTable(
   "school_sources",
@@ -69,6 +77,15 @@ export const schoolSources = pgTable(
     label: encryptedText("label").notNull(), // e.g. "Lincoln Elementary district calendar", "Travel soccer team"
     kind: schoolSourceKindEnum("kind").notNull().default("ics"),
     icsUrl: encryptedText("ics_url"),
+    // Canvas only. The host a district runs its Canvas on ("https://someschool.instructure.com"), and the
+    // access token the user generates under Account, Settings, New Access Token.
+    //
+    // Encrypted for the same reason `icsUrl` is, only more so: this token can read that student's whole
+    // Canvas account. Stored on the row rather than in the credential vault because the vault keys on a
+    // `connections` row id, and a school source is not one — the same call this table's own comment above
+    // makes for the feed URL.
+    apiBaseUrl: encryptedText("api_base_url"),
+    apiToken: encryptedText("api_token"),
     health: text("health").notNull().default("initializing"), // "initializing" | "healthy" | "degraded" — mirrors connections.health
     // §28 encryption-inventory sweep — this comment already said "mirrors connections.health"; the
     // sibling column (connections.healthDetail) is encrypted, this one wasn't. Same write shape too

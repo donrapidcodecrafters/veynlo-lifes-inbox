@@ -141,7 +141,9 @@ export default function SharingHubPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <Badge>{g.resourceTypeLabel}</Badge>
-                      <p className="truncate text-[0.9375rem] font-medium text-primary">{g.resourceLabel ?? g.resourceTypeLabel}</p>
+                      <p className="truncate text-[0.9375rem] font-medium text-primary" title={g.resourceLabel ?? g.resourceTypeLabel}>
+                      {g.resourceLabel ?? g.resourceTypeLabel}
+                    </p>
                     </div>
                     <p className="text-sm text-tertiary">
                       With {g.granteeEmail} — {RIGHT_LABELS[g.right]}, {expiryText(g.expiresAt)}
@@ -159,7 +161,9 @@ export default function SharingHubPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <Badge tone="info">{l.resourceTypeLabel}</Badge>
-                      <p className="truncate text-[0.9375rem] font-medium text-primary">{l.resourceLabel ?? l.resourceTypeLabel}</p>
+                      <p className="truncate text-[0.9375rem] font-medium text-primary" title={l.resourceLabel ?? l.resourceTypeLabel}>
+                      {l.resourceLabel ?? l.resourceTypeLabel}
+                    </p>
                     </div>
                     <p className="text-sm text-tertiary">
                       Public link{l.hasPasscode ? " (passcode-protected)" : ""} — {expiryText(l.expiresAt)}
@@ -189,7 +193,9 @@ export default function SharingHubPage() {
                 <CardBody>
                   <div className="flex items-center gap-2">
                     <Badge>{g.resourceTypeLabel}</Badge>
-                    <p className="truncate text-[0.9375rem] font-medium text-primary">{g.resourceLabel ?? g.resourceTypeLabel}</p>
+                    <p className="truncate text-[0.9375rem] font-medium text-primary" title={g.resourceLabel ?? g.resourceTypeLabel}>
+                      {g.resourceLabel ?? g.resourceTypeLabel}
+                    </p>
                   </div>
                   <p className="text-sm text-tertiary">
                     From {g.granterEmail} — {RIGHT_LABELS[g.right]}, {expiryText(g.expiresAt)}

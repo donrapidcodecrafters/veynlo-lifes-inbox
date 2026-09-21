@@ -1,25 +1,35 @@
 import { useEffect, useState } from "react";
 import { Redirect, Tabs } from "expo-router";
-import { ActivityIndicator, Text, View, type ColorValue } from "react-native";
+import { ActivityIndicator, View, useWindowDimensions, type ColorValue } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth-context";
 import { useAppTheme } from "@/lib/theme-context";
 import { api } from "@/lib/api-client";
+import { TabletSidebar } from "@/components/tablet-sidebar";
 
-function TabIcon({ label, focused, color }: { label: string; focused: boolean; color: ColorValue }) {
+/** Same 600dp boundary as screen.tsx's TABLET_MIN_WIDTH — see that file's own doc comment for why. */
+const TABLET_MIN_WIDTH = 600;
+
+function TabIcon({ name, focused, color }: { name: keyof typeof Ionicons.glyphMap; focused: boolean; color: ColorValue }) {
   return (
-    // React Navigation's bottom tab bar already gives each tab button its own accessibilityLabel/role/
-    // selected-state derived from the screen's `title` (see @react-navigation/bottom-tabs' BottomTabItem),
-    // so this emoji glyph is purely decorative chrome next to that spoken label — without hiding it,
-    // VoiceOver/TalkBack would announce the raw emoji name ("house emoji") on top of "Home, tab, 1 of 5".
-    <Text
-      style={{ fontSize: 11, fontWeight: focused ? "700" : "500", color }}
+    // A real vector glyph, not an emoji character. These were previously emoji rendered as <Text> with a
+    // `color` style — which fails twice over: emoji are color glyphs that ignore a tint (so the
+    // active/inactive tintColor above did nothing), and when the platform font can't render one the OS
+    // substitutes a placeholder box. That is exactly what happened on iOS, where all five tabs showed "?".
+    // "🗂️" was the most fragile of them, carrying a U+FE0F variation selector with inconsistent support.
+    //
+    // React Navigation's bottom tab bar already derives each button's accessibilityLabel/role/selected
+    // state from the screen's `title` (see @react-navigation/bottom-tabs' BottomTabItem), so the icon is
+    // purely decorative chrome next to that spoken label — hidden from screen readers so VoiceOver/TalkBack
+    // doesn't announce the icon on top of "Home, tab, 1 of 5".
+    <Ionicons
+      name={focused ? name : (`${name}-outline` as keyof typeof Ionicons.glyphMap)}
+      size={24}
+      color={color as string}
       importantForAccessibility="no"
       accessibilityElementsHidden
-      maxFontSizeMultiplier={1.3}
-    >
-      {label}
-    </Text>
+    />
   );
 }
 
@@ -27,6 +37,8 @@ export default function TabsLayout() {
   const { user, isLoading } = useAuth();
   const { theme } = useAppTheme();
   const { t } = useTranslation("translation", { keyPrefix: "nav" });
+  const { width } = useWindowDimensions();
+  const isTablet = width >= TABLET_MIN_WIDTH;
   // ONB-001 "after sign-up (or on first sign-in if no onboarding has been completed)" — same resumability
   // check as apps/web's (app) layout: a brand-new account whose onboarding_state row isn't `completed` yet
   // gets bounced to /onboarding from every tab, not just right after sign-up (covers refreshing/relaunching
@@ -57,34 +69,48 @@ export default function TabsLayout() {
   if (needsOnboarding) return <Redirect href="/onboarding" />;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.colors.brandDefault,
-        tabBarInactiveTintColor: theme.colors.textTertiary,
-        tabBarStyle: { backgroundColor: theme.colors.bgSurface, borderTopColor: theme.colors.borderSubtle },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{ title: t("home"), tabBarIcon: ({ focused, color }) => <TabIcon label="🏠" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="inbox"
-        options={{ title: t("inbox"), tabBarIcon: ({ focused, color }) => <TabIcon label="📥" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="ask"
-        options={{ title: t("ask"), tabBarIcon: ({ focused, color }) => <TabIcon label="💬" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="life"
-        options={{ title: t("life"), tabBarIcon: ({ focused, color }) => <TabIcon label="🗂️" focused={focused} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{ title: t("settings"), tabBarIcon: ({ focused, color }) => <TabIcon label="⚙️" focused={focused} color={color} /> }}
-      />
-    </Tabs>
+    <View style={{ flex: 1, flexDirection: isTablet ? "row" : "column" }}>
+      {isTablet && <TabletSidebar />}
+      <View style={{ flex: 1 }}>
+        <Tabs
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: theme.colors.brandDefault,
+            tabBarInactiveTintColor: theme.colors.textTertiary,
+            // On tablet the left rail above replaces this outright rather than restyling it — see
+            // tablet-sidebar.tsx's own doc comment for why an in-place restyle was a dead end (two
+            // earlier attempts reverted: capping tabBarItemStyle.maxWidth left an 865px void on the
+            // right since react-navigation lays the item row out from the left, and tabBarStyle's
+            // justifyContent doesn't reach that inner row either). `display: "none"` is the standard
+            // supported way to hide the built-in bar, not a style override of it, so this carries none
+            // of that risk.
+            tabBarStyle: isTablet
+              ? { display: "none" }
+              : { backgroundColor: theme.colors.bgSurface, borderTopColor: theme.colors.borderSubtle },
+          }}
+        >
+          <Tabs.Screen
+            name="index"
+            options={{ title: t("home"), tabBarIcon: ({ focused, color }) => <TabIcon name="home" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="inbox"
+            options={{ title: t("inbox"), tabBarIcon: ({ focused, color }) => <TabIcon name="file-tray" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="ask"
+            options={{ title: t("ask"), tabBarIcon: ({ focused, color }) => <TabIcon name="chatbubble" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="life"
+            options={{ title: t("life"), tabBarIcon: ({ focused, color }) => <TabIcon name="albums" focused={focused} color={color} /> }}
+          />
+          <Tabs.Screen
+            name="settings"
+            options={{ title: t("settings"), tabBarIcon: ({ focused, color }) => <TabIcon name="settings" focused={focused} color={color} /> }}
+          />
+        </Tabs>
+      </View>
+    </View>
   );
 }

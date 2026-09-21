@@ -10,6 +10,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { IngestionService } from "../ingestion/ingestion.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { QUEUE_PRODUCER, type QueueProducer } from "../../queue/queue-producer.interface";
+import { SearchIndexService } from "../search/search-index.service";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 import type { OAuthConnectorAdapter } from "./connector.interface";
 
@@ -62,6 +63,7 @@ export class GoogleCalendarAdapter implements OAuthConnectorAdapter {
     @Inject(IngestionService) private readonly ingestion: IngestionService,
     @Inject(QUEUE_PRODUCER) private readonly queue: QueueProducer,
     @Inject(EntitlementsService) private readonly entitlements: EntitlementsService,
+    @Inject(SearchIndexService) private readonly searchIndex?: SearchIndexService,
   ) {}
 
   private oauthClient(redirectUri: string) {
@@ -167,9 +169,14 @@ export class GoogleCalendarAdapter implements OAuthConnectorAdapter {
       // side deleted BOTH users' calendar_events rows via this one unscoped DELETE — cross-tenant data
       // loss found live during the backend audit (every insert/update path already scopes by
       // ownerUserId+providerEventId via ingestFeedCalendarEvent; only this delete-on-cancel path didn't).
-      await this.db
+      // `.returning()` because the search document is keyed by the LOCAL row id, which this delete
+      // (scoped by provider event id + owner) never otherwise learns. Without retiring them, a
+      // provider-side cancellation leaves orphan rows that keep consuming ranked result slots.
+      const removed = await this.db
         .delete(schema.calendarEvents)
-        .where(and(eq(schema.calendarEvents.providerEventId, event.id), eq(schema.calendarEvents.ownerUserId, connection.ownerUserId)));
+        .where(and(eq(schema.calendarEvents.providerEventId, event.id), eq(schema.calendarEvents.ownerUserId, connection.ownerUserId)))
+        .returning({ id: schema.calendarEvents.id });
+      for (const row of removed) await this.searchIndex?.markDeleted("calendar_event", row.id);
       return false; // a removal isn't a new item to count/file — nothing to review
     }
     const { value: start, isAllDay } = toTemporal(event.start);

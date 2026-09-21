@@ -14,9 +14,33 @@ import { execFileSync } from "node:child_process";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
-/** Runs one SQL statement against the real dev Postgres via the `psql` CLI. Throws with psql's own stderr on failure, so a broken seed fails the spec loudly rather than silently leaving no test fixture behind. */
+/**
+ * The Postgres container from `docker-compose.yml`, used only when the host has no `psql` of its own.
+ * Overridable for a differently-named stack.
+ */
+const POSTGRES_CONTAINER = process.env.POSTGRES_CONTAINER ?? "veynlo-postgres";
+
+/**
+ * Runs one SQL statement against the real dev Postgres via the `psql` CLI. Throws with psql's own stderr on
+ * failure, so a broken seed fails the spec loudly rather than silently leaving no test fixture behind.
+ *
+ * Falls back to `psql` INSIDE the Postgres container when the host has none. The dev stack runs Postgres
+ * only in Docker, so a developer who has never installed the Postgres client tools — which nothing else in
+ * this repo requires — got `spawnSync psql ENOENT` and a failing spec that had nothing to do with the code
+ * under test. Same database, same SQL, same failure semantics; only the path to the binary differs.
+ */
 export function execSql(sql: string): void {
-  execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-c", sql], { stdio: ["ignore", "pipe", "pipe"] });
+  try {
+    execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-c", sql], { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (err) {
+    // Only a MISSING binary falls back. A psql that ran and rejected the SQL must still fail the spec.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    execFileSync(
+      "docker",
+      ["exec", "-i", POSTGRES_CONTAINER, "psql", "-U", "veynlo", "-d", "veynlo", "-v", "ON_ERROR_STOP=1", "-c", sql],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+  }
 }
 
 /**

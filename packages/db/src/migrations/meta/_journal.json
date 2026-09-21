@@ -463,6 +463,55 @@
       "when": 1788458427111,
       "tag": "0065_restore_object_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788781789839,
+      "tag": "0066_flaky_energizer",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788843328326,
+      "tag": "0067_steady_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1788860527484,
+      "tag": "0068_useful_kid_colt",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1789245996461,
+      "tag": "0069_sweet_sally_floyd",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1789921243941,
+      "tag": "0070_damp_molly_hayes",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1789947316704,
+      "tag": "0071_silky_caretaker",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1789985945291,
+      "tag": "0072_huge_peter_quill",
+      "breakpoints": true
     }
   ]
 }

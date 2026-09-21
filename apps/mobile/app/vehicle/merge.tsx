@@ -145,6 +145,11 @@ export default function MergeVehiclesScreen() {
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {group.vehicles.map((v) => (
                     <Pressable
+                      accessibilityRole="button"
+                      // The survivor pick is the highest-stakes control on this screen and announced
+                      // nothing about which candidate was selected. The chip's own text is its name,
+                      // so only the state was missing.
+                      accessibilityState={{ selected: survivorId === v.id }}
                       key={v.id}
                       onPress={() => setSurvivorByGroup((prev) => ({ ...prev, [i]: v.id }))}
                       style={{
@@ -160,8 +165,8 @@ export default function MergeVehiclesScreen() {
                   ))}
                 </View>
                 {others.map((v) => (
-                  <View key={v.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Merge &quot;{v.label}&quot; into the one you kept</Text>
+                  <View key={v.id} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <Text style={{ flexShrink: 1, fontSize: 13, color: theme.colors.textTertiary }}>Merge &quot;{v.label}&quot; into the one you kept</Text>
                     <Button variant="secondary" onPress={() => merge(survivorId, v.id)} loading={mergingId === v.id}>
                       Merge
                     </Button>

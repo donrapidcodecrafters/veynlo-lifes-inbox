@@ -12,7 +12,7 @@ import { DocumentsService } from "../documents/documents.service";
 import { HouseholdService } from "../household/household.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { CreateShareLinkDto } from "../sharing/dto";
-import { rankByRelevance, scoreRelevance } from "../search/relevance-ranking";
+import { scoreRelevance } from "../search/relevance-ranking";
 import { SearchIndexService } from "../search/search-index.service";
 import type { CreateMemoryDto, CreateMemoryFromUploadDto, UpdateMemoryDto, PromoteMemoryDto, CreateResurfacingRuleDto, SmartListQuery } from "./dto";
 
@@ -408,7 +408,15 @@ export class MemoriesService {
     let rows = [...ownRows, ...grantedRows].map((r) => this.redactNotesForNonOwner(r, userId));
     if (opts?.category) rows = rows.filter((r) => r.category === opts.category);
     rows = rows.filter((r) => (opts?.archived ? r.archivedAt != null : r.archivedAt == null));
-    return rows.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt.getTime() - a.createdAt.getTime());
+    // The id tiebreak is not decoration: the seed inserts saved items in one batch, so many share a
+    // createdAt to the microsecond, and a stable sort then falls back to the unordered SQL order —
+    // which changes after any write. Same failure DEF-046 measured on Lists.
+    return rows.sort(
+      (a, b) =>
+        Number(b.pinned) - Number(a.pinned) ||
+        b.createdAt.getTime() - a.createdAt.getTime() ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
   }
 
   async detail(id: string, userId: string): Promise<SavedMemoryRow> {
@@ -458,6 +466,7 @@ export class MemoriesService {
   async delete(id: string, userId: string): Promise<void> {
     await this.assertOwned(id, userId);
     await this.db.delete(schema.savedMemories).where(eq(schema.savedMemories.id, id));
+    await this.searchIndex?.markDeleted("saved_memory", id);
   }
 
   /** SAVE-001 "convert to task/event/object" — see PromoteMemoryDtoSchema's own doc comment: the client
@@ -492,7 +501,23 @@ export class MemoriesService {
     // existence/content through search relevance even though the returned row itself looked redacted.
     const candidates = [...ownRows, ...grantedRows].map((r) => this.redactNotesForNonOwner(r, userId));
     const textFor = (r: SavedMemoryRow) => [r.title, r.userNotes, r.sourceUrl, r.rawText, r.category, r.relatedPersonLabel].filter(Boolean).join(" ");
-    return rankByRelevance(query, candidates, textFor, 30).filter((r) => textFor(r).length > 0);
+    // Only rows that actually MATCH. rankByRelevance ranks and truncates but does not filter, so this
+    // returned the first 30 rows for any query at all: `q=zzznonsensequery12345` came back with the
+    // account's entire saved list, byte-identical to `q=test`, because every row scored 0 and a stable
+    // sort left them in arrival order. A search box that answers every question with "everything" is
+    // indistinguishable from one that is broken — and the ranking itself was fine, which is why it looked
+    // plausible: a real term did sort its match to position 1. relatedForQuery below already filters
+    // score > 0 for exactly this reason; this is the same rule on the endpoint a user types into.
+    const q = query.trim();
+    if (!q) return [];
+    return candidates
+      .map((row) => ({ row, score: scoreRelevance(q, textFor(row)) }))
+      .filter((entry) => entry.score > 0)
+      // Equal scores are common (this is keyword overlap, not a continuous metric), and a stable sort
+      // would fall back to the unordered SQL order the candidates arrived in.
+      .sort((a, b) => b.score - a.score || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0))
+      .slice(0, 30)
+      .map((entry) => entry.row);
   }
 
   /**
@@ -524,7 +549,9 @@ export class MemoriesService {
     return candidates
       .map((r) => ({ row: r, score: scoreRelevance(q, textFor(r)) }))
       .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score)
+      // Equal scores are common (this is keyword overlap, not a continuous metric), and a stable sort
+      // would fall back to the unordered SQL order the candidates arrived in.
+      .sort((a, b) => b.score - a.score || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0))
       .slice(0, limit)
       .map((entry) => entry.row);
   }

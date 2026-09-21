@@ -13,6 +13,52 @@ export const IcsConnectDtoSchema = z.object({
 });
 export type IcsConnectDto = z.infer<typeof IcsConnectDtoSchema>;
 
+/**
+ * IMAP connect. `password` is bounded but otherwise unconstrained — app passwords vary wildly in shape
+ * between providers (Apple's are hyphenated, Fastmail's are not) and rejecting one for looking wrong would
+ * be this app second-guessing the provider that issued it.
+ *
+ * `host`/`port` are only read for the "custom" provider; every other key carries its own verified host,
+ * so a client cannot repoint a known provider at a server of its choosing.
+ */
+export const ImapConnectDtoSchema = z.object({
+  providerKey: z.string().min(1).max(40),
+  username: z.string().min(3).max(320),
+  password: z.string().min(1).max(512),
+  host: z.string().min(1).max(253).optional(),
+  port: z.number().int().min(1).max(65_535).optional(),
+  historyDepthDays: z.number().int().min(0).max(3650).optional(),
+});
+export type ImapConnectDto = z.infer<typeof ImapConnectDtoSchema>;
+
+/**
+ * CalDAV/CardDAV connect. `serverUrl` is only read for providers whose address the user supplies
+ * (custom, Nextcloud); the rest carry their own verified host, so a client cannot repoint a known
+ * provider at a server of its choosing.
+ */
+export const DavConnectDtoSchema = z.object({
+  providerKey: z.string().min(1).max(40),
+  username: z.string().min(1).max(320),
+  password: z.string().min(1).max(512),
+  serverUrl: z.string().min(1).max(2048).optional(),
+  historyDepthDays: z.number().int().min(0).max(3650).optional(),
+});
+export type DavConnectDto = z.infer<typeof DavConnectDtoSchema>;
+
+/**
+ * Todoist / Trello / Asana connect, with a token the user issues in their own account.
+ *
+ * `apiKey` is Trello-only and optional here rather than required, because "which providers need a second
+ * secret" is the adapter's knowledge, not this schema's — the adapter rejects a missing Trello key with a
+ * message naming Trello. Encoding it here too would put the same rule in two places that can drift.
+ */
+export const TokenTaskConnectDtoSchema = z.object({
+  providerKey: z.string().min(1).max(40),
+  token: z.string().min(1).max(512),
+  apiKey: z.string().min(1).max(512).optional(),
+});
+export type TokenTaskConnectDto = z.infer<typeof TokenTaskConnectDtoSchema>;
+
 export const PlaidExchangeDtoSchema = z.object({
   publicToken: z.string().min(1),
   // ONB-002 — optional historical-depth choice from the onboarding flow (or a future Connections-page
@@ -20,3 +66,30 @@ export const PlaidExchangeDtoSchema = z.object({
   historyDepthDays: z.number().int().min(0).max(3650).optional(),
 });
 export type PlaidExchangeDto = z.infer<typeof PlaidExchangeDtoSchema>;
+
+/**
+ * Five connector endpoints took a single field via @Body("...") and so never reached a pipe. The three
+ * booleans were coerced with Boolean(...) at the call site, which does not reject a wrong type so much as
+ * reinterpret it - Boolean("false") is true, so {"enabled":"false"} turned write-back ON.
+ */
+export const SetWriteBackDtoSchema = z.object({ enabled: z.boolean() });
+export type SetWriteBackDto = z.infer<typeof SetWriteBackDtoSchema>;
+
+export const DisconnectConnectionDtoSchema = z.object({
+  deleteDerivedData: z.boolean().optional(),
+  password: z.string().min(1).optional(),
+});
+export type DisconnectConnectionDto = z.infer<typeof DisconnectConnectionDtoSchema>;
+
+/** Null is meaningful here: it clears the per-connection override and falls back to the global setting. */
+export const SetAiProcessingDtoSchema = z.object({ enabled: z.boolean().nullable() });
+export type SetAiProcessingDto = z.infer<typeof SetAiProcessingDtoSchema>;
+
+export const SetPausedDtoSchema = z.object({ paused: z.boolean() });
+export type SetPausedDto = z.infer<typeof SetPausedDtoSchema>;
+
+export const AddExclusionDtoSchema = z.object({ excludedSenderDomain: z.string().min(1).max(255) });
+export type AddExclusionDto = z.infer<typeof AddExclusionDtoSchema>;
+
+export const PushCalendarEventDtoSchema = z.object({ connectionId: z.string().min(1) });
+export type PushCalendarEventDto = z.infer<typeof PushCalendarEventDtoSchema>;

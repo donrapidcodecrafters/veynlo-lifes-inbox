@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Put, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Put, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -14,6 +14,17 @@ export class NotificationsController {
   @Get("notifications")
   list(@CurrentUser() user: AuthenticatedUser) {
     return this.notifications.list(user.userId);
+  }
+
+  /**
+   * Marks a notification opened. Called from a push tap, and from tapping its row in the in-app list.
+   *
+   * POST rather than PATCH on the notification: this records an event that happened, it does not let a
+   * client set the timestamp, and there is nothing else about a notification a client may change.
+   */
+  @Post("notifications/:id/opened")
+  markOpened(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.notifications.markOpened(id, user.userId);
   }
 
   @Get("notification-preferences")

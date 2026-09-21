@@ -8,7 +8,7 @@ import { api, swrFetcher, ApiError } from "@/lib/api-client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FetchError } from "@/components/ui/fetch-error";
 import { RecurrencePicker } from "@/components/recurrence-picker";
@@ -36,7 +36,6 @@ const LIFE_TABS = [
   { value: "health", label: "Health" },
   { value: "documents", label: "Documents" },
 ] as const;
-type LifeTab = (typeof LIFE_TABS)[number]["value"];
 
 /** TASK-003 — a short, human summary of a recurrence rule for list rows ("Repeats weekly", "Repeats every 3 days"). */
 function describeRecurrence(rule: RecurrenceRule): string {
@@ -400,7 +399,7 @@ function AddStoreCreditForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a store credit
       </button>
     );
@@ -455,7 +454,7 @@ function AddTaskForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a reminder
       </button>
     );
@@ -522,7 +521,7 @@ function AddEventForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add an event
       </button>
     );
@@ -627,7 +626,7 @@ function AddPropertyForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a property
       </button>
     );
@@ -707,7 +706,7 @@ function AddVehicleForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a vehicle
       </button>
     );
@@ -826,6 +825,9 @@ const SCHOOL_KIND_LABELS: Record<string, string> = {
   game: "Game",
   practice: "Practice",
   announcement: "Announcement",
+  // Canvas. Without an entry here the badge falls through to `?? e.kind` and renders the raw lowercase
+  // enum — the same leak the income-cadence phrasing had.
+  assignment: "Assignment",
   other: "School",
 };
 
@@ -876,33 +878,58 @@ function AssignChildPicker({ eventId, dependents, onAssigned }: { eventId: strin
   );
 }
 
+/**
+ * Subscribe to a school source — a calendar feed, or a Canvas account.
+ *
+ * Two kinds behind one control rather than two separate "+ add" buttons, because from a parent's point of
+ * view these are the same errand: get this school's stuff into the app. What differs is only what has to
+ * be pasted, so the form asks for that and nothing else.
+ *
+ * Canvas needs an address as well as a token because Canvas is per-institution — every district runs its
+ * own. The placeholder shows the shape rather than explaining it, since "yourschool.instructure.com" is
+ * self-explanatory in a way that a sentence about institutional hosting is not.
+ */
 function AddSchoolSourceForm({ householdId, onAdded }: { householdId: string; onAdded: () => void }) {
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<"ics" | "canvas">("ics");
   const [label, setLabel] = useState("");
   const [icsUrl, setIcsUrl] = useState("");
+  const [canvasBaseUrl, setCanvasBaseUrl] = useState("");
+  const [canvasToken, setCanvasToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
-        + Subscribe to a school/team calendar feed
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
+        + Add a school calendar feed or Canvas account
       </button>
     );
   }
 
+  const ready = kind === "ics" ? Boolean(label.trim() && icsUrl.trim()) : Boolean(label.trim() && canvasBaseUrl.trim() && canvasToken.trim());
+
   async function submit() {
-    if (!label.trim() || !icsUrl.trim()) return;
+    if (!ready) return;
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/v1/school/sources", { householdId, label, kind: "ics", icsUrl });
+      await api.post(
+        "/v1/school/sources",
+        kind === "ics"
+          ? { householdId, label, kind: "ics", icsUrl }
+          : { householdId, label, kind: "canvas", canvasBaseUrl, canvasToken },
+      );
       setLabel("");
       setIcsUrl("");
+      setCanvasBaseUrl("");
+      setCanvasToken("");
       setOpen(false);
       onAdded();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't subscribe to that feed — check the URL and try again.");
+      // The API answers with its own guidance — "that address has to start with https" and "Canvas
+      // rejected that token" need different fixes, so it is shown as sent rather than flattened.
+      setError(err instanceof ApiError ? err.message : "Couldn't add that source — check the details and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -910,16 +937,68 @@ function AddSchoolSourceForm({ householdId, onAdded }: { householdId: string; on
 
   return (
     <Card>
-      <CardBody className="flex flex-wrap items-end gap-2">
-        <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Name (e.g. Travel soccer team)" className="min-w-[180px] flex-1" />
-        <Input value={icsUrl} onChange={(e) => setIcsUrl(e.target.value)} placeholder="ICS feed URL" className="min-w-[220px] flex-[2]" />
-        <Button onClick={submit} loading={submitting} disabled={!label.trim() || !icsUrl.trim()}>
-          Subscribe
-        </Button>
-        <Button variant="secondary" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-        {error && <p className="w-full text-sm text-critical">{error}</p>}
+      <CardBody className="space-y-3">
+        <div>
+          <Label htmlFor="school-source-kind">What are you adding?</Label>
+          <select
+            id="school-source-kind"
+            value={kind}
+            onChange={(e) => setKind(e.target.value as "ics" | "canvas")}
+            className="w-full rounded-md border border-border-default bg-canvas px-3 py-2 text-sm text-primary"
+          >
+            <option value="ics">A calendar feed (.ics link)</option>
+            <option value="canvas">A Canvas account</option>
+          </select>
+        </div>
+
+        <div>
+          <Label htmlFor="school-source-label">Name</Label>
+          <Input
+            id="school-source-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={kind === "ics" ? "e.g. Travel soccer team" : "e.g. Maya's school work"}
+          />
+        </div>
+
+        {kind === "ics" ? (
+          <div>
+            <Label htmlFor="school-ics-url">Calendar feed URL</Label>
+            <Input id="school-ics-url" value={icsUrl} onChange={(e) => setIcsUrl(e.target.value)} placeholder="https://…/calendar.ics" />
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-tertiary">
+              Canvas issues an access token under Account, Settings, New Access Token. Assignment due dates and announcements come across —
+              grades are never read.
+            </p>
+            <div>
+              <Label htmlFor="school-canvas-url">Your school&apos;s Canvas address</Label>
+              <Input
+                id="school-canvas-url"
+                value={canvasBaseUrl}
+                onChange={(e) => setCanvasBaseUrl(e.target.value)}
+                placeholder="yourschool.instructure.com"
+                autoCapitalize="none"
+              />
+            </div>
+            <div>
+              <Label htmlFor="school-canvas-token">Access token</Label>
+              <Input id="school-canvas-token" type="password" value={canvasToken} onChange={(e) => setCanvasToken(e.target.value)} />
+            </div>
+          </>
+        )}
+
+        {error && <p className="text-sm text-critical">{error}</p>}
+
+        <div className="flex gap-2">
+          <Button onClick={submit} loading={submitting} disabled={!ready}>
+            {kind === "ics" ? "Subscribe" : "Connect Canvas"}
+          </Button>
+          <Button variant="secondary" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+        </div>
       </CardBody>
     </Card>
   );
@@ -1117,7 +1196,7 @@ function AddPetForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a pet
       </button>
     );
@@ -1236,7 +1315,7 @@ function AddPersonForm({ organizations, onAdded }: { organizations: Organization
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a person
       </button>
     );
@@ -1494,7 +1573,7 @@ function AddHealthAppointmentForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add an appointment
       </button>
     );
@@ -1569,7 +1648,7 @@ function AddRefillReminderForm({ onAdded }: { onAdded: () => void }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-sm font-medium text-brand hover:underline">
+      <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle text-sm font-medium text-brand">
         + Add a refill reminder
       </button>
     );
@@ -1749,7 +1828,10 @@ export default function LifePage() {
           <h1 className="text-2xl font-semibold tracking-tight text-primary">Life</h1>
           <p className="mt-1 text-sm text-tertiary">Everything Veynlo knows you own, owe, and are due back.</p>
         </div>
-        <div className="flex gap-2">
+        {/* flex-wrap is load-bearing here: five fixed-width chips do not fit a 390px viewport, and
+            without wrapping the last one ("Trips →") pushes the whole page 28px wider than the screen.
+            The earlier DEF-006 fix wrapped a different row on this page and missed this one. */}
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/timeline"
             className="rounded-full border border-border-default px-3 py-1.5 text-sm font-medium text-secondary hover:bg-subtle"
@@ -1795,11 +1877,21 @@ export default function LifePage() {
         <FetchError what="some sections of this page" message="One or more sections below may be incomplete." onRetry={retryAllSections} />
       )}
 
-      {conflicts && conflicts.length > 0 && (
+      {/* §19 — a scheduling conflict is Schedule context, not every context. This banner sat above every
+          show* gate, so it appeared on Family, Health, Home & Vehicles and Documents too. Exactly the same
+          defect as the money cards below, and it survived that fix because schedule_conflicts was empty at
+          the time — the banner could not render for anyone to notice. Now seeded, so it shows.
+          transportConflicts is NOT this: it lives inside the School & Activities section and is already
+          scoped by that section's own gate. */}
+      {showSchedule && conflicts && conflicts.length > 0 && (
         <ConflictBanner conflicts={conflicts} events={events} onResolved={() => mutateConflicts()} />
       )}
 
-      {savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
+      {/* §19 — money metrics belong to the Money context, not every context. These two cards sat ABOVE the
+          first show* gate, so picking Family to check a child's school events opened the screen with
+          subscription spend and store-credit totals instead. Gated on showMoney like every other money
+          section on this screen ("all" still shows them, which is the overview case §18 asks for). */}
+      {showMoney && savings && (savings.resolvedReturnsMinorUnits > 0 || savings.redeemedStoreCreditsMinorUnits > 0 || savings.outstandingStoreCreditsMinorUnits > 0) && (
         <Card>
           <CardBody className="flex flex-wrap gap-6">
             <div>
@@ -1818,7 +1910,7 @@ export default function LifePage() {
         </Card>
       )}
 
-      {monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={() => mutateMonthlySpend()} />}
+      {showMoney && monthlySpend && <SafeSpendCard summary={monthlySpend} onCapSaved={() => mutateMonthlySpend()} />}
 
       {showSchedule && (
       <Section title="Appointments">

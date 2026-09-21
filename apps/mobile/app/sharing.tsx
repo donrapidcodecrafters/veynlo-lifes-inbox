@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { ScreenHeader } from "@/components/screen-header";
 import { Card } from "@/components/card";
 import { Button } from "@/components/button";
 
@@ -104,7 +105,7 @@ export default function SharingHubScreen() {
 
   return (
     <Screen>
-      <Text style={{ fontSize: 24, fontWeight: "700", color: theme.colors.textPrimary }}>Sharing</Text>
+      <ScreenHeader title="Sharing" />
       {loadError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{loadError}</Text>}
       {actionError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{actionError}</Text>}
 

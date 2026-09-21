@@ -136,9 +136,13 @@ export class CaregiverDayPassService {
       throw new NotFoundException({ code: "DAY_PASS_NOT_FOUND", message: "This pass is invalid or has expired." });
     }
     if (pass.passcodeHash) {
+      // Same per-pass counter as a share link's, on SharingService so there is one implementation rather
+      // than two that can drift - see assertPasscodeAttemptAllowed's own doc comment.
+      await this.sharing.assertPasscodeAttemptAllowed("day_pass", pass.id);
       if (!passcode || !(await argon2.verify(pass.passcodeHash, passcode))) {
         throw new ForbiddenException({ code: "PASSCODE_REQUIRED", message: "This pass needs a passcode." });
       }
+      await this.sharing.clearPasscodeAttempts("day_pass", pass.id);
     }
     await this.sharing.recordAnonymousAccess("caregiver_day_pass", pass.id);
     return this.buildPacket(pass.householdId, pass.scopes as CaregiverDayPassScope[], pass.label, pass.expiresAt);
@@ -176,10 +180,20 @@ export class CaregiverDayPassService {
       packet.schedule = events.filter((e) => e.startSort && e.startSort >= now && e.startSort <= expiresAt);
     }
     if (scopes.includes("pets")) {
+      // A merged-away pet (mergedIntoPetId set) is never hard-deleted — see assets.service.ts's
+      // mergeVehicles doc comment for the same pattern — so it must be excluded here too. Same gap found
+      // and fixed in emergency-binder.service.ts and legacy-release.service.ts.
       const pets = await this.db
         .select({ id: schema.petProfiles.id, label: schema.petProfiles.label, species: schema.petProfiles.species, breed: schema.petProfiles.breed })
         .from(schema.petProfiles)
-        .where(and(eq(schema.petProfiles.householdId, householdId), isNull(schema.petProfiles.deletedAt), ne(schema.petProfiles.lifecycleStatus, "deceased")));
+        .where(
+          and(
+            eq(schema.petProfiles.householdId, householdId),
+            isNull(schema.petProfiles.deletedAt),
+            isNull(schema.petProfiles.mergedIntoPetId),
+            ne(schema.petProfiles.lifecycleStatus, "deceased"),
+          ),
+        );
       const petIds = pets.map((p) => p.id);
       const refills =
         petIds.length > 0

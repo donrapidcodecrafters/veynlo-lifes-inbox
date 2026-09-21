@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, Req, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, Req, UseGuards, UsePipes } from "@nestjs/common";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   BulkDeleteDocumentsDtoSchema,
@@ -10,6 +10,10 @@ import {
   LinkDocumentToEntityDtoSchema,
   type LinkDocumentToEntityDto,
   DocumentListFilterSchema,
+  SetDocumentHouseholdDtoSchema,
+  type SetDocumentHouseholdDto,
+  SetEmergencyBinderItemDtoSchema,
+  type SetEmergencyBinderItemDto,
 } from "./dto";
 import { CreateResourceGrantDtoSchema, type CreateResourceGrantDto, CreateShareLinkDtoSchema, type CreateShareLinkDto } from "../sharing/dto";
 import { Throttle } from "@nestjs/throttler";
@@ -17,6 +21,7 @@ import type { FastifyRequest } from "fastify";
 import type { DocumentType } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
+import { readMultipartFile } from "../../common/multipart";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { DocumentsService } from "./documents.service";
 
@@ -116,14 +121,16 @@ export class DocumentsController {
 
   /** Found live while wiring the emergency binder — see DocumentsService.setHousehold's own doc comment: this was previously entirely dead on the write side. */
   @Put(":id/household")
-  async setHousehold(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("householdId") householdId: string | null) {
-    await this.documents.setHousehold(id, user.userId, householdId ?? null);
+  @UsePipes(new ZodValidationPipe(SetDocumentHouseholdDtoSchema))
+  async setHousehold(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetDocumentHouseholdDto) {
+    await this.documents.setHousehold(id, user.userId, dto.householdId ?? null);
     return { success: true };
   }
 
   @Put(":id/emergency-binder")
-  async setEmergencyBinderItem(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("isEmergencyBinderItem") isEmergencyBinderItem: boolean) {
-    await this.documents.setEmergencyBinderItem(id, user.userId, Boolean(isEmergencyBinderItem));
+  @UsePipes(new ZodValidationPipe(SetEmergencyBinderItemDtoSchema))
+  async setEmergencyBinderItem(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetEmergencyBinderItemDto) {
+    await this.documents.setEmergencyBinderItem(id, user.userId, dto.isEmergencyBinderItem);
     return { success: true };
   }
 
@@ -192,8 +199,7 @@ export class DocumentsController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("upload")
   async upload(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
-    const file = await req.file();
-    if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No file was uploaded." });
+    const file = await readMultipartFile(req, "No file was uploaded.");
 
     const documentTypeField = file.fields.documentType;
     const documentType =

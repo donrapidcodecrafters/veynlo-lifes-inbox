@@ -6,6 +6,7 @@ import { CommerceService } from "./commerce.service";
 import { categorizeBiller } from "./biller-category";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubHouseholds = {
@@ -39,8 +40,7 @@ describe("CommerceService.billBaselineComparison — UTIL-001", () => {
       otherUserId = generateId("user");
       await db.insert(schema.users).values({ id: otherUserId, email: `bill-baseline-other-${otherUserId}@example.com`, displayName: "Bill Baseline Other User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CommerceService bill-baseline tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CommerceService bill-baseline tests");
     }
   });
 

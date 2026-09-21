@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { isIPv4, isIPv6 } from "node:net";
 
 const MAX_REDIRECTS = 5;
-const FETCH_TIMEOUT_MS = 10_000;
+export const FETCH_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 5_000_000; // 5MB — a captured page's text content has no business being larger
 
 /**
@@ -43,7 +43,7 @@ export class SafeUrlFetcher {
    */
   async fetchTrustedBytes(
     rawUrl: string,
-    options: { headers?: Record<string, string>; maxBytes?: number } = {},
+    options: { headers?: Record<string, string>; maxBytes?: number; timeoutMs?: number } = {},
   ): Promise<{ body: string; finalUrl: string; contentType: string }> {
     let current: URL;
     try {
@@ -52,6 +52,16 @@ export class SafeUrlFetcher {
       throw new BadRequestException({ code: "INVALID_URL", message: "That doesn't look like a valid URL." });
     }
     const maxBytes = options.maxBytes ?? MAX_RESPONSE_BYTES;
+    /**
+     * Per-call timeout, defaulting to the tight shared one.
+     *
+     * The 10s default is right for a URL the USER submitted — that request is made on their behalf while
+     * they wait, so it should give up quickly. It is wrong for a known-slow trusted government endpoint:
+     * measured against the live CPSC recall API, a single manufacturer query took 15.6s, 15.2s and 23.1s
+     * for Carrier, LG and Rheem respectively. Against a 10s ceiling that call can never succeed, so the
+     * home-appliance recall check was failing 100% of the time in practice, not just in CI.
+     */
+    const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
 
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       if (current.protocol !== "http:" && current.protocol !== "https:") {
@@ -60,7 +70,7 @@ export class SafeUrlFetcher {
       await assertHostnameIsPublic(current.hostname);
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       let response: Response;
       try {
         response = await fetch(current, {
@@ -93,7 +103,14 @@ export class SafeUrlFetcher {
   }
 }
 
-async function assertHostnameIsPublic(hostname: string): Promise<void> {
+/**
+ * Refuse a hostname that resolves anywhere private, reserved or link-local.
+ *
+ * Exported because the IMAP connector needs exactly this guard and for exactly the same reason: its host
+ * is typed in by the user, so "mail.example.com" and "169.254.169.254" arrive through the same field.
+ * A second implementation of this would be a second thing to get wrong.
+ */
+export async function assertHostnameIsPublic(hostname: string): Promise<void> {
   let addresses: string[];
   try {
     const results = await lookup(hostname, { all: true, verbatim: true });
@@ -172,12 +189,14 @@ async function readBodyCapped(response: Response, maxBytes: number): Promise<str
   return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8");
 }
 
-function extractTitle(html: string): string | null {
+// Exported so LinkPreviewService can derive a title, readable text AND the Open Graph tags from ONE
+// fetched body rather than requesting the same page twice.
+export function extractTitle(html: string): string | null {
   const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
   return match?.[1] ? decodeHtmlEntities(match[1]).trim().slice(0, 500) || null : null;
 }
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
   return decodeHtmlEntities(withoutScripts.replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")

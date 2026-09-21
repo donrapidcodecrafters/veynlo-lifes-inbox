@@ -10,6 +10,7 @@ import type { NotificationDeliveryService } from "../notifications/notification-
 import type { HouseholdService } from "../household/household.service";
 import type { AssetsService } from "../assets/assets.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §34.1 L2 "prepare_cancellation" — real-DB proof of the "prepare mode" tier this pass adds on top of the
@@ -41,8 +42,7 @@ describe("AutomationService — §34.1 L2 prepare_cancellation", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `prepare-action-test-${ownerUserId}@example.com`, displayName: "Prepare Action Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AutomationService L2 prepare_cancellation tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AutomationService L2 prepare_cancellation tests");
     }
   });
 

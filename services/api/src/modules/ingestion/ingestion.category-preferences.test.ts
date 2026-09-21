@@ -13,6 +13,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { IdentityService } from "../identity/identity.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * PERS-003 "Category preferences" — "Disabling a category pauses future processing where feasible and
@@ -88,8 +89,7 @@ describe("IngestionService category-preference gating (PERS-003)", () => {
         confidenceBand: "verified",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping category-preference tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "category-preference tests");
     }
   });
 

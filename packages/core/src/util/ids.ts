@@ -138,6 +138,11 @@ export const ID_PREFIXES = {
   // comments (financialAccount/financialTransaction above were already reserved for the rest of §19).
   detectedIncomeStream: "fis",
   liability: "liab",
+  // FIN-006 "Investments" — see packages/db/src/schema/finance.ts's securities/investmentHoldings doc
+  // comments. Plaid's investments product was always licensed on this account but never requested at
+  // Link time, so holdings stayed invisible even for accounts already syncing as type "investment".
+  security: "sec",
+  investmentHolding: "hold",
   // §AI-002 "risk_policies" wiring — see packages/db/src/schema/pipeline.ts's riskPolicies doc comment.
   riskPolicy: "rpol",
   // §AI-003 prompt-injection detection/logging — see packages/db/src/schema/audit.ts's promptSecurityEvents.

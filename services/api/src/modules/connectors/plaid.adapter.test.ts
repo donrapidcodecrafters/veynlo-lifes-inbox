@@ -6,6 +6,7 @@ import { PlaidAdapter } from "./plaid.adapter";
 import { CredentialVault } from "../../common/credential-vault";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Phase 2 §52.2 "financial aggregator" — the interesting, easy-to-get-wrong behavior here is the matching
@@ -88,8 +89,7 @@ describe("PlaidAdapter sync + matching", () => {
         valueAtStakeCurrency: "USD",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PlaidAdapter tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PlaidAdapter tests");
     }
   });
 
@@ -579,6 +579,303 @@ describe("PlaidAdapter sync + matching", () => {
   // finalizes it later with a DIFFERENT amount, still under the SAME provider transaction_id. Before this
   // fix, `upsertTransaction` overwrote the row with no trail at all; now a `transaction_revisions` row must
   // snapshot the pre-change (pending, estimated-amount) state first.
+  // FIN-006 "Investments" — no real Plaid account exists in this dev environment to exercise
+  // `/investments/holdings/get` live (docs/PHASE2_PENDING_CREDENTIALS.md), so this proves the
+  // parsing/storage side for real against a response shaped exactly like Plaid's documented
+  // InvestmentsHoldingsGetResponse: parallel `securities` and `holdings` arrays joined by security_id.
+  //
+  // The two things worth getting wrong here are precision and staleness. A fractional share is a normal
+  // position and must not round to a whole number; a sold position must not survive as a phantom holding.
+  it("parses a realistic Plaid /investments/holdings/get response, keeps fractional quantities exact, and clears sold positions", async () => {
+    if (!dbAvailable) return;
+
+    const plaidAccountId = generateId("financialAccount");
+    const equitySecurityId = "sec-equity-aapl";
+    const cashSecurityId = "sec-cash-usd";
+
+    const investmentAccount = {
+      account_id: plaidAccountId,
+      name: "Test Brokerage",
+      official_name: "Test Bank Individual Brokerage",
+      type: "investment",
+      subtype: "brokerage",
+      mask: "7788",
+      balances: { current: 2_316.79, available: null, iso_currency_code: "USD" },
+    };
+
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/item/public_token/exchange")) {
+        return jsonResponse({ access_token: "access-sandbox-test-inv", item_id: "item-sandbox-test-inv" });
+      }
+      if (url.includes("/accounts/get")) return jsonResponse({ accounts: [investmentAccount] });
+      if (url.includes("/liabilities/get")) return jsonResponse({ liabilities: { credit: null, mortgage: null, student: null } });
+      if (url.includes("/investments/holdings/get")) {
+        return jsonResponse({
+          accounts: [investmentAccount],
+          securities: [
+            {
+              security_id: equitySecurityId,
+              name: "Apple Inc.",
+              ticker_symbol: "AAPL",
+              type: "equity",
+              close_price: 187.66,
+              close_price_as_of: "2026-09-19",
+              iso_currency_code: "USD",
+              is_cash_equivalent: false,
+            },
+            {
+              security_id: cashSecurityId,
+              name: "US Dollar",
+              ticker_symbol: "USD",
+              type: "cash",
+              close_price: 1,
+              close_price_as_of: null,
+              iso_currency_code: "USD",
+              is_cash_equivalent: true,
+            },
+          ],
+          holdings: [
+            {
+              account_id: plaidAccountId,
+              security_id: equitySecurityId,
+              // A real fractional position. An integer column would store 12 here and quietly lose
+              // 0.3456789 of a share; this is the assertion that would catch that.
+              quantity: 12.3456789,
+              institution_price: 187.655,
+              institution_price_as_of: "2026-09-19",
+              institution_value: 2_316.79,
+              cost_basis: 1_500.0,
+              iso_currency_code: "USD",
+            },
+            {
+              account_id: plaidAccountId,
+              security_id: cashSecurityId,
+              quantity: 431.22,
+              institution_price: 1,
+              institution_price_as_of: null,
+              institution_value: 431.22,
+              cost_basis: 431.22,
+              iso_currency_code: "USD",
+            },
+            {
+              // Deliberately references a security absent from the securities array above. Plaid should
+              // never send this, but a malformed response must be skipped rather than crash the sync or
+              // write a holding pointing at nothing.
+              account_id: plaidAccountId,
+              security_id: "sec-not-in-response",
+              quantity: 1,
+              institution_price: 10,
+              institution_price_as_of: null,
+              institution_value: 10,
+              cost_basis: 10,
+              iso_currency_code: "USD",
+            },
+          ],
+        });
+      }
+      if (url.includes("/transactions/sync")) {
+        return jsonResponse({ added: [], modified: [], removed: [], next_cursor: "cursor-inv-1", has_more: false });
+      }
+      throw new Error(`Unexpected fetch in test: ${url}`);
+    });
+
+    const { connectionId } = await plaid.exchangePublicToken({
+      publicToken: "public-sandbox-test-inv",
+      ownerUserId,
+      householdId: null,
+    });
+    await plaid.initialSync(connectionId);
+
+    const [account] = await db
+      .select()
+      .from(schema.financialAccounts)
+      .where(eq(schema.financialAccounts.plaidAccountId, plaidAccountId));
+    expect(account).toBeDefined();
+
+    const securities = await db
+      .select()
+      .from(schema.securities)
+      .where(eq(schema.securities.ownerUserId, ownerUserId));
+    const equity = securities.find((row) => row.plaidSecurityId === equitySecurityId);
+    expect(equity).toBeDefined();
+    expect(equity?.tickerSymbol).toBe("AAPL");
+    expect(equity?.name).toBe("Apple Inc.");
+    expect(equity?.type).toBe("equity");
+    expect(equity?.isCashEquivalent).toBe(false);
+    expect(equity?.closePriceAsOf).toBe("2026-09-19");
+    expect(securities.find((row) => row.plaidSecurityId === cashSecurityId)?.isCashEquivalent).toBe(true);
+
+    let holdings = await db
+      .select()
+      .from(schema.investmentHoldings)
+      .where(eq(schema.investmentHoldings.accountId, account!.id));
+    // Two stored, not three — the holding naming an unknown security is skipped.
+    expect(holdings).toHaveLength(2);
+
+    const equityHolding = holdings.find((row) => row.securityId === equity!.id);
+    expect(equityHolding).toBeDefined();
+    // The whole reason this column is NUMERIC and not an integer or a float.
+    expect(equityHolding?.quantity).toBe("12.34567890");
+    expect(equityHolding?.institutionPrice).toBe("187.655000");
+    expect(equityHolding?.institutionValueMinorUnits).toBe(231_679);
+    expect(equityHolding?.costBasisMinorUnits).toBe(150_000);
+
+    // Re-sync: the equity position grew, and the cash position was sold off entirely. The equity row must
+    // be UPDATED in place (one row, not two — the unique (account, security) index depends on it), and the
+    // cash row must be GONE rather than lingering as a phantom holding.
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/accounts/get")) return jsonResponse({ accounts: [investmentAccount] });
+      if (url.includes("/liabilities/get")) return jsonResponse({ liabilities: { credit: null, mortgage: null, student: null } });
+      if (url.includes("/investments/holdings/get")) {
+        return jsonResponse({
+          accounts: [investmentAccount],
+          securities: [
+            {
+              security_id: equitySecurityId,
+              name: "Apple Inc.",
+              ticker_symbol: "AAPL",
+              type: "equity",
+              close_price: 190.1,
+              close_price_as_of: "2026-09-20",
+              iso_currency_code: "USD",
+              is_cash_equivalent: false,
+            },
+          ],
+          holdings: [
+            {
+              account_id: plaidAccountId,
+              security_id: equitySecurityId,
+              quantity: 20.5,
+              institution_price: 190.1,
+              institution_price_as_of: "2026-09-20",
+              institution_value: 3_897.05,
+              cost_basis: 2_600.0,
+              iso_currency_code: "USD",
+            },
+          ],
+        });
+      }
+      if (url.includes("/transactions/sync")) {
+        return jsonResponse({ added: [], modified: [], removed: [], next_cursor: "cursor-inv-2", has_more: false });
+      }
+      throw new Error(`Unexpected fetch in test: ${url}`);
+    });
+
+    await plaid.incrementalSync(connectionId);
+
+    holdings = await db
+      .select()
+      .from(schema.investmentHoldings)
+      .where(eq(schema.investmentHoldings.accountId, account!.id));
+    expect(holdings).toHaveLength(1);
+    expect(holdings[0]?.securityId).toBe(equity!.id);
+    expect(holdings[0]?.quantity).toBe("20.50000000");
+    expect(holdings[0]?.institutionValueMinorUnits).toBe(389_705);
+    // Same row, not a replacement — its id survived the update.
+    expect(holdings[0]?.id).toBe(equityHolding!.id);
+
+    // The security's own reference data is refreshed too, not just the position.
+    const [refreshedEquity] = await db
+      .select()
+      .from(schema.securities)
+      .where(eq(schema.securities.id, equity!.id));
+    expect(refreshedEquity?.closePrice).toBe("190.100000");
+    expect(refreshedEquity?.closePriceAsOf).toBe("2026-09-20");
+  });
+
+  // FIN-006 — an item linked before "investments" joined the Link product list never consented to it, so
+  // Plaid 400s that endpoint forever until the user reconnects. That is the common case on every existing
+  // connection, and it must degrade to "no holdings", never take transaction sync down with it.
+  it("keeps syncing transactions when the investments product is not consented for the item", async () => {
+    if (!dbAvailable) return;
+
+    const plaidAccountId = generateId("financialAccount");
+    const txnId = generateId("financialTransaction");
+
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/item/public_token/exchange")) {
+        return jsonResponse({ access_token: "access-sandbox-test-noinv", item_id: "item-sandbox-test-noinv" });
+      }
+      if (url.includes("/accounts/get")) {
+        return jsonResponse({
+          accounts: [
+            {
+              account_id: plaidAccountId,
+              name: "Test Checking",
+              official_name: null,
+              type: "depository",
+              subtype: "checking",
+              mask: "1122",
+              balances: { current: 500.0, available: 500.0, iso_currency_code: "USD" },
+            },
+          ],
+        });
+      }
+      if (url.includes("/liabilities/get")) return jsonResponse({ liabilities: { credit: null, mortgage: null, student: null } });
+      if (url.includes("/investments/holdings/get")) {
+        // Plaid's real shape for this: HTTP 400 with PRODUCTS_NOT_SUPPORTED.
+        return new Response(
+          JSON.stringify({
+            error_type: "INVALID_INPUT",
+            error_code: "PRODUCTS_NOT_SUPPORTED",
+            error_message: "client is not authorized to access the following products: [\"investments\"]",
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/transactions/sync")) {
+        return jsonResponse({
+          added: [
+            {
+              transaction_id: txnId,
+              account_id: plaidAccountId,
+              name: "COFFEE SHOP",
+              merchant_name: "Coffee Shop",
+              amount: 4.75,
+              iso_currency_code: "USD",
+              category: ["Food and Drink"],
+              pending: false,
+              date: today,
+              pending_transaction_id: null,
+            },
+          ],
+          modified: [],
+          removed: [],
+          next_cursor: "cursor-noinv-1",
+          has_more: false,
+        });
+      }
+      throw new Error(`Unexpected fetch in test: ${url}`);
+    });
+
+    const { connectionId } = await plaid.exchangePublicToken({
+      publicToken: "public-sandbox-test-noinv",
+      ownerUserId,
+      householdId: null,
+    });
+    await plaid.initialSync(connectionId);
+
+    // The point of the test: the transaction still landed despite investments 400ing.
+    const [txn] = await db
+      .select()
+      .from(schema.financialTransactions)
+      .where(eq(schema.financialTransactions.plaidTransactionId, txnId));
+    expect(txn).toBeDefined();
+    expect(txn?.amountMinorUnits).toBe(475);
+
+    const [account] = await db
+      .select()
+      .from(schema.financialAccounts)
+      .where(eq(schema.financialAccounts.plaidAccountId, plaidAccountId));
+    const holdings = await db
+      .select()
+      .from(schema.investmentHoldings)
+      .where(eq(schema.investmentHoldings.accountId, account!.id));
+    expect(holdings).toHaveLength(0);
+  });
+
   it("snapshots a transaction_revisions row when a pending amount changes before posting under the same provider id", async () => {
     if (!dbAvailable) return;
 

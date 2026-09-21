@@ -9,6 +9,7 @@ import { SafeUrlFetcher } from "../ingestion/safe-url-fetcher";
 import type { HouseholdService } from "../household/household.service";
 import type { RecallMonitorService } from "./recall-monitor.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * HOMEOS-002/HOMEOS-004/VEH-001/VEH-003/VEH-004 gap-close — real integration test against real dev
@@ -46,8 +47,7 @@ describe("AssetsService — maintenance rules, registration records, home-asset 
       const asset = await assets.createHomeAsset(ownerUserId, { propertyProfileId: propertyId, label: "Furnace", room: "Basement" });
       homeAssetId = asset.id;
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AssetsService maintenance tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AssetsService maintenance tests");
     }
   });
 

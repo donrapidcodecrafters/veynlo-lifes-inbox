@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { ConflictService } from "./conflict.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 // Only school_transport conflict resolution touches HouseholdService, which this file's tests (all
 // time_overlap, calendar-events-only) never exercise — a minimal stub is enough to satisfy the constructor.
@@ -37,8 +38,7 @@ describe("ConflictService.detectOverlaps", () => {
         { id: otherOwnerUserId, email: `conflict-test-${otherOwnerUserId}@example.com`, displayName: "Conflict Test Other" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ConflictService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ConflictService tests");
     }
   });
 

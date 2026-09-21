@@ -4,6 +4,7 @@ import { IngestionModule } from "../ingestion/ingestion.module";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { DocumentsModule } from "../documents/documents.module";
 import { ScheduleModule } from "../schedule/schedule.module";
+import { SearchIndexModule } from "../search/search-index.module";
 import { CredentialVault } from "../../common/credential-vault";
 import { ConnectorsController } from "./connectors.controller";
 import { CalendarActionsController } from "./calendar-actions.controller";
@@ -13,35 +14,45 @@ import { CalendarWriteBackService } from "./calendar-write-back.service";
 import { GmailAdapter } from "./gmail.adapter";
 import { OutlookAdapter } from "./outlook.adapter";
 import { IcsAdapter } from "./ics.adapter";
+import { ImapAdapter } from "./imap.adapter";
+import { CalDavAdapter } from "./caldav.adapter";
+import { CardDavAdapter } from "./carddav.adapter";
 import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { MicrosoftCalendarAdapter } from "./microsoft-calendar.adapter";
 import { GoogleContactsAdapter } from "./google-contacts.adapter";
 import { MicrosoftContactsAdapter } from "./microsoft-contacts.adapter";
 import { GoogleDriveAdapter } from "./google-drive.adapter";
 import { OneDriveAdapter } from "./onedrive.adapter";
+import { SharePointAdapter } from "./sharepoint.adapter";
 import { DropboxAdapter } from "./dropbox.adapter";
 import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./microsoft-todo.adapter";
 import { PlaidAdapter } from "./plaid.adapter";
+import { TokenTaskAdapter } from "./token-task.adapter";
 
 const ADAPTERS = [
   GmailAdapter,
   OutlookAdapter,
   IcsAdapter,
+  ImapAdapter,
+  CalDavAdapter,
+  CardDavAdapter,
   GoogleCalendarAdapter,
   MicrosoftCalendarAdapter,
   GoogleContactsAdapter,
   MicrosoftContactsAdapter,
   GoogleDriveAdapter,
   OneDriveAdapter,
+  SharePointAdapter,
   DropboxAdapter,
   GoogleTasksAdapter,
   MicrosoftToDoAdapter,
   PlaidAdapter,
+  TokenTaskAdapter,
 ];
 
 @Module({
-  imports: [IdentityModule, IngestionModule, EntitlementsModule, DocumentsModule, ScheduleModule],
+  imports: [IdentityModule, IngestionModule, EntitlementsModule, DocumentsModule, ScheduleModule, SearchIndexModule],
   controllers: [ConnectorsController, CalendarActionsController, WebhooksController],
   providers: [ConnectorsService, CalendarWriteBackService, ...ADAPTERS, CredentialVault],
   // CalendarWriteBackService is exported so AttentionModule (InboxService's "add to calendar" destination

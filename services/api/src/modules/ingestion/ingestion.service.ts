@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { BadRequestException, Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { and, eq, gte, isNull, isNotNull, lte, ne, or } from "drizzle-orm";
 import type { gmail_v1 } from "googleapis";
-import { generateId, confidenceToBand, type TemporalValue } from "@veynlo/core";
+import { confidenceToBand, formatPaymentMethodHint, generateId, looksLikeFullNumber, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -42,9 +42,12 @@ import {
   type ShareMessageClassification,
 } from "../intelligence/extraction-schemas";
 import { evaluateRelevance, matchKnownSender, normalizeSenderDomain, extractEmailAddress, KNOWN_SENDER_PARSER_VERSION } from "../intelligence/deterministic-prefilter";
+import { extractSchemaOrgFromHtml, hasUsableMarkup, EMPTY_FINDINGS, type SchemaOrgFindings } from "./schema-org-email";
+import { receiptResultFromMarkup, shipmentResultFromMarkup, tripSegmentResultFromMarkup, billResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
+import { calendarEventsFromText } from "./ics-events";
 import { parseGmailMessage, type ParsedEmail, type EmailAttachmentInput } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
-import { toTemporalValue, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
+import { toTemporalValue, toTemporalValueWithTime, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
 import { resolvePriceAdjustmentPolicy } from "../commerce/price-adjustment-policy";
 import { categorizeBiller } from "../commerce/biller-category";
 
@@ -196,6 +199,19 @@ const ALLOWED_SHARE_SCREENSHOT_MIME_TYPES = new Set(["image/jpeg", "image/png", 
  * + InboxItem creation. Stage 5 "rules/state logic" (deadlines, attention
  * scoring) is handled by the attention module once a candidate is filed.
  */
+/**
+ * Is this attachment a calendar file?
+ *
+ * Both halves matter. Some senders label it `application/ics` or `application/octet-stream` and rely on
+ * the filename; others send `text/calendar` with a filename like `invite.dat`. Checking only the declared
+ * type misses the first group, and checking only the extension misses the second.
+ */
+function isCalendarAttachment(attachment: { filename?: string | null; mimeType?: string | null }): boolean {
+  const mime = (attachment.mimeType ?? "").toLowerCase();
+  if (mime.startsWith("text/calendar") || mime === "application/ics") return true;
+  return /\.ics$/i.test(attachment.filename ?? "");
+}
+
 @Injectable()
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
@@ -310,6 +326,52 @@ export class IngestionService {
     });
   }
 
+  /**
+   * IMAP. Unlike Gmail and Outlook there is no provider SDK shape to parse here — `ImapAdapter` has
+   * already turned an RFC822 message into these fields with mailparser, because the parsing belongs next
+   * to the fetch that produced it.
+   *
+   * Everything after this point is identical to the two OAuth mail connectors, deliberately: the same
+   * relevance gate, sender rules, dedup, attachment pipeline and schema.org markup reading. A mailbox
+   * reached over an open standard is not a second-class source.
+   *
+   * Idempotency keys on the mailbox UID, which is stable per (mailbox, UIDVALIDITY) — the adapter detects
+   * a UIDVALIDITY change and restarts rather than letting a renumbered mailbox collide with old keys.
+   */
+  async ingestImapMessage(params: {
+    ownerUserId: string;
+    householdId: string | null;
+    connectionId: string;
+    uid: number;
+    subject: string;
+    fromAddress: string;
+    toAddress: string;
+    dateHeader: string;
+    bodyText: string;
+    bodyHtml: string | null;
+    headers: Record<string, string>;
+    isBackfill?: boolean;
+  }): Promise<void> {
+    await this.ingestParsedEmail({
+      ownerUserId: params.ownerUserId,
+      householdId: params.householdId,
+      connectionId: params.connectionId,
+      providerPrefix: "imap",
+      providerItemId: String(params.uid),
+      isBackfill: params.isBackfill,
+      parsed: {
+        subject: params.subject,
+        fromAddress: params.fromAddress,
+        toAddress: params.toAddress,
+        dateHeader: params.dateHeader,
+        snippet: params.bodyText.slice(0, 200),
+        bodyText: params.bodyText.slice(0, 20_000),
+        bodyHtml: params.bodyHtml ? params.bodyHtml.slice(0, 100_000) : null,
+        headers: params.headers,
+      },
+    });
+  }
+
   async ingestOutlookMessage(params: IngestOutlookParams): Promise<void> {
     await this.ingestParsedEmail({
       ...params,
@@ -361,11 +423,20 @@ export class IngestionService {
       fromAddress: parsed.fromAddress || null,
     });
 
+    // Parsed once, here, and threaded onward — the relevance gate and the extractors both need it, and
+    // re-reading the same HTML twice per message is pure waste.
+    const markup = extractSchemaOrgFromHtml(parsed.bodyHtml);
+
     const relevance = evaluateRelevance({
       subject: parsed.subject,
       fromAddress: parsed.fromAddress,
       snippet: parsed.snippet,
       headers: parsed.headers,
+      hasPublishedMarkup: hasUsableMarkup(markup),
+      // A message carrying a calendar invite is about a specific thing at a specific time, whatever its
+      // subject line looks like — see this parameter's own doc comment for why it has to be checked here
+      // rather than left to the attachment step, which this gate returns before ever reaching.
+      hasCalendarAttachment: (params.attachments ?? []).some(isCalendarAttachment),
     });
 
     if (!relevance.relevant) {
@@ -380,6 +451,7 @@ export class IngestionService {
       connectionId: params.connectionId,
       parsed,
       isBackfill: params.isBackfill,
+      markup,
     });
   }
 
@@ -451,6 +523,7 @@ export class IngestionService {
         dateHeader: "",
         snippet: params.bodyText.slice(0, 200),
         bodyText: params.bodyText,
+        bodyHtml: null,
         headers: {},
       },
     };
@@ -637,6 +710,7 @@ export class IngestionService {
         dateHeader: "",
         snippet: trimmedTranscript.slice(0, 200),
         bodyText: trimmedTranscript,
+        bodyHtml: null, // a transcript has no markup to read
         headers: {},
       },
     });
@@ -735,7 +809,7 @@ export class IngestionService {
       sourceEventId,
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
-      parsed: { subject: "Shared screenshot", fromAddress: "", toAddress: "", dateHeader: "", snippet: ocrText.slice(0, 200), bodyText: ocrText, headers: {} },
+      parsed: { subject: "Shared screenshot", fromAddress: "", toAddress: "", dateHeader: "", snippet: ocrText.slice(0, 200), bodyText: ocrText, headers: {}, bodyHtml: null },
     });
     return { sourceEventId };
   }
@@ -806,7 +880,10 @@ export class IngestionService {
     const data = result.data;
     let filed = false;
     if (data.category === "purchase") {
-      filed = await this.extractReceipt(ctx, null);
+      // A shared screenshot or message has no HTML body and therefore no markup to read — this path is
+      // OCR text or a pasted string. EMPTY_FINDINGS says that explicitly rather than reaching for
+      // ctx.parsed.bodyHtml, which is always null here by construction.
+      filed = await this.extractReceipt(ctx, null, EMPTY_FINDINGS, true);
     } else if (data.category === "event" || data.category === "date") {
       filed = await this.extractCalendarEvent(ctx);
     } else if (data.category === "task") {
@@ -980,10 +1057,60 @@ export class IngestionService {
    * is would need its own OCR-then-classify pass, a larger follow-up, not "attachment becomes a real linked
    * document" (this pass's actual scope).
    */
+/** One invite is one event; a subscription file attached to a message is not what this path is for. */
+  private static readonly ATTACHED_CALENDAR_EVENT_LIMIT = 25;
+
   private async processEmailAttachments(ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: { attachments?: EmailAttachmentInput[] } }): Promise<void> {
     const attachments = ctx.parsed.attachments ?? [];
-    if (attachments.length === 0 || !this.documents) return;
+    if (attachments.length === 0) return;
+
+    /**
+     * A calendar invite is a calendar event, not a document.
+     *
+     * Every attachment used to go one way: uploaded as a generic `documentType: "other"` and queued for
+     * OCR. For a PDF or a photo that is right. For the `.ics` that an airline, a hotel, a restaurant, a
+     * school and every single meeting invite attaches, it meant running optical character recognition over
+     * a text file and filing the result as a document nobody would look at — while the event it describes,
+     * with an exact start time and timezone already stated, never reached the calendar at all.
+     *
+     * Read here rather than left to the model: a VEVENT states its time. Nothing needs inferring, so this
+     * works with AI processing turned off, and it cannot be misread the way prose can.
+     */
     for (const attachment of attachments) {
+      if (!isCalendarAttachment(attachment)) continue;
+      try {
+        const events = calendarEventsFromText(attachment.buffer.toString("utf8"), IngestionService.ATTACHED_CALENDAR_EVENT_LIMIT);
+        for (const event of events) {
+          // A CANCEL invite states STATUS:CANCELLED. Filing it as an ordinary event would put a meeting on
+          // somebody's calendar that the organiser had just called off — worse than filing nothing.
+          if (event.status === "CANCELLED") continue;
+          await this.ingestFeedCalendarEvent({
+            provider: "email_attachment",
+            ownerUserId: ctx.ownerUserId,
+            householdId: ctx.householdId,
+            // No `connections` row: this arrived as a file on a message, not from a subscribed feed. The
+            // idempotency key falls back to scoping by owner, which is what that path is for.
+            connectionId: null,
+            uid: event.uid,
+            title: event.title,
+            start: event.start,
+            end: event.end,
+            isAllDay: event.isAllDay,
+            location: event.location,
+          });
+        }
+      } catch (err) {
+        // Best-effort per attachment, exactly as the document path below is: one unreadable calendar file
+        // must not cost the message its other attachments or its ingestion.
+        this.logger.warn(`Failed to read calendar attachment "${attachment.filename}" for source event ${ctx.sourceEventId}: ${String(err)}`);
+      }
+    }
+
+    if (!this.documents) return;
+    for (const attachment of attachments) {
+      // A calendar file has already been read as events above. Uploading it as a document too would OCR a
+      // text file and leave a duplicate nobody asked for in the Documents vault.
+      if (isCalendarAttachment(attachment)) continue;
       try {
         await this.documents.upload({
           ownerUserId: ctx.ownerUserId,
@@ -1012,6 +1139,8 @@ export class IngestionService {
      * (GmailAdapter/OutlookAdapter's `initialSync`), never from live/incremental sync or any manual capture
      * path. See `isBackfillCostBudgetPaused`'s own doc comment. */
     isBackfill?: boolean;
+    /** Already parsed by `ingestParsedEmail`; recomputed below for callers with no HTML body at all. */
+    markup?: SchemaOrgFindings;
   }): Promise<void> {
     // §AI-003 kill switch — checked at the very top, before any other gate or AI call, so flipping
     // `ai_extraction_paused` genuinely stops every NEW extraction call, not just the domain classifier
@@ -1023,14 +1152,30 @@ export class IngestionService {
       return;
     }
 
+    // The sender's own structured data, read once for this message and threaded through everything below.
+    //
+    // Deliberately AFTER the §AI-003 kill switch and BEFORE every other gate. The kill switch is an
+    // emergency brake, and the conservative reading of an emergency brake is that it stops processing, not
+    // merely the model. Every gate below it, though, is about AI specifically — cost, consent, model
+    // behaviour — and none of those describe reading a field the sender put in their own email.
+    const markup: SchemaOrgFindings = ctx.markup ?? extractSchemaOrgFromHtml(ctx.parsed.bodyHtml);
+    const markupUsable = hasUsableMarkup(markup);
+
     // §47.4/§39.2 backfill-specific cost-pressure pause — deliberately gated on `ctx.isBackfill` so this
     // NEVER throttles live inbox processing, only the deferrable historical-backfill work the spec calls out
     // by name as "the correct thing to throttle first" under cost pressure. See
     // `isBackfillCostBudgetPaused`'s own doc comment for the threshold mechanics.
+    // A cost pause exists to stop spending. Reading markup spends nothing — no model call, no tokens, no
+    // request leaving this process — so a budget pause suppresses the model and lets the sender's own
+    // stated facts through, rather than discarding free information to save money that was never at risk.
+    let aiAllowed = true;
     if (ctx.isBackfill && (await this.isBackfillCostBudgetPaused(ctx.ownerUserId))) {
       this.logger.warn(`Backfill cost budget exceeded for user ${ctx.ownerUserId} — deferring backfill-triggered AI extraction for source event ${ctx.sourceEventId}`);
-      await this.markProcessed(ctx.sourceEventId, "filed");
-      return;
+      if (!markupUsable) {
+        await this.markProcessed(ctx.sourceEventId, "filed");
+        return;
+      }
+      aiAllowed = false;
     }
 
     // PRIV-001 privacy/consent center's "AI processing" opt-out — checked here, before ANY AI call, not
@@ -1056,8 +1201,24 @@ export class IngestionService {
       }
     }
     if (!effectiveAiProcessingEnabled) {
-      await this.markProcessed(ctx.sourceEventId, "filed");
-      return;
+      // PRIV-001 is an AI opt-out, and schema.org markup is not AI: no model runs, nothing is inferred,
+      // and no content leaves this process. Before this, the toggle meant a completely dead inbox — a user
+      // who wanted no model reading their mail also got no orders and no deliveries, ever. They now still
+      // get what senders state outright about their own messages, and nothing more.
+      //
+      // Every non-AI gate still applies in full: a paused connection, an excluded sender and an "ignore"
+      // sender rule all still stop this message dead, below.
+      //
+      // An attached calendar invite is here for exactly the same reason as the markup: reading a VEVENT
+      // runs no model, infers nothing and sends nothing anywhere. Without this the invite was dropped for
+      // every AI-off household — which is the group that most needs a source of truth that is simply
+      // stated rather than inferred.
+      const hasCalendarInvite = (ctx.parsed.attachments ?? []).some(isCalendarAttachment);
+      if (!markupUsable && !hasCalendarInvite) {
+        await this.markProcessed(ctx.sourceEventId, "filed");
+        return;
+      }
+      aiAllowed = false;
     }
 
     // PRIV-001 "exclude a specific sender from a connection" — a connection-scoped deny-list checked
@@ -1122,7 +1283,7 @@ export class IngestionService {
       // matchKnownSender path, never for an AI-classified or sender-rule-forced event — see
       // KNOWN_SENDER_PARSER_VERSION's own doc comment.
       await this.db.update(schema.sourceEvents).set({ parserVersion: KNOWN_SENDER_PARSER_VERSION }).where(eq(schema.sourceEvents.id, ctx.sourceEventId));
-    } else if (this.ai.isConfigured()) {
+    } else if (aiAllowed && this.ai.isConfigured()) {
       const classification = await this.ai.extractStructured({
         extractorName: "domain_classifier_v1",
         sourceEventId: ctx.sourceEventId,
@@ -1136,8 +1297,15 @@ export class IngestionService {
         toolDescription: "Classify this message's Veynlo domains.",
       });
       domains = classification?.data.domains ?? ["irrelevant"];
+      // The classifier reads prose and can miss what the sender declared outright — and on a message whose
+      // body is a wall of marketing images around one ld+json block, prose is most of what it has to go on.
+      // Union rather than replace: the classifier still contributes domains the markup says nothing about.
+      for (const domain of domainsFromMarkup(markup)) if (!domains.includes(domain)) domains.push(domain);
     } else {
-      domains = ["irrelevant"];
+      // No classifier — either unconfigured, or suppressed by a gate above. A declared Order IS a receipt;
+      // saying so needs no model, which is the whole reason extraction still works with AI switched off.
+      domains = domainsFromMarkup(markup);
+      if (domains.length === 0) domains = ["irrelevant"];
     }
 
     if (domains.includes("irrelevant") && domains.length === 1) {
@@ -1183,13 +1351,13 @@ export class IngestionService {
 
     let filedAny = false;
     if (domains.includes("receipt") && purchasesReturnsTracking !== false && categoryPurchasesEnabled) {
-      filedAny = (await this.extractReceipt(ctx, known?.category === "receipt" ? known.merchantName : null)) || filedAny;
+      filedAny = (await this.extractReceipt(ctx, known?.category === "receipt" ? known.merchantName : null, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("shipment")) {
-      filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null)) || filedAny;
+      filedAny = (await this.extractShipment(ctx, known?.category === "shipment" ? known.merchantName : null, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("bill") && subscriptionsBillsTracking !== false && categoryFinanceEnabled) {
-      filedAny = (await this.extractBill(ctx)) || filedAny;
+      filedAny = (await this.extractBill(ctx, markup, aiAllowed)) || filedAny;
     }
     if (domains.includes("subscription") && subscriptionsBillsTracking !== false && categoryFinanceEnabled) {
       filedAny = (await this.extractSubscription(ctx)) || filedAny;
@@ -1202,7 +1370,7 @@ export class IngestionService {
     // back to extractCalendarEvent, since a partially-classified travel email with no trip segment filed is
     // still correctly "nothing filed" (same "no half-features" stance as the other entitlement gates here).
     if (domains.includes("travel") && travelPlanning !== false && categoryTravelEnabled) {
-      filedAny = (await this.extractTripSegment(ctx)) || filedAny;
+      filedAny = (await this.extractTripSegment(ctx, markup, aiAllowed)) || filedAny;
     } else if (domains.includes("calendar_event")) {
       filedAny = (await this.extractCalendarEvent(ctx)) || filedAny;
     }
@@ -1229,10 +1397,20 @@ export class IngestionService {
   private async extractReceipt(
     ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: ReturnType<typeof parseGmailMessage> },
     knownMerchantName: string | null,
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
   ): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "receipt_extraction_v1",
+    // The sender's own statement of their own order. Taken as authoritative for the fields it covers.
+    const fromMarkup = receiptResultFromMarkup(markup);
+
+    // The model still runs when it is allowed to, because markup has no vocabulary for a return deadline,
+    // tax, shipping or how it was paid — and a return deadline is among the most valuable things this app
+    // extracts. Skipping the model on the strength of a partial Order would trade a real capability for a
+    // saving that was never the point.
+    const fromModel =
+      aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "receipt_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -1240,10 +1418,35 @@ export class IngestionService {
         "Extract structured purchase/receipt data from this email for Veynlo. Never invent a date or amount that " +
         "is not clearly stated — use null and confidenceNotes instead.",
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
-      schema: ReceiptExtractionSchema,
-      toolDescription: "Emit the extracted receipt/purchase fields.",
-    });
-    if (!result) return false;
+            schema: ReceiptExtractionSchema,
+            toolDescription: "Emit the extracted receipt/purchase fields.",
+          })
+        : null;
+
+    if (!fromMarkup && !fromModel) return false;
+
+    // Merge, markup winning field by field. Not "markup OR model": an Order that states a number and a
+    // total but no line items must not discard the line items the model read from the same email.
+    const result =
+      fromMarkup && fromModel
+        ? {
+            ...fromModel,
+            modelUsed: `${fromMarkup.modelUsed}+${fromModel.modelUsed}`,
+            // Confidence follows the weakest field that actually decides anything downstream. The merged
+            // record is part inference, so it does not get the markup's certainty.
+            confidenceScore: fromModel.confidenceScore,
+            data: {
+              ...fromModel.data,
+              merchantName: fromMarkup.data.merchantName ?? fromModel.data.merchantName,
+              orderNumber: fromMarkup.data.orderNumber ?? fromModel.data.orderNumber,
+              purchaseDate: fromMarkup.data.purchaseDate ?? fromModel.data.purchaseDate,
+              totalAmountMinorUnits: fromMarkup.data.totalAmountMinorUnits ?? fromModel.data.totalAmountMinorUnits,
+              currency: fromMarkup.data.totalAmountMinorUnits !== null ? fromMarkup.data.currency : fromModel.data.currency,
+              lineItems: fromMarkup.data.lineItems.length > 0 ? fromMarkup.data.lineItems : fromModel.data.lineItems,
+              confidenceNotes: `${fromMarkup.data.confidenceNotes}\n\n${fromModel.data.confidenceNotes}`,
+            },
+          }
+        : (fromMarkup ?? fromModel)!;
 
     const merchantName = knownMerchantName ?? result.data.merchantName ?? "Unknown merchant";
     const merchantId = await this.findOrCreateMerchant(merchantName);
@@ -1261,6 +1464,11 @@ export class IngestionService {
       ? await this.findExistingPurchase(ctx.ownerUserId, merchantId, result.data.orderNumber)
       : await this.findExistingPurchaseByAmountAndDate(ctx.ownerUserId, merchantId, result.data.totalAmountMinorUnits, temporalToSortDate(purchaseDate));
 
+    // Composed here, never taken as free text from the extraction — see formatPaymentMethodHint for why
+    // the brand and the last four digits are asked for separately. Null whenever the pair does not fit the
+    // contract, which includes an extraction that handed back more of the card number than four digits.
+    const paymentMethodHint = formatPaymentMethodHint(result.data.paymentMethodBrand, result.data.paymentMethodLast4);
+
     const purchaseId = existing?.id ?? generateId("purchase");
     if (existing) {
       await this.db
@@ -1270,6 +1478,9 @@ export class IngestionService {
           totalMinorUnits: existing.totalMinorUnits ?? result.data.totalAmountMinorUnits,
           taxMinorUnits: existing.taxMinorUnits ?? result.data.taxMinorUnits,
           shippingMinorUnits: existing.shippingMinorUnits ?? result.data.shippingMinorUnits,
+          // Same fill-a-gap rule as the amounts above: a later email about the same order should add the
+          // payment note if the first one did not have it, never replace one the user may have corrected.
+          paymentMethodHint: existing.paymentMethodHint ?? paymentMethodHint,
           updatedAt: new Date(),
         })
         .where(eq(schema.purchases.id, purchaseId));
@@ -1304,6 +1515,7 @@ export class IngestionService {
         totalCurrency: result.data.currency,
         taxMinorUnits: result.data.taxMinorUnits,
         shippingMinorUnits: result.data.shippingMinorUnits,
+        paymentMethodHint,
         state: "candidate",
         confidenceBand,
         sourceEventId: ctx.sourceEventId,
@@ -1530,10 +1742,19 @@ export class IngestionService {
   private async extractShipment(
     ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: ReturnType<typeof parseGmailMessage> },
     knownCarrierName: string | null,
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
   ): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "shipment_extraction_v1",
+    // Unlike a receipt, a ParcelDelivery carries everything a shipment record is made of — carrier,
+    // tracking number, the delivery window and the order it belongs to. There is no field left for the
+    // model to contribute, so when the markup is there the model is not called at all. This is where the
+    // cost saving actually lives.
+    const fromMarkup = shipmentResultFromMarkup(markup);
+    const result =
+      fromMarkup ??
+      (aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "shipment_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -1541,9 +1762,10 @@ export class IngestionService {
         "Extract structured shipping/tracking data from this email for Veynlo. Never invent a carrier, tracking " +
         "number, or delivery date that is not clearly stated.",
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
-      schema: ShipmentExtractionSchema,
-      toolDescription: "Emit the extracted shipment fields.",
-    });
+            schema: ShipmentExtractionSchema,
+            toolDescription: "Emit the extracted shipment fields.",
+          })
+        : null);
     if (!result || !result.data.trackingNumber) return false;
 
     const carrier = knownCarrierName ?? result.data.carrier ?? "Unknown carrier";
@@ -1726,15 +1948,26 @@ export class IngestionService {
     return matches[0] ?? null;
   }
 
-  private async extractBill(ctx: {
-    sourceEventId: string;
-    ownerUserId: string;
-    householdId: string | null;
-    parsed: ReturnType<typeof parseGmailMessage>;
-  }): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "bill_extraction_v1",
+  private async extractBill(
+    ctx: {
+      sourceEventId: string;
+      ownerUserId: string;
+      householdId: string | null;
+      parsed: ReturnType<typeof parseGmailMessage>;
+    },
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
+  ): Promise<boolean> {
+    // The biller's own statement of their own bill. A due date stated in a machine-readable field cannot
+    // be misread the way one inferred from prose can, and a due date read wrong is a late payment.
+    const fromMarkup = billResultFromMarkup(markup);
+
+    // The model still runs when allowed. schema.org has no vocabulary at all for an equipment-return
+    // deadline, and a cable box return window is one of the few genuinely costly things this app catches.
+    const fromModel =
+      aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "bill_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -1748,8 +1981,37 @@ export class IngestionService {
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
       schema: BillExtractionSchema,
       toolDescription: "Emit the extracted bill fields.",
-    });
-    if (!result || !result.data.billerName) return false;
+          })
+        : null;
+
+    if (!fromMarkup && !fromModel) return false;
+
+    // Merge, markup winning field by field. An Invoice that states a due date and an amount but no
+    // equipment-return obligation must not discard the one the model read from the same email.
+    const result =
+      fromMarkup && fromModel
+        ? {
+            ...fromModel,
+            modelUsed: `${fromMarkup.modelUsed}+${fromModel.modelUsed}`,
+            confidenceScore: fromModel.confidenceScore,
+            data: {
+              ...fromModel.data,
+              billerName: fromMarkup.data.billerName ?? fromModel.data.billerName,
+              amountDueMinorUnits: fromMarkup.data.amountDueMinorUnits ?? fromModel.data.amountDueMinorUnits,
+              currency: fromMarkup.data.amountDueMinorUnits !== null ? fromMarkup.data.currency : fromModel.data.currency,
+              dueDate: fromMarkup.data.dueDate ?? fromModel.data.dueDate,
+              // A declared PaymentAutomaticallyApplied is the biller saying autopay is on. Where the markup
+              // says nothing, the model's reading of the prose still stands.
+              autopayMentioned: fromMarkup.data.autopayMentioned ?? fromModel.data.autopayMentioned,
+              accountLabel: fromMarkup.data.accountLabel ?? fromModel.data.accountLabel,
+              confidenceNotes: `${fromMarkup.data.confidenceNotes}\n\n${fromModel.data.confidenceNotes}`,
+            },
+          }
+        : (fromMarkup ?? fromModel)!;
+
+    // A bill with nobody to pay is not a bill this app can file or de-duplicate — unchanged from before,
+    // and it applies to a markup-derived result exactly as it did to a model-derived one.
+    if (!result.data.billerName) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("bill"));
     const dueDate = toTemporalValue(result.data.dueDate);
@@ -1758,6 +2020,12 @@ export class IngestionService {
     // bills" — a coarse, explicit-only-if-recognized heuristic (see biller-category.ts's own doc comment
     // for why an unrecognized name stays null rather than a guess).
     const billerCategory = categorizeBiller(result.data.billerName);
+    // A label, never a number. A bill email routinely prints the account in full alongside the friendly
+    // "Account ending 4321", and refusing anything with a long digit run is what keeps the stored value a
+    // reference rather than the thing it refers to. Trimming instead would manufacture a plausible label
+    // out of a real account number and hide that it happened.
+    const extractedAccountLabel = result.data.accountLabel?.trim() || null;
+    const accountLabel = looksLikeFullNumber(extractedAccountLabel) ? null : extractedAccountLabel;
     // UTIL-001 "equipment return obligations ... from source messages where available" — only ever set from
     // an explicit statement in the email (the system prompt above forbids inferring one); null on every
     // other bill, same as every other "never invent" field in this extractor.
@@ -1783,6 +2051,9 @@ export class IngestionService {
           // A biller's category doesn't change bill to bill — fill in only if this row never had one (e.g.
           // categorizeBiller's keyword list grew since the original bill was filed).
           billerCategory: existing.billerCategory ?? billerCategory,
+          // Fill a gap, never replace: a later reminder email about the same bill is usually less
+          // detailed than the original, and must not blank a label the first one captured.
+          accountLabel: existing.accountLabel ?? accountLabel,
           // Never stomp an equipment-return obligation a prior email already captured with a fresh `null`
           // from a later, less-detailed reminder email about the same bill.
           equipmentReturnDeadline: existing.equipmentReturnDeadline ?? equipmentReturnDeadline,
@@ -1798,6 +2069,7 @@ export class IngestionService {
         householdId: ctx.householdId,
         billerLabel: result.data.billerName,
         billerCategory,
+        accountLabel,
         amountDueMinorUnits: result.data.amountDueMinorUnits,
         amountDueCurrency: result.data.currency,
         confidenceBand,
@@ -2161,7 +2433,8 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("calendar_event"));
-    const start = toTemporalValue(result.data.startDate, result.data.timezone);
+    const zone = result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId));
+    const start = toTemporalValueWithTime(result.data.startDate, result.data.startTime, zone, { isAllDay: result.data.isAllDay });
     const startSort = temporalToSortDate(start);
 
     // CAL-004 reschedule reconciliation: a second email about the same appointment (a reminder, or a
@@ -2506,15 +2779,29 @@ export class IngestionService {
    * logic itself lives in TripsService.clusterSegment (see its own doc comment for the precision-first
    * matching stance and CAL-004-style reschedule reconciliation).
    */
-  private async extractTripSegment(ctx: {
-    sourceEventId: string;
-    ownerUserId: string;
-    householdId: string | null;
-    parsed: ReturnType<typeof parseGmailMessage>;
-  }): Promise<boolean> {
-    if (!this.ai.isConfigured()) return false;
-    const result = await this.ai.extractStructured({
-      extractorName: "trip_segment_extraction_v1",
+  private async extractTripSegment(
+    ctx: {
+      sourceEventId: string;
+      ownerUserId: string;
+      householdId: string | null;
+      parsed: ReturnType<typeof parseGmailMessage>;
+    },
+    markup: SchemaOrgFindings,
+    aiAllowed: boolean,
+  ): Promise<boolean> {
+    // The airline's, hotel's or ticketing site's own statement of the booking. Taken as authoritative for
+    // the fields it covers — a confirmation number stated in a machine-readable field cannot be misread
+    // the way one inferred from prose can.
+    const fromMarkup = tripSegmentResultFromMarkup(markup);
+
+    // The model still runs when it is allowed to, because markup has no vocabulary for a cancellation
+    // deadline, a baggage allowance, a resort fee or the policy text — and a cancellation deadline is
+    // among the most valuable things this app extracts from a travel email. Skipping the model because a
+    // reservation was declared would trade a real capability for a saving that was never the point.
+    const fromModel =
+      aiAllowed && this.ai.isConfigured()
+        ? await this.ai.extractStructured({
+            extractorName: "trip_segment_extraction_v1",
       sourceEventId: ctx.sourceEventId,
       model: "cheap",
       systemPrompt:
@@ -2529,13 +2816,60 @@ export class IngestionService {
       userContent: `Subject: ${ctx.parsed.subject}\n\nBody:\n${ctx.parsed.bodyText.slice(0, 8000)}`,
       schema: TripSegmentExtractionSchema,
       toolDescription: "Emit the extracted trip-segment fields.",
-    });
-    if (!result) return false;
+          })
+        : null;
+
+    if (!fromMarkup && !fromModel) return false;
+
+    // Merge, markup winning field by field. Not "markup OR model": a reservation that states a flight
+    // number and a departure time but no cancellation policy must not discard the policy the model read
+    // from the same email.
+    const result =
+      fromMarkup && fromModel
+        ? {
+            ...fromModel,
+            modelUsed: `${fromMarkup.modelUsed}+${fromModel.modelUsed}`,
+            // The merged record is part inference, so it does not get the markup's certainty.
+            confidenceScore: fromModel.confidenceScore,
+            data: {
+              ...fromModel.data,
+              kind: fromMarkup.data.kind,
+              providerName: fromMarkup.data.providerName ?? fromModel.data.providerName,
+              confirmationNumber: fromMarkup.data.confirmationNumber ?? fromModel.data.confirmationNumber,
+              locationLabel: fromMarkup.data.locationLabel ?? fromModel.data.locationLabel,
+              startDate: fromMarkup.data.startDate ?? fromModel.data.startDate,
+              startTime: fromMarkup.data.startTime ?? fromModel.data.startTime,
+              endDate: fromMarkup.data.endDate ?? fromModel.data.endDate,
+              endTime: fromMarkup.data.endTime ?? fromModel.data.endTime,
+              timezone: fromMarkup.data.timezone ?? fromModel.data.timezone,
+              travelerNamesOnReservation:
+                fromMarkup.data.travelerNamesOnReservation.length > 0
+                  ? fromMarkup.data.travelerNamesOnReservation
+                  : fromModel.data.travelerNamesOnReservation,
+              // A declared ReservationCancelled is the sender saying it outright. Where the markup says
+              // nothing, the model's reading of the prose still stands.
+              cancellationMentioned: fromMarkup.data.cancellationMentioned ?? fromModel.data.cancellationMentioned,
+              flightNumber: fromMarkup.data.flightNumber ?? fromModel.data.flightNumber,
+              departureAirport: fromMarkup.data.departureAirport ?? fromModel.data.departureAirport,
+              arrivalAirport: fromMarkup.data.arrivalAirport ?? fromModel.data.arrivalAirport,
+              seat: fromMarkup.data.seat ?? fromModel.data.seat,
+              propertyName: fromMarkup.data.propertyName ?? fromModel.data.propertyName,
+              vehicleOrServiceType: fromMarkup.data.vehicleOrServiceType ?? fromModel.data.vehicleOrServiceType,
+              pickupLocation: fromMarkup.data.pickupLocation ?? fromModel.data.pickupLocation,
+              dropoffLocation: fromMarkup.data.dropoffLocation ?? fromModel.data.dropoffLocation,
+              eventName: fromMarkup.data.eventName ?? fromModel.data.eventName,
+              venue: fromMarkup.data.venue ?? fromModel.data.venue,
+              bookingUrl: fromMarkup.data.bookingUrl ?? fromModel.data.bookingUrl,
+              confidenceNotes: `${fromMarkup.data.confidenceNotes}\n\n${fromModel.data.confidenceNotes}`,
+            },
+          }
+        : (fromMarkup ?? fromModel)!;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("travel"));
-    const startAt = toTemporalValue(result.data.startDate, result.data.timezone);
+    const zone = result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId));
+    const startAt = toTemporalValueWithTime(result.data.startDate, result.data.startTime, zone);
     const startAtSort = temporalToSortDate(startAt);
-    const endAt = toTemporalValue(result.data.endDate, result.data.timezone);
+    const endAt = toTemporalValueWithTime(result.data.endDate, result.data.endTime, zone);
     const endAtSort = temporalToSortDate(endAt);
     const cancellationDeadline = toTemporalValue(result.data.cancellationDeadlineDate);
     const cancellationDeadlineSort = temporalToSortDate(cancellationDeadline);
@@ -2649,7 +2983,7 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("health_appointment"));
-    const dateTime = toTemporalValue(result.data.startDate, result.data.timezone);
+    const dateTime = toTemporalValueWithTime(result.data.startDate, result.data.startTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)));
     const dateTimeSort = temporalToSortDate(dateTime);
     const label = result.data.providerName ?? result.data.appointmentType ?? "Health appointment";
 
@@ -2746,13 +3080,34 @@ export class IngestionService {
    * against `petNameHint`, and anything else (no hint, no match, more than one candidate) is left
    * unassigned for the user to resolve (see PetsService.assignEvent/assignVaccination).
    */
+  /**
+   * DEF-102 — the zone to read an extracted wall-clock time in when the email did not name one.
+   *
+   * Not a guess of the same kind as inventing a date would be. The message arrived in THIS user's life,
+   * and `users.timezone` is already populated and already trusted for quiet hours, data export and the
+   * Today window. Reading "2:00 PM" as 2:00 PM where the user is, is what the sender meant and what every
+   * calendar client does with it.
+   *
+   * Null when the column is empty, which keeps the value at date precision rather than silently treating
+   * the time as UTC — that would be wrong by up to half a day and would LOOK precise while being so.
+   */
+  private async ownerTimezone(ownerUserId: string): Promise<string | null> {
+    const [owner] = await this.db.select({ timezone: schema.users.timezone }).from(schema.users).where(eq(schema.users.id, ownerUserId)).limit(1);
+    return owner?.timezone ?? null;
+  }
+
   private async resolvePetId(householdId: string | null, ownerUserId: string, petNameHint: string | null): Promise<string | null> {
+    // mergedIntoPetId excluded too — a merged-away duplicate is never hard-deleted (see
+    // assets.service.ts's mergeVehicles doc comment). Without this, a household with one real pet plus one
+    // merged-away duplicate would see pets.length === 2 here, breaking the unambiguous-single-match
+    // auto-assign shortcut below, and the duplicate's name could shadow the real pet's in a hint match.
     const pets = await this.db
       .select({ id: schema.petProfiles.id, label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           householdId ? eq(schema.petProfiles.householdId, householdId) : eq(schema.petProfiles.ownerUserId, ownerUserId),
         ),
       );
@@ -2778,12 +3133,15 @@ export class IngestionService {
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<boolean> {
     if (!this.ai.isConfigured()) return false;
+    // mergedIntoPetId excluded too — see resolvePetId's own doc comment above; a merged-away duplicate
+    // would otherwise shadow the real pet's name in this disambiguation list handed to the model.
     const pets = await this.db
       .select({ label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           ctx.householdId ? eq(schema.petProfiles.householdId, ctx.householdId) : eq(schema.petProfiles.ownerUserId, ctx.ownerUserId),
         ),
       );
@@ -2810,7 +3168,7 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("pet"));
-    const start = toTemporalValue(result.data.startDate, result.data.timezone);
+    const start = toTemporalValueWithTime(result.data.startDate, result.data.startTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)));
     const startSort = temporalToSortDate(start);
     const petId = await this.resolvePetId(ctx.householdId, ctx.ownerUserId, result.data.petNameHint);
 
@@ -2847,12 +3205,22 @@ export class IngestionService {
       });
     }
 
+    // eventType was extracted on every pet email and then dropped — asked of the model, paid for in
+    // tokens, and stored nowhere. It is the one thing that says what KIND of appointment this is, which
+    // is what a review line needs, so it goes where the user actually reads it. Skipped when the title
+    // already says it, so a summary never reads "Grooming — grooming appointment".
+    const kind = result.data.eventType?.trim();
+    const labelledTitle =
+      kind && !result.data.title.toLowerCase().includes(kind.toLowerCase())
+        ? `${kind} — ${result.data.title}`
+        : result.data.title;
+
     const petUnresolved = petId == null && pets.length > 1;
     await this.fileInboxItem({
       ownerUserId: ctx.ownerUserId,
       householdId: ctx.householdId,
       category: "pet",
-      summary: existing ? `${result.data.title} updated` : `${result.data.title} discovered`,
+      summary: existing ? `${labelledTitle} updated` : `${labelledTitle} discovered`,
       linkedResourceType: "calendar_event",
       linkedResourceId: eventId,
       sourceEventId: ctx.sourceEventId,
@@ -2891,12 +3259,14 @@ export class IngestionService {
     parsed: ReturnType<typeof parseGmailMessage>;
   }): Promise<boolean> {
     if (!this.ai.isConfigured()) return false;
+    // mergedIntoPetId excluded too — see resolvePetId's own doc comment above.
     const pets = await this.db
       .select({ label: schema.petProfiles.label })
       .from(schema.petProfiles)
       .where(
         and(
           isNull(schema.petProfiles.deletedAt),
+          isNull(schema.petProfiles.mergedIntoPetId),
           ctx.householdId ? eq(schema.petProfiles.householdId, ctx.householdId) : eq(schema.petProfiles.ownerUserId, ctx.ownerUserId),
         ),
       );
@@ -3265,10 +3635,15 @@ export class IngestionService {
     if (!result) return false;
 
     const confidenceBand = confidenceToBand(result.confidenceScore, await this.resolveRiskThresholds("school"));
-    // Same precision stance as extractCalendarEvent: never fabricate an "instant" from a date + separate
-    // HH:MM field the schema captures but the evidence didn't clearly anchor together — see
-    // temporal.util.ts's toTemporalValue, which this deliberately mirrors rather than reimplementing.
-    const start = toTemporalValue(result.data.eventDate, result.data.timezone);
+    // DEF-102: this used to drop `eventTime` and say so, on the grounds that combining a date with a
+    // separately-extracted HH:MM would be fabricating precision. It is the opposite — the model was asked
+    // for that time and answered; discarding it lost the 09:00 from picture day and the 07:15 from a field
+    // trip's departure, and left every school event sorting at UTC midnight with its reminder an evening
+    // early. toTemporalValueWithTime still refuses to invent anything: no time, or no zone, and the value
+    // stays exactly the date-precision it was.
+    const start = toTemporalValueWithTime(result.data.eventDate, result.data.eventTime, result.data.timezone ?? (await this.ownerTimezone(ctx.ownerUserId)), {
+      isAllDay: result.data.isAllDay,
+    });
     const startSort = temporalToSortDate(start);
 
     let dependentId: string | null = null;
@@ -3612,11 +3987,30 @@ export class IngestionService {
     /** VEVENT STATUS:CANCELLED — reconciled onto the existing row's `status`, never a silent delete (an
      * evidence trail should show a cancellation happened, not make the row vanish). */
     canceled: boolean;
+    /**
+     * Which kind of school source this came from.
+     *
+     * An ICS feed and a Canvas course can both hand over an item with the id "12345", and the dedup key
+     * below is scoped by source id, so they would never actually collide — but the prefix is what makes a
+     * stored idempotency key readable when someone is working out why a row did or did not appear, and it
+     * keeps the wording of the inbox item honest. A Canvas assignment did not come from "your synced
+     * school calendar".
+     */
+    feedKind?: "ics" | "canvas";
+    /**
+     * The `school_events.kind` to file under.
+     *
+     * An ICS VEVENT carries no structured kind, which is why this defaults to "other". Canvas does carry
+     * one — an assignment is not an announcement — so it says which, rather than throwing that away and
+     * filing everything as "other" the way a shared path would if it only spoke ICS.
+     */
+    eventKind?: string;
   }): Promise<boolean> {
+    const feedKind = params.feedKind ?? "ics";
     const contentHash = createHash("sha256")
       .update(JSON.stringify({ title: params.title, start: params.start, location: params.location, isAllDay: params.isAllDay, canceled: params.canceled, description: params.description }))
       .digest("hex");
-    const idempotencyKey = `school_ics:${params.schoolSourceId}:${params.uid}:${contentHash}`;
+    const idempotencyKey = `school_${feedKind}:${params.schoolSourceId}:${params.uid}:${contentHash}`;
 
     const [existingSourceEvent] = await this.db
       .select({ id: schema.sourceEvents.id })
@@ -3660,7 +4054,7 @@ export class IngestionService {
         householdId: params.householdId,
         schoolId: params.schoolId,
         schoolSourceId: params.schoolSourceId,
-        kind: "other", // an ICS VEVENT carries no structured "kind" the way an AI-classified email does — see SchoolIcsService's own doc comment
+        kind: params.eventKind ?? "other", // an ICS VEVENT carries no structured "kind" the way an AI-classified email does — see SchoolIcsService's own doc comment
         title: params.title,
         description: params.description,
         start: params.start,
@@ -3686,11 +4080,11 @@ export class IngestionService {
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
       category: "school",
-      summary: params.canceled
-        ? `${params.title} was canceled on your synced school calendar`
-        : existingEvent
-          ? `${params.title} updated on your synced school calendar`
-          : `${params.title} added from your synced school calendar`,
+      summary: (() => {
+        const where = feedKind === "canvas" ? "Canvas" : "your synced school calendar";
+        if (params.canceled) return `${params.title} was canceled on ${where}`;
+        return existingEvent ? `${params.title} updated on ${where}` : `${params.title} added from ${where}`;
+      })(),
       linkedResourceType: "school_event",
       linkedResourceId: eventId,
       sourceEventId,
@@ -3862,6 +4256,8 @@ export class IngestionService {
       await this.notifications.createAndEnqueue({
         ownerUserId: params.ownerUserId,
         dedupeKey: `inbox-item:${inboxItemId}`,
+        linkedResourceType: "inbox_item",
+        linkedResourceId: inboxItemId,
         priority: "useful",
         title: "Veynlo found something new",
         body: prefs?.sensitivePreviewsEnabled === false ? "Open Veynlo to review it." : params.summary,

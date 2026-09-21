@@ -16,7 +16,7 @@ function startOfCurrentBillingMonthUtc(now: Date = new Date()): Date {
 
 const EMAIL_PROVIDERS = new Set(["gmail", "outlook"]);
 const CALENDAR_PROVIDERS = new Set(["google_calendar", "microsoft_calendar", "ics", "google_tasks", "microsoft_todo"]);
-const STORAGE_PROVIDERS = new Set(["google_drive", "onedrive", "dropbox"]);
+const STORAGE_PROVIDERS = new Set(["google_drive", "onedrive", "sharepoint", "dropbox"]);
 const FINANCIAL_PROVIDERS = new Set(["plaid"]);
 
 const CONNECTOR_QUOTA_CAPABILITY: Record<"email" | "calendar" | "storage" | "financial", CapabilityKey> = {
@@ -48,6 +48,12 @@ export class EntitlementsService {
     @Inject(CACHE) private readonly cache: Cache,
   ) {}
 
+  /**
+   * Deliberately unordered, and an ordering scan flagging it is a false positive — checked rather than
+   * assumed. `resolveCapability` takes the max (or unlimited, or true) across every active entitlement,
+   * so no permutation of this result can change its answer; its one order-dependent line, `values[0]`,
+   * is only reachable when every value is already false. Ordering here would be cost without meaning.
+   */
   async getCapability(userId: string, key: CapabilityKey): Promise<CapabilityValue> {
     const now = new Date();
     const active = await this.db

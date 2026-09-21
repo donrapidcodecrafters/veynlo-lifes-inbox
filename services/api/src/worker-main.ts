@@ -7,6 +7,7 @@ import { Worker } from "bullmq";
 import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
+import { deleteConnectionData } from "./modules/connectors/connection-data-deletion";
 import { AppModule } from "./app.module";
 import { DATABASE } from "./database/database.module";
 import { getRedisConnection } from "./queue/redis-connection";
@@ -26,6 +27,8 @@ import {
   type VoiceTranscriptionJobData,
   type SchoolSourceSyncJobData,
   type SchoolSourceScanJobData,
+  type SmartHomeSyncJobData,
+  type SmartHomeScanJobData,
   type RecallCheckJobData,
   type RecallScanJobData,
   type CaregiverDayPassScanJobData,
@@ -33,6 +36,8 @@ import {
   type ResurfacingScanJobData,
   type LegacyReleaseInactivityScanJobData,
   type DataIntegrityScanJobData,
+  type ExpectedEventScanJobData,
+  type SearchIndexBackfillJobData,
 } from "./queue/queue-names";
 import { GmailAdapter } from "./modules/connectors/gmail.adapter";
 import { OutlookAdapter } from "./modules/connectors/outlook.adapter";
@@ -41,10 +46,15 @@ import { GoogleCalendarAdapter } from "./modules/connectors/google-calendar.adap
 import { MicrosoftCalendarAdapter } from "./modules/connectors/microsoft-calendar.adapter";
 import { GoogleDriveAdapter } from "./modules/connectors/google-drive.adapter";
 import { OneDriveAdapter } from "./modules/connectors/onedrive.adapter";
+import { SharePointAdapter } from "./modules/connectors/sharepoint.adapter";
 import { DropboxAdapter } from "./modules/connectors/dropbox.adapter";
 import { GoogleTasksAdapter } from "./modules/connectors/google-tasks.adapter";
+import { TokenTaskAdapter } from "./modules/connectors/token-task.adapter";
 import { MicrosoftToDoAdapter } from "./modules/connectors/microsoft-todo.adapter";
 import { PlaidAdapter } from "./modules/connectors/plaid.adapter";
+import { ImapAdapter } from "./modules/connectors/imap.adapter";
+import { CalDavAdapter } from "./modules/connectors/caldav.adapter";
+import { CardDavAdapter } from "./modules/connectors/carddav.adapter";
 import { NotificationDeliveryService } from "./modules/notifications/notification-delivery.service";
 import { NotificationDispatchService } from "./modules/notifications/notification-dispatch.service";
 import { OBJECT_STORAGE, type ObjectStorage } from "./modules/documents/object-storage.interface";
@@ -54,15 +64,18 @@ import { QueueProducerService } from "./queue/queue-producer.service";
 import { DataExportService } from "./modules/data-export/data-export.service";
 import { IngestionService } from "./modules/ingestion/ingestion.service";
 import { DocumentsService } from "./modules/documents/documents.service";
-import { SchoolIcsService } from "./modules/school/school-ics.service";
+import { SchoolService, SYNCABLE_SCHOOL_SOURCE_KINDS } from "./modules/school/school.service";
+import { HomeAssistantService } from "./modules/smart-home/home-assistant.service";
+import { SYNCABLE_SMART_HOME_PROVIDERS } from "./modules/smart-home/smart-home.service";
 import { RecallMonitorService } from "./modules/assets/recall-monitor.service";
 import { MemoriesService } from "./modules/memories/memories.service";
 import { ResurfacingService } from "./modules/memories/resurfacing.service";
-import { ConnectorsService } from "./modules/connectors/connectors.service";
+import { ConnectorsService, assertConnectorRegistrationIsComplete } from "./modules/connectors/connectors.service";
 import { CaregiverDayPassService } from "./modules/sharing/caregiver-day-pass.service";
 import { recordConnectorSyncFailure, providerFamilyFor } from "./modules/connectors/connection-health.util";
 import { LegacyReleaseService } from "./modules/sharing/legacy-release.service";
 import { DataIntegrityService } from "./modules/data-integrity/data-integrity.service";
+import { SearchBackfillService } from "./modules/search/search-backfill.service";
 
 const logger = new Logger("Worker");
 
@@ -88,10 +101,15 @@ async function bootstrap() {
   const microsoftCalendarAdapter = appContext.get(MicrosoftCalendarAdapter);
   const googleDriveAdapter = appContext.get(GoogleDriveAdapter);
   const oneDriveAdapter = appContext.get(OneDriveAdapter);
+  const sharePointAdapter = appContext.get(SharePointAdapter);
   const dropboxAdapter = appContext.get(DropboxAdapter);
   const googleTasksAdapter = appContext.get(GoogleTasksAdapter);
   const microsoftToDoAdapter = appContext.get(MicrosoftToDoAdapter);
+  const tokenTaskAdapter = appContext.get(TokenTaskAdapter);
   const plaidAdapter = appContext.get(PlaidAdapter);
+  const imapAdapter = appContext.get(ImapAdapter);
+  const calDavAdapter = appContext.get(CalDavAdapter);
+  const cardDavAdapter = appContext.get(CardDavAdapter);
   const notificationDelivery = appContext.get(NotificationDeliveryService);
   const notificationDispatch = appContext.get(NotificationDispatchService);
   const storage = appContext.get<ObjectStorage>(OBJECT_STORAGE);
@@ -101,7 +119,8 @@ async function bootstrap() {
   const dataExport = appContext.get(DataExportService);
   const ingestion = appContext.get(IngestionService);
   const documents = appContext.get(DocumentsService);
-  const schoolIcs = appContext.get(SchoolIcsService);
+  const school = appContext.get(SchoolService);
+  const homeAssistant = appContext.get(HomeAssistantService);
   const recallMonitor = appContext.get(RecallMonitorService);
   const memories = appContext.get(MemoriesService);
   const resurfacing = appContext.get(ResurfacingService);
@@ -109,6 +128,45 @@ async function bootstrap() {
   const caregiverDayPasses = appContext.get(CaregiverDayPassService);
   const legacyRelease = appContext.get(LegacyReleaseService);
   const dataIntegrity = appContext.get(DataIntegrityService);
+  const searchBackfill = appContext.get(SearchBackfillService);
+
+  /**
+   * A map, not a ternary chain, and deliberately with no default.
+   *
+   * What this replaced ended `: gmailAdapter`, so ANY provider the chain did not name was synced as
+   * Gmail — a new connector whose registration was forgotten would not fail, it would quietly run the
+   * wrong adapter against someone's account and report success. That is the same shape as every other
+   * defect this audit has found: a wrong answer that looks exactly like a right one. Now an unregistered
+   * provider throws, which the job's existing error handling records against the connection's health
+   * where somebody can see it.
+   *
+   * Todoist, Trello and Asana share one adapter: they differ only in which URL it calls, and the
+   * credential it loads names the provider.
+   */
+  const adaptersByProvider: Record<string, { initialSync(id: string): Promise<unknown>; incrementalSync(id: string): Promise<unknown> }> = {
+    gmail: gmailAdapter,
+    outlook: outlookAdapter,
+    imap: imapAdapter,
+    caldav: calDavAdapter,
+    carddav: cardDavAdapter,
+    ics: icsAdapter,
+    google_calendar: googleCalendarAdapter,
+    microsoft_calendar: microsoftCalendarAdapter,
+    google_drive: googleDriveAdapter,
+    onedrive: oneDriveAdapter,
+    sharepoint: sharePointAdapter,
+    dropbox: dropboxAdapter,
+    google_tasks: googleTasksAdapter,
+    microsoft_todo: microsoftToDoAdapter,
+    todoist: tokenTaskAdapter,
+    trello: tokenTaskAdapter,
+    asana: tokenTaskAdapter,
+    plaid: plaidAdapter,
+  };
+
+  // Checked at boot rather than left to a test: a worker that would ship silent connections — a
+  // connection reporting healthy while nothing ever arrives — should not start at all.
+  assertConnectorRegistrationIsComplete(Object.keys(adaptersByProvider));
 
   const connectorSyncWorker = new Worker<ConnectorSyncJobData>(
     QUEUE_NAMES.connectorSync,
@@ -127,28 +185,8 @@ async function bootstrap() {
           .limit(1);
         if (!connection) throw new Error(`Connection ${connectionId} not found`);
         provider = connection.provider;
-        const adapter =
-          connection.provider === "outlook"
-            ? outlookAdapter
-            : connection.provider === "ics"
-              ? icsAdapter
-              : connection.provider === "google_calendar"
-                ? googleCalendarAdapter
-                : connection.provider === "microsoft_calendar"
-                  ? microsoftCalendarAdapter
-                  : connection.provider === "google_drive"
-                    ? googleDriveAdapter
-                    : connection.provider === "onedrive"
-                      ? oneDriveAdapter
-                      : connection.provider === "dropbox"
-                        ? dropboxAdapter
-                        : connection.provider === "google_tasks"
-                          ? googleTasksAdapter
-                          : connection.provider === "microsoft_todo"
-                            ? microsoftToDoAdapter
-                            : connection.provider === "plaid"
-                              ? plaidAdapter
-                              : gmailAdapter;
+        const adapter = adaptersByProvider[connection.provider];
+        if (!adapter) throw new Error(`No sync adapter registered for provider "${connection.provider}"`);
         if (kind === "incremental") {
           await adapter.incrementalSync(connectionId);
         } else {
@@ -300,78 +338,12 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
-  /**
-   * PRIV-002 — the actual deletion half of "disconnect and delete" (ConnectorsService.disconnect marks
-   * the connection disconnected synchronously; this does the real work). Only two domain tables trace
-   * back to a connection directly (purchases.sourceEventId); bills/warranties/calendar_events/shipments
-   * have no such column, so they're found indirectly via inbox_items — every successful extraction files
-   * one (IngestionService.fileInboxItem), and nothing in the app hard-deletes an inbox_item, so that
-   * mapping is reliable. Deletes purchases first so return_cases/shipments/purchase_lines that FK to them
-   * cascade away automatically; captures purchaseLines.ownerAssetEntityId beforehand since
-   * canonical_entities has no matching cascade and would otherwise orphan. Also clears any attention_item
-   * pointing at something about to be deleted, so "Needs You" never shows a card for data that no longer
-   * exists. Documents are deliberately out of scope — they're user-uploaded (documents.service.ts's
-   * upload()), not connector-derived, so a connection has none to delete.
-   */
+  // PRIV-002 "disconnect and delete". The body lives in connection-data-deletion.ts so it can be tested
+  // against a real database; it was inline here, and untestable, which is why its search-index gap survived.
   const connectionDataDeletionWorker = new Worker<ConnectionDataDeletionJobData>(
     QUEUE_NAMES.connectionDataDeletion,
     async (job) => {
-      const { connectionId, ownerUserId } = job.data;
-      const sourceEventRows = await db
-        .select({ id: schema.sourceEvents.id })
-        .from(schema.sourceEvents)
-        .where(eq(schema.sourceEvents.connectionId, connectionId));
-      const sourceEventIds = sourceEventRows.map((r) => r.id);
-      if (sourceEventIds.length === 0) return;
-
-      const purchases = await db.select({ id: schema.purchases.id }).from(schema.purchases).where(inArray(schema.purchases.sourceEventId, sourceEventIds));
-      const purchaseIds = purchases.map((p) => p.id);
-      if (purchaseIds.length > 0) {
-        const lines = await db
-          .select({ ownerAssetEntityId: schema.purchaseLines.ownerAssetEntityId })
-          .from(schema.purchaseLines)
-          .where(inArray(schema.purchaseLines.purchaseId, purchaseIds));
-        const entityIds = lines.map((l) => l.ownerAssetEntityId).filter((id): id is string => id != null);
-        await db.delete(schema.purchases).where(inArray(schema.purchases.id, purchaseIds));
-        if (entityIds.length > 0) await db.delete(schema.canonicalEntities).where(inArray(schema.canonicalEntities.id, entityIds));
-      }
-
-      const inboxRows = await db
-        .select({ linkedResourceType: schema.inboxItems.linkedResourceType, linkedResourceId: schema.inboxItems.linkedResourceId })
-        .from(schema.inboxItems)
-        .where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
-      const idsFor = (type: string) => inboxRows.filter((r) => r.linkedResourceType === type && r.linkedResourceId).map((r) => r.linkedResourceId as string);
-      const billIds = idsFor("bill");
-      const warrantyIds = idsFor("warranty");
-      const calendarEventIds = idsFor("calendar_event");
-      const shipmentIds = idsFor("shipment");
-      // MAIL-008 audit fix: store credits were the one extractor-produced domain object this worker never
-      // purged — extractStoreCredit (ingestion.service.ts) writes a real sourceEventId onto storeCredits
-      // exactly like bills/warranties do, but nothing here ever deleted it, so "Disconnect & delete data"
-      // silently left store-credit rows (and their attention items) behind for this connection.
-      const storeCreditIds = idsFor("store_credit");
-      if (billIds.length > 0) await db.delete(schema.bills).where(inArray(schema.bills.id, billIds));
-      if (warrantyIds.length > 0) await db.delete(schema.warranties).where(inArray(schema.warranties.id, warrantyIds));
-      if (calendarEventIds.length > 0) await db.delete(schema.calendarEvents).where(inArray(schema.calendarEvents.id, calendarEventIds));
-      if (shipmentIds.length > 0) await db.delete(schema.shipments).where(inArray(schema.shipments.id, shipmentIds));
-      if (storeCreditIds.length > 0) await db.delete(schema.storeCredits).where(inArray(schema.storeCredits.id, storeCreditIds));
-
-      const allLinkedIds = [...purchaseIds, ...billIds, ...warrantyIds, ...calendarEventIds, ...shipmentIds, ...storeCreditIds];
-      if (allLinkedIds.length > 0) await db.delete(schema.attentionItems).where(inArray(schema.attentionItems.linkedResourceId, allLinkedIds));
-
-      await db.delete(schema.inboxItems).where(inArray(schema.inboxItems.sourceEventId, sourceEventIds));
-      await db.delete(schema.sourceEvents).where(inArray(schema.sourceEvents.id, sourceEventIds));
-
-      await db.insert(schema.auditEvents).values({
-        id: generateId("auditEvent"),
-        actorType: "user",
-        actorId: ownerUserId,
-        action: "connection.delete_derived_data",
-        resourceType: "connection",
-        resourceId: connectionId,
-        beforeJson: { sourceEventCount: sourceEventIds.length, purchaseCount: purchaseIds.length },
-        result: "success",
-      });
+      await deleteConnectionData(db, job.data);
     },
     { connection: getRedisConnection(), concurrency: 2 },
   );
@@ -468,11 +440,11 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
-  /** §25 SCH-002 — one school/team ICS feed's sync (SchoolIcsService.sync). */
+  /** §25 SCH-002 — one school source's sync, whichever kind it is (SchoolService.syncSchoolSource). */
   const schoolSourceSyncWorker = new Worker<SchoolSourceSyncJobData>(
     QUEUE_NAMES.schoolSourceSync,
     async (job) => {
-      await schoolIcs.sync(job.data.schoolSourceId);
+      await school.syncSchoolSource(job.data.schoolSourceId);
     },
     { connection: getRedisConnection(), concurrency: 4 },
   );
@@ -487,9 +459,51 @@ async function bootstrap() {
       const eligible = await db
         .select({ id: schema.schoolSources.id })
         .from(schema.schoolSources)
-        .where(and(eq(schema.schoolSources.kind, "ics"), isNull(schema.schoolSources.disconnectedAt)));
+        // Every kind that is polled, from the one list SchoolService.syncSchoolSource dispatches on —
+        // not a literal "ics", which is how a Canvas source would have synced once and then gone silent.
+        .where(and(inArray(schema.schoolSources.kind, [...SYNCABLE_SCHOOL_SOURCE_KINDS]), isNull(schema.schoolSources.disconnectedAt)));
       for (const source of eligible) {
         await queueProducer.enqueueSchoolSourceSync({ schoolSourceId: source.id });
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
+  /**
+   * §31 SMART-001/002 — one smart-home connection's sync (HomeAssistantService.sync).
+   *
+   * A failed sync already records WHY on the connection row before rethrowing, so a retry storm against a
+   * home server that is simply offline still leaves the household a message they can act on rather than a
+   * card that silently stops updating.
+   */
+  const smartHomeSyncWorker = new Worker<SmartHomeSyncJobData>(
+    QUEUE_NAMES.smartHomeSync,
+    async (job) => {
+      await homeAssistant.sync(job.data.smartConnectionId);
+    },
+    { connection: getRedisConnection(), concurrency: 4 },
+  );
+
+  // Recurring tick (see QueueProducerService.scheduleRecurringSmartHomeScan): finds every still-connected
+  // smart_connections row and enqueues a sync for each — mirrors schoolSourceScanWorker's identical shape,
+  // deduplicated by enqueueSmartHomeSync's jobId.
+  //
+  // The provider filter comes from the same list the sync dispatches on rather than a literal
+  // "home_assistant", which is exactly how a Canvas source once synced one time and then went silent.
+  const smartHomeScanWorker = new Worker<SmartHomeScanJobData>(
+    QUEUE_NAMES.smartHomeScan,
+    async () => {
+      const eligible = await db
+        .select({ id: schema.smartConnections.id })
+        .from(schema.smartConnections)
+        .where(
+          and(
+            inArray(schema.smartConnections.provider, [...SYNCABLE_SMART_HOME_PROVIDERS]),
+            isNull(schema.smartConnections.disconnectedAt),
+          ),
+        );
+      for (const connection of eligible) {
+        await queueProducer.enqueueSmartHomeSync({ smartConnectionId: connection.id });
       }
     },
     { connection: getRedisConnection(), concurrency: 1 },
@@ -557,6 +571,28 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /** Expected-event monitor — restored with the service method; see PROJECT_AUDIT.md DEF-082. Concurrency
+   * 1: the scan advances nextExpectedDate as it files, so two overlapping ticks could file the same missed
+   * cycle twice. */
+  const expectedEventScanWorker = new Worker<ExpectedEventScanJobData>(
+    QUEUE_NAMES.expectedEventScan,
+    async () => {
+      await attention.scanForMissingExpectedEvents();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
+  /** §44.3 "search documents ... deleted/reindexed with canonical data" — see SearchBackfillService for
+   * why a forward-only index needs a reconciliation pass at all. Concurrency 1: two overlapping full
+   * reindexes would do identical work twice and contend on the same rows for no benefit. */
+  const searchIndexBackfillWorker = new Worker<SearchIndexBackfillJobData>(
+    QUEUE_NAMES.searchIndexBackfill,
+    async () => {
+      await searchBackfill.run();
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   /** §29.1 SAVE-001/002 — see queue-names.ts's MemoryClassificationJobData doc comment for why this moved
    * off the synchronous save request. */
   const memoryClassificationWorker = new Worker<MemoryClassificationJobData>(
@@ -577,7 +613,7 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
-  for (const worker of [
+  const workers = [
     connectorSyncWorker,
     connectorScanWorker,
     notificationDispatchWorker,
@@ -592,14 +628,20 @@ async function bootstrap() {
     voiceTranscriptionWorker,
     schoolSourceSyncWorker,
     schoolSourceScanWorker,
+    smartHomeSyncWorker,
+    smartHomeScanWorker,
     recallCheckWorker,
     recallScanWorker,
     caregiverDayPassScanWorker,
     legacyReleaseInactivityScanWorker,
     dataIntegrityScanWorker,
+    expectedEventScanWorker,
+    searchIndexBackfillWorker,
     memoryClassificationWorker,
     resurfacingScanWorker,
-  ]) {
+  ];
+
+  for (const worker of workers) {
     worker.on("failed", (job, err) => logger.error(`Job ${job?.queueName}/${job?.id} failed: ${err.message}`));
     worker.on("completed", (job) => logger.log(`Job ${job.queueName}/${job.id} completed`));
   }
@@ -611,14 +653,22 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringInboxUnsnooze();
   await queueProducer.scheduleRecurringAttentionScan();
   await queueProducer.scheduleRecurringSchoolSourceScan();
+  await queueProducer.scheduleRecurringSmartHomeScan();
   await queueProducer.scheduleRecurringRecallScan();
   await queueProducer.scheduleRecurringResurfacingScan();
   await queueProducer.scheduleRecurringCaregiverDayPassScan();
   await queueProducer.scheduleRecurringLegacyReleaseInactivityScan();
   await queueProducer.scheduleRecurringDataIntegrityScan();
+  await queueProducer.scheduleRecurringExpectedEventScan();
+  await queueProducer.scheduleRecurringSearchIndexBackfill();
 
+  // Derived from `workers`, never retyped. This line used to be a hardcoded string listing 20 queue
+  // names while the process actually ran 21 — data-integrity-scan was added with a real worker, wired
+  // into this array and into the shutdown path, but the log was left untouched. Anyone reading the
+  // startup output to confirm what a worker process is handling would have concluded the orphan-link
+  // scan was not running. A stale operational log is worse than no log: it answers the question wrongly.
   logger.log(
-    "Veynlo worker process started — processing connector-sync, connector-scan, notification-dispatch, notification-delivery, account-deletion, connection-data-deletion, inbox-unsnooze, attention-scan, data-export, inbound-email-ingest, document-ocr, voice-transcription, school-source-sync, school-source-scan, recall-check, recall-scan, caregiver-day-pass-scan, legacy-release-inactivity-scan, memory-classification, resurfacing-scan",
+    `Veynlo worker process started — processing ${workers.length} queues: ${workers.map((w) => w.name).join(", ")}`,
   );
 
   const shutdown = async () => {
@@ -643,14 +693,31 @@ async function bootstrap() {
       caregiverDayPassScanWorker.close(),
       legacyReleaseInactivityScanWorker.close(),
       dataIntegrityScanWorker.close(),
+      expectedEventScanWorker.close(),
+      searchIndexBackfillWorker.close(),
       memoryClassificationWorker.close(),
       resurfacingScanWorker.close(),
     ]);
     await appContext.close();
     process.exit(0);
   };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  // Wrapped, not passed directly: `shutdown` is async, so a rejecting worker.close() would become an
+  // unhandled rejection and `process.exit(0)` would never run — the worker would sit there until whatever
+  // sent the signal gave up and SIGKILLed it, which is the opposite of a graceful shutdown. Exit either
+  // way, and say what went wrong on the way out.
+  const onSignal = (signal: string) => {
+    shutdown().catch((err) => {
+      logger.error(`Shutdown after ${signal} failed: ${String(err)}`);
+      process.exit(1);
+    });
+  };
+  process.on("SIGTERM", () => onSignal("SIGTERM"));
+  process.on("SIGINT", () => onSignal("SIGINT"));
 }
 
-bootstrap();
+// Same reasoning as apps' main.ts: an unhandled rejection here is "the worker process never started" with
+// no explanation attached.
+bootstrap().catch((err) => {
+  console.error("Veynlo worker process failed to start:", err);
+  process.exit(1);
+});

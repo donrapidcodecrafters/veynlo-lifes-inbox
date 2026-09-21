@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { CommerceService } from "./commerce.service";
 import { SharingService } from "../sharing/sharing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real DB integration test for the two purchase-detail-page-facing pieces of RET-004/RET-006 that
@@ -33,8 +34,7 @@ describe("CommerceService RET-004/RET-006 (price-adjustment read-back, resale st
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `resale-test-${ownerUserId}@example.com`, displayName: "Resale Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CommerceService RET-004/RET-006 tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CommerceService RET-004/RET-006 tests");
     }
   });
 

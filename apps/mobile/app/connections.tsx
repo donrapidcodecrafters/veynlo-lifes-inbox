@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Platform, RefreshControl, Switch, Text, View } from "react-native";
+import { Linking, Platform, Pressable, RefreshControl, Switch, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams, useRootNavigationState } from "expo-router";
 import * as Calendar from "expo-calendar";
 import * as Clipboard from "expo-clipboard";
@@ -15,24 +15,8 @@ import { EmptyState } from "@/components/empty-state";
 import { FetchError } from "@/components/fetch-error";
 import { ScreenHeader } from "@/components/screen-header";
 import { TextField } from "@/components/text-field";
+import { providerLabel } from "@veynlo/core";
 
-const PROVIDER_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  ics: "Calendar feed",
-  google_calendar: "Google Calendar",
-  microsoft_calendar: "Microsoft Calendar",
-  google_drive: "Google Drive",
-  onedrive: "OneDrive",
-  dropbox: "Dropbox",
-  google_tasks: "Google Tasks",
-  microsoft_todo: "Microsoft To Do",
-  google_contacts: "Google Contacts",
-  microsoft_contacts: "Microsoft Contacts",
-  // Mirrors the same fix on apps/web's connections page — missing here left a connected Plaid connection
-  // falling through to the raw provider string "plaid" instead of a real display name.
-  plaid: "Bank accounts",
-};
 
 const CONNECT_ERROR_MESSAGE: Record<string, string> = {
   connector_not_configured: "That connector isn't configured on this deployment yet.",
@@ -75,6 +59,42 @@ interface FinanceSummary {
   totalsByCurrency: Array<{ currency: string; totalMinorUnits: number }>;
 }
 
+/** FIN-006 — one position, as GET /v1/finance/holdings returns it. */
+interface Holding {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountMask: string | null;
+  isIncluded: boolean;
+  /** A decimal STRING, not a number — fractional shares never touch a float. See the schema's note. */
+  quantity: string;
+  institutionPrice: string | null;
+  institutionPriceAsOf: string | null;
+  institutionValueMinorUnits: number | null;
+  costBasisMinorUnits: number | null;
+  unrealizedGainMinorUnits: number | null;
+  currency: string;
+  security: {
+    id: string;
+    name: string | null;
+    tickerSymbol: string | null;
+    type: string | null;
+    isCashEquivalent: boolean;
+    closePrice: string | null;
+    closePriceAsOf: string | null;
+  };
+}
+
+interface HoldingsResponse {
+  holdings: Holding[];
+  totalsByCurrency: Array<{
+    currency: string;
+    totalMinorUnits: number;
+    costBasisMinorUnits: number | null;
+    unrealizedGainMinorUnits: number | null;
+  }>;
+}
+
 interface IncomeStream {
   id: string;
   description: string;
@@ -92,6 +112,18 @@ function formatMoney(minorUnits: number, currency: string, locale?: string): str
 
 // FIN-002 "preserve provider transaction ID history and transaction revisions" — mirrors apps/web's
 // identical connections-page disclosure (see that file's own TransactionHistoryDisclosure doc comment).
+/**
+ * FIN-006 — render a share quantity without lying about its precision.
+ *
+ * The API sends an exact decimal string ("12.34567890"). Trailing zeros come from the column's declared
+ * scale rather than anything the institution said, so they are trimmed; the significant digits are never
+ * rounded, because "12" and "12.3456789" are different amounts of money and keeping them distinguishable
+ * is the entire reason the column upstream is NUMERIC rather than an integer.
+ */
+function formatQuantity(quantity: string): string {
+  return quantity.includes(".") ? quantity.replace(/0+$/, "").replace(/\.$/, "") : quantity;
+}
+
 interface TransactionRevision {
   id: string;
   amountMinorUnits: number;
@@ -207,6 +239,8 @@ const AVAILABLE_CONNECTORS = [
   { provider: "microsoft-calendar", name: "Microsoft Calendar", description: "Sync your Outlook/Microsoft 365 calendar events directly." },
   { provider: "google-drive", name: "Google Drive", description: "Find receipts, warranties, and contracts saved in your Drive." },
   { provider: "onedrive", name: "OneDrive", description: "The same file scan — for documents saved in OneDrive." },
+  // The scope limit is stated up front rather than discovered later — see the web page's own note.
+  { provider: "sharepoint", name: "SharePoint", description: "Scans the SharePoint sites you follow for documents — not every site you can reach." },
   { provider: "dropbox", name: "Dropbox", description: "The same file scan — for documents saved in Dropbox." },
   { provider: "google-tasks", name: "Google Tasks", description: "Bring your Google Tasks lists in as tasks you can assign and track." },
   { provider: "microsoft-todo", name: "Microsoft To Do", description: "The same task sync — for lists in Microsoft To Do." },
@@ -228,7 +262,9 @@ export default function ConnectionsScreen() {
   const [financialAccounts, setFinancialAccounts] = useState<FinancialAccount[]>([]);
   const [financialTransactions, setFinancialTransactions] = useState<FinancialTransaction[]>([]);
   const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null);
+  const [holdingsData, setHoldingsData] = useState<HoldingsResponse | null>(null);
   const [incomeStreams, setIncomeStreams] = useState<IncomeStream[]>([]);
+  const [incomeStreamError, setIncomeStreamError] = useState<string | null>(null);
   const [accountToggleBusyId, setAccountToggleBusyId] = useState<string | null>(null);
   const [accountToggleError, setAccountToggleError] = useState<string | null>(null);
   const [inboundAlias, setInboundAlias] = useState<InboundAliasInfo | null>(null);
@@ -237,6 +273,11 @@ export default function ConnectionsScreen() {
   const [connectedMessage, setConnectedMessage] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [showIcsForm, setShowIcsForm] = useState(false);
+  const [showImapForm, setShowImapForm] = useState(false);
+  const [showTaskAppForm, setShowTaskAppForm] = useState(false);
+  const [showDavForm, setShowDavForm] = useState(false);
+  const [showHomeAssistantForm, setShowHomeAssistantForm] = useState(false);
+  const [smartHome, setSmartHome] = useState<SmartHomeConnection[] | null>(null);
   // §28.9 step-up auth on the destructive disconnect+delete path — only needed when the server actually
   // asks for one (OAuth-only accounts skip the check entirely).
   const [deletePassword, setDeletePassword] = useState("");
@@ -265,6 +306,8 @@ export default function ConnectionsScreen() {
       if (accounts.length > 0) {
         setFinanceSummary(await api.get<FinanceSummary>("/v1/finance/summary"));
         setIncomeStreams(await api.get<IncomeStream[]>("/v1/finance/income-streams"));
+        // FIN-006 — positions behind an investment account's balance.
+        setHoldingsData(await api.get<HoldingsResponse>("/v1/finance/holdings"));
       }
       setLoadError(null);
     } catch (err) {
@@ -280,10 +323,31 @@ export default function ConnectionsScreen() {
     }
   }, []);
 
+  /**
+   * Loaded separately from `load` above, on purpose.
+   *
+   * That loader is a straight sequence of awaits, so the first one to throw skips everything after it. A
+   * household whose Home Assistant is offline would otherwise lose their email, calendar and banking cards
+   * as well — a failure in the newest, least important connector taking down the whole screen.
+   */
+  const loadSmartHome = useCallback(() => {
+    void (async () => {
+      try {
+        setSmartHome(await api.get<SmartHomeConnection[]>("/v1/smart-home/connections"));
+      } catch (err) {
+        // A 401 is already being handled by the client's own redirect (see `load` above). Anything else
+        // leaves the card in its loading shape rather than claiming there are no connections, because
+        // "you have none" and "we couldn't ask" are different facts.
+        if (!(err instanceof ApiError) || err.status !== 401) setSmartHome([]);
+      }
+    })();
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load]),
+      loadSmartHome();
+    }, [load, loadSmartHome]),
   );
 
   // §AUTH "OAuth connect from mobile opens the system browser and finishes there rather than deep-linking
@@ -310,7 +374,7 @@ export default function ConnectionsScreen() {
   useEffect(() => {
     if (!rootNavigationState?.key) return; // root navigator not mounted yet — wait for the next render
     const { connected, error } = params;
-    if (connected) setConnectedMessage(`${PROVIDER_LABEL[connected] ?? connected} connected.`);
+    if (connected) setConnectedMessage(`${providerLabel(connected)} connected.`);
     if (error) setConnectError(CONNECT_ERROR_MESSAGE[error] ?? "Couldn't complete that connection. Please try again.");
     if (!connected && !error) return;
     const timeoutId = setTimeout(() => router.setParams({ connected: undefined, error: undefined }), 0);
@@ -509,8 +573,15 @@ export default function ConnectionsScreen() {
 
   /** FIN-003 "confirm recurring stream / dismiss" — a user's "not income" correction. */
   async function dismissIncomeStream(id: string) {
-    await api.post(`/v1/finance/income-streams/${id}/dismiss`);
-    await load();
+    setIncomeStreamError(null);
+    try {
+      await api.post(`/v1/finance/income-streams/${id}/dismiss`);
+      await load();
+    } catch (err) {
+      // Uncaught, the failure skipped `load()` entirely: the stream stayed in the list looking exactly as
+      // if "Not income" had not been pressed.
+      setIncomeStreamError(err instanceof ApiError ? err.message : "Couldn't dismiss that. Please try again.");
+    }
   }
 
   /**
@@ -729,6 +800,92 @@ export default function ConnectionsScreen() {
               )}
             </View>
           ))}
+          {/* FIN-006 "Investments" — the positions behind an investment account's balance. Plaid's
+              investments product was licensed all along but never requested at Link time, so a brokerage
+              showed a balance with nothing behind it. An EXCLUDED account still lists its positions
+              (excluded means "not counted", not "hidden") but is marked and left out of the total.
+
+              Value and gain are stacked rather than laid out in a third column: at 390px a row of
+              label + $93,827.50 + +$43,827.50 has nowhere to go but off the screen. */}
+          {holdingsData && holdingsData.holdings.length > 0 && (
+            <View style={{ gap: 6, marginTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderDefault, paddingTop: 8 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textTertiary, textTransform: "uppercase" }}>
+                  Investments
+                </Text>
+                {holdingsData.totalsByCurrency.map((total) => (
+                  <Text key={total.currency} style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary }}>
+                    {formatMoney(total.totalMinorUnits, total.currency, locale)}
+                    {total.unrealizedGainMinorUnits !== null && (
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: "400",
+                          color:
+                            total.unrealizedGainMinorUnits >= 0
+                              ? theme.colors.positiveSubtleText
+                              : theme.colors.criticalSubtleText,
+                        }}
+                      >
+                        {"  "}
+                        {total.unrealizedGainMinorUnits >= 0 ? "+" : "\u2212"}
+                        {formatMoney(Math.abs(total.unrealizedGainMinorUnits), total.currency, locale)}
+                      </Text>
+                    )}
+                  </Text>
+                ))}
+              </View>
+              {holdingsData.holdings.map((holding) => {
+                const label = holding.security.tickerSymbol ?? holding.security.name ?? "Unnamed holding";
+                const gain = holding.unrealizedGainMinorUnits;
+                return (
+                  <View
+                    key={holding.id}
+                    style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}
+                    accessible
+                    accessibilityLabel={`${holding.security.name ?? label}, ${formatQuantity(holding.quantity)}${
+                      holding.security.isCashEquivalent ? "" : " shares"
+                    }${
+                      holding.institutionValueMinorUnits !== null
+                        ? `, worth ${formatMoney(holding.institutionValueMinorUnits, holding.currency, locale)}`
+                        : ""
+                    }${gain === null ? ", no cost basis reported" : ""}${
+                      holding.isIncluded ? "" : ", excluded from totals"
+                    }`}
+                  >
+                    <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }} numberOfLines={1}>
+                      {label}
+                      <Text style={{ color: theme.colors.textTertiary }}> · {formatQuantity(holding.quantity)}</Text>
+                      {!holding.isIncluded ? <Text style={{ color: theme.colors.textTertiary }}> (excluded)</Text> : null}
+                    </Text>
+                    <View style={{ alignItems: "flex-end" }}>
+                      {holding.institutionValueMinorUnits !== null && (
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textPrimary }}>
+                          {formatMoney(holding.institutionValueMinorUnits, holding.currency, locale)}
+                        </Text>
+                      )}
+                      {gain === null ? (
+                        // Withheld, not guessed. An absent cost basis is not a basis of zero, and a
+                        // "+100%" gain derived from nothing would be a fabricated number rendered in the
+                        // same style as a real one.
+                        <Text style={{ fontSize: 11, color: theme.colors.textTertiary }}>{"\u2014"}</Text>
+                      ) : (
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: gain >= 0 ? theme.colors.positiveSubtleText : theme.colors.criticalSubtleText,
+                          }}
+                        >
+                          {gain >= 0 ? "+" : "\u2212"}
+                          {formatMoney(Math.abs(gain), holding.currency, locale)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
           {/* FIN-003 "Recurring income/outflow" — read-only detected paycheck streams. */}
           {incomeStreams.length > 0 && (
             <View style={{ gap: 4, marginTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderDefault, paddingTop: 8 }}>
@@ -738,13 +895,14 @@ export default function ConnectionsScreen() {
               {incomeStreams.map((stream) => (
                 <View key={stream.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                   <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }} numberOfLines={1}>
-                    ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} every {stream.cadenceLabel} from {stream.description}
+                    ~{formatMoney(stream.averageAmountMinorUnits, stream.currency, locale)} {stream.cadenceLabel} from {stream.description}
                   </Text>
                   <Button variant="ghost" onPress={() => dismissIncomeStream(stream.id)}>
                     Not income
                   </Button>
                 </View>
               ))}
+              {incomeStreamError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{incomeStreamError}</Text>}
             </View>
           )}
           {financialTransactions.length > 0 && (
@@ -766,6 +924,89 @@ export default function ConnectionsScreen() {
                 </View>
               ))}
             </View>
+          )}
+        </Card>
+
+{/* CalDAV/CardDAV — the register's "CalDAV servers", "CardDAV", "Apple Calendar" and "Apple
+            Contacts" rows. Distinct from the device-import cards further down: this is a server-side
+            connection that keeps itself current for the whole account, not just this handset. */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Calendar &amp; contacts server</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                iCloud, Fastmail, Nextcloud, or any CalDAV/CardDAV server.
+              </Text>
+            </View>
+            {!showDavForm && (
+              <Button variant="secondary" onPress={() => setShowDavForm(true)}>
+                Connect
+              </Button>
+            )}
+          </View>
+          {showDavForm && (
+            <DavConnectForm
+              onDone={() => {
+                setShowDavForm(false);
+                load();
+              }}
+              onCancel={() => setShowDavForm(false)}
+            />
+          )}
+        </Card>
+
+{/* The six Appendix A email targets that had no path in at all before this. Not in the OAuth
+            connector list above because those are one-tap buttons and this needs a real form. */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Other mailbox (IMAP)</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                Yahoo, iCloud, AOL, Fastmail, or your own domain.
+              </Text>
+            </View>
+            {!showImapForm && (
+              <Button variant="secondary" onPress={() => setShowImapForm(true)}>
+                Connect
+              </Button>
+            )}
+          </View>
+          {showImapForm && (
+            <ImapConnectForm
+              onDone={() => {
+                setShowImapForm(false);
+                load();
+              }}
+              onCancel={() => setShowImapForm(false)}
+            />
+          )}
+        </Card>
+
+        {/* Three more Appendix A task targets. Not in the OAuth connector list above for the same reason
+            the IMAP card isn't: those are one-tap buttons, and this needs a pasted token. TickTick, Any.do
+            and Notion are deliberately not offered — see the API's token-task-providers.ts for why. */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Todoist, Trello or Asana</Text>
+              <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+                Bring in tasks using a token you create in your own account.
+              </Text>
+            </View>
+            {!showTaskAppForm && (
+              <Button variant="secondary" onPress={() => setShowTaskAppForm(true)}>
+                Connect
+              </Button>
+            )}
+          </View>
+          {showTaskAppForm && (
+            <TaskAppConnectForm
+              onDone={() => {
+                setShowTaskAppForm(false);
+                load();
+              }}
+              onCancel={() => setShowTaskAppForm(false)}
+            />
           )}
         </Card>
 
@@ -862,16 +1103,42 @@ export default function ConnectionsScreen() {
           )}
         </Card>
 
-        {/* Phase 3 SMART-001 — data model + adapter interface only, no real provider access exists yet
-            (see docs/PHASE3_PENDING_CREDENTIALS.md). Deliberately no "Connect" button here — every named
-            provider needs its own OAuth app registration/partner agreement this dev environment doesn't
-            have, and a working-looking button with no real backend behind it would mislead a user into
-            thinking a device is actually connected. */}
-        <Card style={{ gap: 6 }}>
+        {/* Phase 3 SMART-001. Home Assistant is real and connectable; the rest still are not, and the copy
+            says which is which rather than implying the whole category works. Every other named provider
+            needs its own OAuth app registration or partner agreement (see
+            docs/PHASE3_PENDING_CREDENTIALS.md), and a working-looking button with nothing behind it would
+            leave someone believing a smoke alarm was being watched when it was not. */}
+        <Card style={{ gap: 10 }}>
           <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Smart home</Text>
-          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
-            Home Assistant, SmartThings, Nest, Ring, Ecobee, and Philips Hue integrations are planned but not yet available on this
-            deployment.
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary, lineHeight: 18 }}>
+            Hear about a leak, smoke, a flat battery, or a device that&apos;s stopped responding, from the Home Assistant you already run. You choose
+            which devices Veynlo watches.
+          </Text>
+
+          {smartHome?.map((connection) => (
+            <SmartHomeConnectionRow key={connection.id} connection={connection} onChanged={loadSmartHome} />
+          ))}
+
+          {smartHome !== null && smartHome.length === 0 && !showHomeAssistantForm && (
+            <Button variant="secondary" onPress={() => setShowHomeAssistantForm(true)}>
+              Connect Home Assistant
+            </Button>
+          )}
+
+          {showHomeAssistantForm && (
+            <HomeAssistantConnectForm
+              onDone={() => {
+                setShowHomeAssistantForm(false);
+                loadSmartHome();
+              }}
+              onCancel={() => setShowHomeAssistantForm(false)}
+            />
+          )}
+
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary, lineHeight: 18 }}>
+            SmartThings, Nest, Ring, Ecobee and Philips Hue each need an approved partner application, which isn&apos;t something this
+            deployment can set up on its own. Home Assistant already talks to most of them, so connecting it is often the way to reach
+            those devices anyway.
           </Text>
         </Card>
       </View>
@@ -898,7 +1165,7 @@ export default function ConnectionsScreen() {
                   one row three or four ways. */}
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
-                  {PROVIDER_LABEL[c.provider] ?? c.provider}
+                  {providerLabel(c.provider)}
                 </Text>
                 <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace(/_/g, " ")}</Badge>
                 {/* PRIV-001 "pause a connection's processing without fully disconnecting it" — distinct
@@ -1018,6 +1285,576 @@ export default function ConnectionsScreen() {
         </View>
       )}
     </Screen>
+  );
+}
+
+interface DavProviderOption {
+  key: string;
+  label: string;
+  serverUrl: string;
+  services: Array<"caldav" | "carddav">;
+  credentialHint: string;
+  credentialUrl: string | null;
+}
+
+/**
+ * Connect a CalDAV/CardDAV server.
+ *
+ * One form for both protocols, because they are one credential — iCloud, Fastmail and Nextcloud each issue
+ * a single app password that opens calendars and contacts alike. What the user chooses is WHAT to sync,
+ * and both are on by default: a server that offers both and quietly syncs one is a surprise.
+ *
+ * Each choice becomes its own connection underneath, so they sync and fail independently. That is why a
+ * partial result is reported rather than flattened into "it failed" — Apple serves calendars and contacts
+ * from different hosts, and "calendars connected, contacts did not" is a real outcome.
+ */
+function DavConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [providers, setProviders] = useState<DavProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("icloud");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [syncCalendars, setSyncCalendars] = useState(true);
+  const [syncContacts, setSyncContacts] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.get<{ providers: DavProviderOption[] }>("/v1/connectors/dav/providers");
+        setProviders(result.providers);
+      } catch {
+        setError("Couldn't load the list of providers.");
+      }
+    })();
+  }, []);
+
+  const selected = providers.find((p) => p.key === providerKey);
+  const needsUrl = providerKey === "custom" || providerKey === "nextcloud";
+
+  async function onSubmit() {
+    if (!syncCalendars && !syncContacts) {
+      setError("Choose at least one of calendars or contacts.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    const body = { providerKey, username, password, serverUrl: needsUrl ? serverUrl : undefined };
+    const failures: string[] = [];
+    let anySucceeded = false;
+
+    const services: Array<[boolean, string, string]> = [
+      [syncCalendars, "/v1/connectors/caldav/connect", "Calendars"],
+      [syncContacts, "/v1/connectors/carddav/connect", "Contacts"],
+    ];
+
+    for (const [enabled, path, label] of services) {
+      if (!enabled) continue;
+      try {
+        await api.post(path, body);
+        anySucceeded = true;
+      } catch (err) {
+        failures.push(label + ": " + (err instanceof ApiError ? err.message : "something went wrong"));
+      }
+    }
+
+    if (failures.length === 0) {
+      onDone();
+      return;
+    }
+    setError((anySucceeded ? "Partly connected. " : "") + failures.join(" "));
+    setSubmitting(false);
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>Provider</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {providers.map((provider) => {
+          const active = provider.key === providerKey;
+          return (
+            <Pressable
+              key={provider.key}
+              onPress={() => setProviderKey(provider.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={provider.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: active ? "600" : "400",
+                  color: active ? theme.colors.brandDefault : theme.colors.textPrimary,
+                }}
+              >
+                {provider.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{selected.credentialHint}</Text>}
+
+      {needsUrl && (
+        <TextField
+          label="Server address"
+          value={serverUrl}
+          onChangeText={setServerUrl}
+          placeholder="https://your-server/remote.php/dav"
+          autoCapitalize="none"
+        />
+      )}
+      <TextField label="Username" value={username} onChangeText={setUsername} placeholder="you@example.com" autoCapitalize="none" />
+      <TextField label="App password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" />
+
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>What to sync</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>Calendars</Text>
+        <Switch value={syncCalendars} onValueChange={setSyncCalendars} accessibilityLabel="Sync calendars" />
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>Contacts</Text>
+        <Switch value={syncContacts} onValueChange={setSyncContacts} accessibilityLabel="Sync contacts" />
+      </View>
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+interface ImapProviderOption {
+  key: string;
+  label: string;
+  host: string;
+  port: number;
+  credentialHint: string;
+  credentialUrl: string | null;
+  unavailableReason?: string;
+}
+
+/**
+ * Connect a mailbox over IMAP.
+ *
+ * Every provider here rejects a normal account password at its IMAP endpoint and wants an app password
+ * instead, and each one hides that setting somewhere different — so the selected provider's own
+ * instruction is shown BEFORE the password field, not after a failure. "Authentication failed" is the
+ * least useful thing this screen could say.
+ *
+ * The provider picker is a row of buttons rather than a native picker: React Native has no cross-platform
+ * <select>, and with eight options a horizontal scroll of real, outlined buttons is both simpler and
+ * consistent with how this app does segmented choices everywhere else.
+ */
+function ImapConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [providers, setProviders] = useState<ImapProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("yahoo");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("993");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.get<{ providers: ImapProviderOption[] }>("/v1/connectors/imap/providers");
+        setProviders(result.providers);
+      } catch {
+        setError("Couldn't load the list of mail providers.");
+      }
+    })();
+  }, []);
+
+  const selected = providers.find((p) => p.key === providerKey);
+  const isCustom = providerKey === "custom";
+  const unavailable = Boolean(selected?.unavailableReason);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/imap/connect", {
+        providerKey,
+        username,
+        password,
+        host: isCustom ? host : undefined,
+        port: isCustom ? Number(port) : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API answers with provider-specific guidance rather than a generic failure — show it as sent.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>Mail provider</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {providers.map((provider) => {
+          const active = provider.key === providerKey;
+          return (
+            <Pressable
+              key={provider.key}
+              onPress={() => setProviderKey(provider.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={provider.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                // Always outlined — a control with no border is not visibly a control.
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? theme.colors.brandDefault : theme.colors.textPrimary }}>
+                {provider.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected && (
+        <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{selected.unavailableReason ?? selected.credentialHint}</Text>
+      )}
+
+      {!unavailable && (
+        <>
+          {isCustom && (
+            <>
+              <TextField label="IMAP server" value={host} onChangeText={setHost} placeholder="imap.example.com" autoCapitalize="none" />
+              <TextField label="Port" value={port} onChangeText={setPort} keyboardType="number-pad" />
+            </>
+          )}
+          <TextField
+            label="Email address"
+            value={username}
+            onChangeText={setUsername}
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+          <TextField label="App password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" />
+        </>
+      )}
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting} disabled={unavailable}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+interface TaskAppProviderOption {
+  key: string;
+  label: string;
+  credentialHint: string;
+  credentialUrl: string | null;
+  requiresApiKey: boolean;
+}
+
+/**
+ * Connect Todoist, Trello or Asana.
+ *
+ * A form rather than a one-tap button, because there is no OAuth application behind these: the user issues
+ * a token in their own account settings and pastes it. So the form's real job is saying exactly where that
+ * setting lives — each provider buries it somewhere different, and a later "invalid token" helps nobody.
+ *
+ * Trello's second secret field appears from the provider's own `requiresApiKey` flag rather than a
+ * hardcoded check here, so the API stays the one place that knows which providers need what.
+ */
+/** §31 SMART-001 — one smart-home connection, exactly as GET /v1/smart-home/connections returns it. */
+interface SmartHomeConnection {
+  id: string;
+  provider: string;
+  status: string;
+  healthDetail: string | null;
+  baseUrl: string | null;
+  lastSuccessfulSyncAt: string | null;
+  createdAt: string;
+  selectedDevices: { id: string; label: string; deviceType: string }[];
+}
+
+/**
+ * One connected Home Assistant.
+ *
+ * Deliberately shows the address. A household can run more than one server — a house and a rental, a
+ * parent's place — and two identical "Home Assistant · Connected" cards tell nobody which is which. The
+ * token is never shown and is not in the response at all.
+ */
+function SmartHomeConnectionRow({ connection, onChanged }: { connection: SmartHomeConnection; onChanged: () => void }) {
+  const { theme } = useAppTheme();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function disconnect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(`/v1/smart-home/connections/${connection.id}`);
+      setConfirming(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't disconnect. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const selected = connection.selectedDevices.length;
+  const needsAttention = connection.status === "error";
+
+  return (
+    <View
+      style={{
+        gap: 8,
+        padding: 12,
+        borderRadius: theme.radius.md,
+        borderWidth: 1,
+        borderColor: theme.colors.borderDefault,
+      }}
+    >
+      {/* flexWrap plus flex:1 on the text side: the address can be long, and without both it pushed the
+          badge off the card at 390px — the same defect found live on the connector rows. */}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Home Assistant</Text>
+          {connection.baseUrl && (
+            <Text numberOfLines={1} style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+              {connection.baseUrl}
+            </Text>
+          )}
+        </View>
+        <Text style={{ fontSize: 12, fontWeight: "600", color: needsAttention ? theme.colors.critical : theme.colors.textSecondary }}>
+          {needsAttention ? "Needs attention" : "Connected"}
+        </Text>
+      </View>
+
+      {connection.healthDetail && (
+        <Text style={{ fontSize: 12, color: theme.colors.critical, lineHeight: 18 }}>{connection.healthDetail}</Text>
+      )}
+
+      <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+        {selected === 0
+          ? "No devices chosen yet — nothing from this server is being read."
+          : `Watching ${selected} ${selected === 1 ? "device" : "devices"}.`}
+      </Text>
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      {!confirming && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          <Button variant="secondary" onPress={() => router.push(`/smart-home-devices?id=${encodeURIComponent(connection.id)}`)}>
+            Choose devices
+          </Button>
+          <Button variant="secondary" onPress={() => setConfirming(true)}>
+            Disconnect
+          </Button>
+        </View>
+      )}
+
+      {confirming && (
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 13, color: theme.colors.textPrimary, lineHeight: 19 }}>
+            Disconnect this Home Assistant? Your access token is deleted and nothing more will be read from it. What it already reported
+            stays.
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <Button variant="critical" onPress={disconnect} loading={busy}>
+              Disconnect
+            </Button>
+            <Button variant="secondary" onPress={() => setConfirming(false)} disabled={busy}>
+              Keep it
+            </Button>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function HomeAssistantConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [baseUrl, setBaseUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/smart-home/connections/home-assistant", { baseUrl, token });
+      onDone();
+    } catch (err) {
+      // Shown as sent. The API distinguishes a home-network address from a rejected token from a server
+      // that isn't Home Assistant, and those need three different things from the user — flattening them
+      // to "couldn't connect" sends someone to regenerate a token that was never the problem.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <TextField label="Home Assistant address" value={baseUrl} onChangeText={setBaseUrl} autoCapitalize="none" placeholder="https://abc123.ui.nabu.casa" />
+      <Text style={{ fontSize: 12, color: theme.colors.textTertiary, lineHeight: 18 }}>
+        This has to be an address reachable from outside your home — a Home Assistant Cloud address, or your own remote address. A local
+        one like homeassistant.local only works inside your house.
+      </Text>
+
+      <TextField label="Long-Lived Access Token" value={token} onChangeText={setToken} secureTextEntry autoCapitalize="none" />
+      <Text style={{ fontSize: 12, color: theme.colors.textTertiary, lineHeight: 18 }}>
+        In Home Assistant: your profile, then Security, then Long-Lived Access Tokens, then Create Token.
+      </Text>
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical, lineHeight: 19 }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
+  );
+}
+
+function TaskAppConnectForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { theme } = useAppTheme();
+  const [providers, setProviders] = useState<TaskAppProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("todoist");
+  const [token, setToken] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.get<{ providers: TaskAppProviderOption[] }>("/v1/connectors/task-apps/providers");
+        setProviders(result.providers);
+      } catch {
+        setError("Couldn't load the list of task apps.");
+      }
+    })();
+  }, []);
+
+  const selected = providers.find((p) => p.key === providerKey);
+
+  async function onSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.post("/v1/connectors/task-apps/connect", {
+        providerKey,
+        token,
+        apiKey: selected?.requiresApiKey ? apiKey : undefined,
+      });
+      onDone();
+    } catch (err) {
+      // The API answers with that provider's own guidance — shown as sent, not flattened.
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>Task app</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {providers.map((provider) => {
+          const active = provider.key === providerKey;
+          return (
+            <Pressable
+              key={provider.key}
+              onPress={() => setProviderKey(provider.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={provider.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                // Always outlined — a control with no border is not visibly a control.
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? theme.colors.brandDefault : theme.colors.textPrimary }}>
+                {provider.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>{selected.credentialHint}</Text>}
+
+      {selected?.requiresApiKey && (
+        <TextField label="API key" value={apiKey} onChangeText={setApiKey} secureTextEntry autoCapitalize="none" />
+      )}
+      <TextField label="Token" value={token} onChangeText={setToken} secureTextEntry autoCapitalize="none" />
+
+      {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button onPress={onSubmit} loading={submitting}>
+          Connect
+        </Button>
+        <Button variant="secondary" onPress={onCancel}>
+          Cancel
+        </Button>
+      </View>
+    </View>
   );
 }
 

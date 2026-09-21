@@ -64,7 +64,16 @@ function median(values: number[]): number {
  * rather than guessing from the average alone (a biweekly and a semimonthly stream can share almost the
  * same *average* gap while looking very different in consistency).
  */
-function classifyCadence(gapsDays: number[]): "weekly" | "biweekly" | "semimonthly" | "monthly" | null {
+/**
+ * The only cadences this app can detect. `classifyCadence` returns one of these or null — there is
+ * deliberately no "irregular" member, because a stream whose gaps are not consistent is not a detected
+ * stream at all (see classifyCadence's own precision-first note), and storing one would claim a pattern
+ * nothing found.
+ */
+export const INCOME_CADENCES = ["weekly", "biweekly", "semimonthly", "monthly"] as const;
+export type IncomeCadence = (typeof INCOME_CADENCES)[number];
+
+function classifyCadence(gapsDays: number[]): IncomeCadence | null {
   if (gapsDays.length === 0) return null;
   const avg = gapsDays.reduce((sum, g) => sum + g, 0) / gapsDays.length;
   const maxDeviation = Math.max(...gapsDays.map((g) => Math.abs(g - avg)));
@@ -77,12 +86,34 @@ function classifyCadence(gapsDays: number[]): "weekly" | "biweekly" | "semimonth
   return null;
 }
 
-const CADENCE_LABEL: Record<string, string> = {
-  weekly: "week",
-  biweekly: "2 weeks",
+/**
+ * A COMPLETE adverbial phrase per cadence, not a bare noun.
+ *
+ * This used to be a noun map the clients wrapped in "every {label}", which reads correctly for three of
+ * the four and produces "every twice a month" for the fourth. Semi-monthly is not an interval, it is a
+ * frequency, so no single sentence frame fits all four — the server owns the whole phrase instead, and
+ * the clients interpolate it verbatim.
+ *
+ * Typed `Record<IncomeCadence, string>` on purpose: adding a cadence to INCOME_CADENCES without giving
+ * it a phrase is now a compile error rather than a raw enum appearing on someone's screen.
+ */
+const CADENCE_PHRASE: Record<IncomeCadence, string> = {
+  weekly: "every week",
+  biweekly: "every 2 weeks",
   semimonthly: "twice a month",
-  monthly: "month",
+  monthly: "every month",
 };
+
+/**
+ * Rows written before the vocabulary was pinned down can still hold something outside it — the local seed
+ * wrote "semi_monthly" and "irregular", neither of which classifyCadence can produce. The old fallback was
+ * `?? r.cadence`, which put the raw column value on screen: users saw "every semi_monthly from Northwind
+ * LLC". Humanizing is the honest floor here. It cannot invent the right sentence frame for a value nobody
+ * defined, but it will never show an underscore or an enum again.
+ */
+function cadencePhrase(cadence: string): string {
+  return CADENCE_PHRASE[cadence as IncomeCadence] ?? cadence.replace(/_/g, " ");
+}
 
 /**
  * Read side of Phase 2 §52.2's financial aggregator — `PlaidAdapter` (connectors module) owns the
@@ -121,6 +152,91 @@ export class FinanceService {
     return rows
       .map((r) => ({ ...r.account, liability: r.liability ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * FIN-006 "Investments" — every position this user holds, joined to its security, with the portfolio
+   * totals a Home/Connections surface needs.
+   *
+   * Totals follow `summary()`'s rule exactly: only accounts the user has left INCLUDED are summed, but
+   * every holding is still returned. Excluding a joint brokerage from your totals should not make its
+   * positions vanish from the list — the spec's own framing of FIN-001 is "excluded from totals", not
+   * hidden — so the row carries `isIncluded` and the caller renders it as not counted.
+   *
+   * Unrealized gain is computed only when BOTH current value and cost basis are present. Plaid omits cost
+   * basis for plenty of institutions, and a "gain" derived from a missing basis would read as a total loss
+   * of the position's entire value — a fabricated number, which is worse than an absent one.
+   */
+  async holdings(userId: string, accountId?: string) {
+    const rows = await this.db
+      .select({
+        holding: schema.investmentHoldings,
+        security: schema.securities,
+        accountName: schema.financialAccounts.name,
+        accountMask: schema.financialAccounts.mask,
+        isIncluded: schema.financialAccounts.isIncluded,
+      })
+      .from(schema.investmentHoldings)
+      .innerJoin(schema.securities, eq(schema.securities.id, schema.investmentHoldings.securityId))
+      .innerJoin(schema.financialAccounts, eq(schema.financialAccounts.id, schema.investmentHoldings.accountId))
+      .where(
+        accountId
+          ? and(eq(schema.investmentHoldings.ownerUserId, userId), eq(schema.investmentHoldings.accountId, accountId))
+          : eq(schema.investmentHoldings.ownerUserId, userId),
+      );
+
+    const holdings = rows
+      .map((r) => ({
+        id: r.holding.id,
+        accountId: r.holding.accountId,
+        accountName: r.accountName,
+        accountMask: r.accountMask,
+        isIncluded: r.isIncluded,
+        quantity: r.holding.quantity,
+        institutionPrice: r.holding.institutionPrice,
+        institutionPriceAsOf: r.holding.institutionPriceAsOf,
+        institutionValueMinorUnits: r.holding.institutionValueMinorUnits,
+        costBasisMinorUnits: r.holding.costBasisMinorUnits,
+        unrealizedGainMinorUnits:
+          r.holding.institutionValueMinorUnits != null && r.holding.costBasisMinorUnits != null
+            ? r.holding.institutionValueMinorUnits - r.holding.costBasisMinorUnits
+            : null,
+        currency: r.holding.currency,
+        security: {
+          id: r.security.id,
+          name: r.security.name,
+          tickerSymbol: r.security.tickerSymbol,
+          type: r.security.type,
+          isCashEquivalent: r.security.isCashEquivalent,
+          closePrice: r.security.closePrice,
+          closePriceAsOf: r.security.closePriceAsOf,
+        },
+      }))
+      // Largest position first — the order somebody actually reads a portfolio in. A holding with no
+      // reported value sorts last rather than being treated as worth zero.
+      .sort((a, b) => (b.institutionValueMinorUnits ?? -1) - (a.institutionValueMinorUnits ?? -1));
+
+    const totals = new Map<string, { totalMinorUnits: number; costBasisMinorUnits: number; hasFullCostBasis: boolean }>();
+    for (const holding of holdings) {
+      if (!holding.isIncluded) continue;
+      const entry = totals.get(holding.currency) ?? { totalMinorUnits: 0, costBasisMinorUnits: 0, hasFullCostBasis: true };
+      entry.totalMinorUnits += holding.institutionValueMinorUnits ?? 0;
+      if (holding.costBasisMinorUnits == null) entry.hasFullCostBasis = false;
+      else entry.costBasisMinorUnits += holding.costBasisMinorUnits;
+      totals.set(holding.currency, entry);
+    }
+
+    return {
+      holdings,
+      totalsByCurrency: Array.from(totals.entries()).map(([currency, entry]) => ({
+        currency,
+        totalMinorUnits: entry.totalMinorUnits,
+        // Withheld entirely when any position in that currency is missing a basis, rather than reported
+        // as a partial sum that silently understates what was paid.
+        costBasisMinorUnits: entry.hasFullCostBasis ? entry.costBasisMinorUnits : null,
+        unrealizedGainMinorUnits: entry.hasFullCostBasis ? entry.totalMinorUnits - entry.costBasisMinorUnits : null,
+      })),
+    };
   }
 
   async transactions(userId: string, accountId?: string) {
@@ -288,7 +404,7 @@ export class FinanceService {
       .from(schema.detectedIncomeStreams)
       .where(and(eq(schema.detectedIncomeStreams.ownerUserId, userId), isNull(schema.detectedIncomeStreams.dismissedAt)));
     return rows
-      .map((r) => ({ ...r, cadenceLabel: CADENCE_LABEL[r.cadence] ?? r.cadence }))
+      .map((r) => ({ ...r, cadenceLabel: cadencePhrase(r.cadence) }))
       .sort((a, b) => (b.lastOccurrenceDate ?? "").localeCompare(a.lastOccurrenceDate ?? ""));
   }
 

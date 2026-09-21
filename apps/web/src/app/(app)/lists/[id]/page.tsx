@@ -247,7 +247,7 @@ export default function ListDetailPage() {
                     </Badge>
                   )}
                   {canManage && (
-                    <button onClick={() => deleteItem(item.id)} className="shrink-0 text-sm text-tertiary hover:text-critical" aria-label={`Remove ${item.label}`}>
+                    <button onClick={() => deleteItem(item.id)} className="inline-flex items-center gap-1 rounded-full border border-current/40 px-2.5 py-1 hover:bg-subtle shrink-0 text-sm text-tertiary hover:text-critical" aria-label={`Remove ${item.label}`}>
                       Remove
                     </button>
                   )}

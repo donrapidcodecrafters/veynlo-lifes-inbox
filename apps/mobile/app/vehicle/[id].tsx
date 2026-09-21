@@ -2,8 +2,10 @@ import { useCallback, useState } from "react";
 import { Pressable, Switch, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { useMergeRedirect } from "@/lib/use-merge-redirect";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -210,12 +212,18 @@ export default function VehicleDetailScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
 
+  // The raw error, kept alongside the message: a merged record's 404 carries the id it was merged
+  // into, and mapping straight to a string threw that away.
+  const [fetchError, setFetchError] = useState<unknown>(null);
+  useMergeRedirect(fetchError, (survivingId) => `/vehicle/${survivingId}`);
+
   const load = useCallback(() => {
     setError(null);
     api
       .get<VehicleDetail | null>(`/v1/vehicles/${id}`)
       .then(setData)
       .catch((err) => {
+        setFetchError(err);
         if (err instanceof ApiError && err.status === 404) {
           setData(null);
         } else {
@@ -275,8 +283,15 @@ export default function VehicleDetailScreen() {
   // Household-assignment gap close — mirrors person/[id].tsx's identical immediate-save private/household
   // toggle. `PUT /v1/vehicles/{id}` is the new edit endpoint; `null` explicitly means "make private again".
   async function saveHousehold(householdId: string | null) {
-    await api.put(`/v1/vehicles/${id}`, { householdId });
-    load();
+    setActionError(null);
+    try {
+      await api.put(`/v1/vehicles/${id}`, { householdId });
+      load();
+    } catch (err) {
+      // Without this the failed write threw uncaught and `load()` never ran, so the row simply stayed on
+      // its old value — visually identical to a tap that was ignored.
+      setActionError(err instanceof ApiError ? err.message : "Couldn't change who this is shared with.");
+    }
   }
 
   async function checkRecalls() {
@@ -718,13 +733,9 @@ export default function VehicleDetailScreen() {
             {r.status !== "closed_or_repaired" && (
               <View style={{ flexDirection: "row", gap: 12 }}>
                 {r.status === "potential_match_verify_vin" && (
-                  <Pressable accessibilityRole="button" onPress={() => confirmRecall(r.id)}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault }}>This affects my VIN</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => confirmRecall(r.id)} accessibilityLabel={`This affects my VIN: ${r.component ?? "Recall"}`}>This affects my VIN</InlineButton>
                 )}
-                <Pressable accessibilityRole="button" onPress={() => resolveRecall(r.id)}>
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary }}>Mark repaired</Text>
-                </Pressable>
+                <InlineButton onPress={() => resolveRecall(r.id)} tone="neutral" accessibilityLabel={`Mark repaired: ${r.component ?? "Recall"}`}>Mark repaired</InlineButton>
               </View>
             )}
           </View>
@@ -823,12 +834,8 @@ export default function VehicleDetailScreen() {
                 </View>
                 {t.status === "active" && confirmingReplaceTireId !== t.id && (
                   <View style={{ flexDirection: "row", gap: 12 }}>
-                    <Pressable accessibilityRole="button" onPress={() => rotateTire(t.id)} disabled={busy}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Rotate</Text>
-                    </Pressable>
-                    <Pressable accessibilityRole="button" onPress={() => setConfirmingReplaceTireId(t.id)} disabled={busy}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.critical, opacity: busy ? 0.5 : 1 }}>Replace</Text>
-                    </Pressable>
+                    <InlineButton onPress={() => rotateTire(t.id)} disabled={busy} accessibilityLabel={`Rotate ${label}`}>Rotate</InlineButton>
+                    <InlineButton onPress={() => setConfirmingReplaceTireId(t.id)} tone="critical" disabled={busy} accessibilityLabel={`Replace ${label}`}>Replace</InlineButton>
                   </View>
                 )}
               </View>
@@ -975,12 +982,8 @@ export default function VehicleDetailScreen() {
                   )}
                 </View>
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <Pressable accessibilityRole="button" onPress={() => completeRule(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Mark done</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" onPress={() => deleteRule(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => completeRule(r.id)} disabled={busy} accessibilityLabel={`Mark done: ${r.label}`}>Mark done</InlineButton>
+                  <InlineButton onPress={() => deleteRule(r.id)} tone="neutral" disabled={busy} accessibilityLabel={`Remove maintenance rule: ${r.label}`}>Remove</InlineButton>
                 </View>
               </View>
             </View>
@@ -1085,12 +1088,8 @@ export default function VehicleDetailScreen() {
                 </View>
               ) : (
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <Pressable accessibilityRole="button" onPress={() => startRenew(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.brandDefault, opacity: busy ? 0.5 : 1 }}>Renewed</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" onPress={() => deleteRegistrationRecord(r.id)} disabled={busy}>
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, opacity: busy ? 0.5 : 1 }}>Remove</Text>
-                  </Pressable>
+                  <InlineButton onPress={() => startRenew(r.id)} disabled={busy} accessibilityLabel={`Record renewal: ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`}>Renewed</InlineButton>
+                  <InlineButton onPress={() => deleteRegistrationRecord(r.id)} tone="neutral" disabled={busy} accessibilityLabel={`Remove ${REGISTRATION_TYPE_LABEL[r.recordType]}${r.jurisdiction ? ` — ${r.jurisdiction}` : ""}`}>Remove</InlineButton>
                 </View>
               )}
             </View>

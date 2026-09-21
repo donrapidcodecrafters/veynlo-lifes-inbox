@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { InboxService } from "./inbox.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
 import type { ConflictService } from "../schedule/conflict.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubWriteBack = {} as unknown as CalendarWriteBackService;
@@ -30,8 +31,7 @@ describe("InboxService — MAIL-006 sender rules", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `inbox-sender-rules-${ownerUserId}@example.com`, displayName: "Inbox Sender Rules Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping InboxService MAIL-006 tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "InboxService MAIL-006 tests");
     }
   });
 

@@ -22,7 +22,7 @@ export const CorrectInboxItemDtoSchema = z.object({
   dueDateIso: z.string().min(1).optional(),
   autopayBelieved: z.boolean().optional(),
   // calendar_event
-  title: z.string().min(1).max(300).optional(),
+  title: z.string().trim().min(1).max(300).optional(),
   location: z.string().max(300).nullable().optional(),
   isAllDay: z.boolean().optional(),
   startIso: z.string().min(1).optional(),
@@ -125,3 +125,21 @@ export const AddSenderRuleFromInboxItemDtoSchema = z.object({
   action: SenderRuleActionSchema,
 });
 export type AddSenderRuleFromInboxItemDto = z.infer<typeof AddSenderRuleFromInboxItemDtoSchema>;
+
+/**
+ * These two endpoints pulled a single field with @Body("...") and so never reached a validation pipe -
+ * see .claude/patch-body-validation.js for why that shape silently opts out.
+ *
+ * `until` is checked for parseability rather than a strict ISO format: the controller does
+ * `new Date(until)`, and an unparseable string became an Invalid Date that threw RangeError inside the
+ * UPDATE, surfacing as a retryable 500. Date.parse is exactly the predicate that matters here.
+ */
+export const DismissAttentionItemDtoSchema = z.object({
+  reason: z.string().min(1).max(200).optional(),
+});
+export type DismissAttentionItemDto = z.infer<typeof DismissAttentionItemDtoSchema>;
+
+export const SnoozeInboxItemDtoSchema = z.object({
+  until: z.string().min(1).refine((v) => Number.isFinite(Date.parse(v)), { message: "must be a parseable date-time" }),
+});
+export type SnoozeInboxItemDto = z.infer<typeof SnoozeInboxItemDtoSchema>;

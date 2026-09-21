@@ -4,6 +4,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { EntitlementsService } from "./entitlements.service";
 import type { Cache } from "../../cache/cache.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §47.4 "Track cost per active user" / §39.2 "Budget guardrails exist per user ... historical backfill" —
@@ -15,7 +16,7 @@ import type { Cache } from "../../cache/cache.interface";
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 
 describe("EntitlementsService.currentPeriodAiCostMinorUnits — §47.4 per-user AI cost aggregation", () => {
   let db: Database;
@@ -44,8 +45,7 @@ describe("EntitlementsService.currentPeriodAiCostMinorUnits — §47.4 per-user 
         modelKey: "claude-haiku-4-5-20251001",
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping EntitlementsService AI-cost-aggregation tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "EntitlementsService AI-cost-aggregation tests");
     }
   });
 

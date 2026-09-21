@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Linking, Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
@@ -16,6 +16,7 @@ interface ShipmentDetail {
   shipment: {
     carrier: string;
     trackingNumber: string;
+    trackingUrl: string | null;
     status: string;
     estimatedDelivery: TemporalValueLike | null;
     deliveredAt: string | null;
@@ -102,6 +103,30 @@ export default function ShipmentDetailScreen() {
       <ScreenHeader title={shipment.carrier} subtitle={shipment.trackingNumber} />
       <Card style={{ gap: 6 }}>
         <Badge tone={STATUS_TONE[shipment.status] ?? "neutral"}>{shipment.status.replace(/_/g, " ")}</Badge>
+        {/* Outlined, because a control with no border is not visibly a control. Rendered only when the
+            carrier is known — see the API's trackingUrl, which is null rather than a wrong guess. */}
+        {shipment.trackingUrl && (
+          <Pressable
+            onPress={() => Linking.openURL(shipment.trackingUrl!)}
+            accessibilityRole="link"
+            accessibilityLabel={`Track ${shipment.trackingNumber} on ${shipment.carrier}`}
+            hitSlop={8}
+            style={{
+              minHeight: 40,
+              alignSelf: "flex-start",
+              justifyContent: "center",
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: theme.radius.md,
+              borderWidth: 1,
+              borderColor: theme.colors.borderDefault,
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.brandDefault }}>
+              Track on {shipment.carrier} ↗
+            </Text>
+          </Pressable>
+        )}
         {estimated && <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>Estimated delivery: {estimated}</Text>}
         {shipment.deliveredAt && (
           <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>

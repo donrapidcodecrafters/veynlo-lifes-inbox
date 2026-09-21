@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { FinanceService } from "./finance.service";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { SetAccountIncludedDtoSchema, type SetAccountIncludedDto } from "./dto";
 
 @Controller("v1/finance")
 @UseGuards(AuthGuard)
@@ -16,8 +18,9 @@ export class FinanceController {
 
   /** FIN-001 "account list allows per-account inclusion/exclusion" toggle. */
   @Patch("accounts/:id")
-  setAccountIncluded(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("isIncluded") isIncluded: boolean) {
-    return this.finance.setAccountIncluded(id, user.userId, Boolean(isIncluded));
+  @UsePipes(new ZodValidationPipe(SetAccountIncludedDtoSchema))
+  setAccountIncluded(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetAccountIncludedDto) {
+    return this.finance.setAccountIncluded(id, user.userId, dto.isIncluded);
   }
 
   @Get("accounts/:id")
@@ -41,6 +44,16 @@ export class FinanceController {
   @Get("transactions/:id/revisions")
   transactionRevisions(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.finance.transactionRevisions(id, user.userId);
+  }
+
+  /**
+   * FIN-006 "Investments" — holdings across every connected brokerage/retirement account, with portfolio
+   * totals. Optional `accountId` narrows to one account, matching `GET /v1/finance/transactions`'s own
+   * query-parameter shape rather than inventing a second convention.
+   */
+  @Get("holdings")
+  holdings(@CurrentUser() user: AuthenticatedUser, @Query("accountId") accountId?: string) {
+    return this.finance.holdings(user.userId, accountId);
   }
 
   /** FIN-003 — read-only detected paycheck/income streams, recomputed on every request. */

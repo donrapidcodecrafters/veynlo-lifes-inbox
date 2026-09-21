@@ -1,10 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
+
+/**
+ * How long a step-up-gated value is left on the system clipboard.
+ *
+ * Both writes below sit behind the §28.9 step-up password — one is a signed URL that opens a medical
+ * document, the other is the entire medical export as JSON. The gate exists to say this data deserves
+ * protection beyond an active session, and handing it to a system-wide buffer that any installed app can
+ * read, with no lifetime and no indication it is still there, gives most of that back.
+ *
+ * Cleared only if the clipboard still holds what we put there — overwriting whatever the user copied since
+ * would be its own bug.
+ */
+const CLIPBOARD_CLEAR_MS = 60_000;
+
+async function copyThenClear(value: string): Promise<void> {
+  await Clipboard.setStringAsync(value);
+  setTimeout(() => {
+    void Clipboard.getStringAsync().then((current) => {
+      if (current === value) void Clipboard.setStringAsync("");
+    });
+  }, CLIPBOARD_CLEAR_MS);
+}
 import { useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -255,9 +278,7 @@ function TasksPanel({ appointmentId, linkedTasks, onChanged }: { appointmentId: 
       {linkedTasks.map((t) => (
         <View key={t.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 8 }}>
           <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }}>{t.title}</Text>
-          <Pressable accessibilityRole="button" onPress={() => unlink(t.id)} disabled={busy}>
-            <Text style={{ fontSize: 13, color: theme.colors.critical }}>Unlink</Text>
-          </Pressable>
+          <InlineButton onPress={() => unlink(t.id)} tone="critical" disabled={busy} accessibilityLabel={`Unlink task: ${t.title}`}>Unlink</InlineButton>
         </View>
       ))}
       <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textTertiary, marginTop: 4 }}>Link a task</Text>
@@ -324,7 +345,7 @@ function DocumentsPanel({ appointmentId, linkedDocuments, onChanged }: { appoint
       const result = await api.post<{ url: string }>(`/v1/health/documents/${documentId}/unlock`, { password: withPassword });
       setPasswordPromptFor(null);
       setPassword("");
-      await Clipboard.setStringAsync(result.url);
+      await copyThenClear(result.url);
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.code === "PASSWORD_REQUIRED") {
@@ -345,9 +366,7 @@ function DocumentsPanel({ appointmentId, linkedDocuments, onChanged }: { appoint
         <View key={d.id} style={{ gap: 6, borderTopWidth: 1, borderTopColor: theme.colors.borderSubtle, paddingTop: 8 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <Text style={{ fontSize: 13, color: theme.colors.textPrimary, flex: 1 }}>{d.title}</Text>
-            <Pressable accessibilityRole="button" onPress={() => unlink(d.id)} disabled={busy}>
-              <Text style={{ fontSize: 13, color: theme.colors.critical }}>Unlink</Text>
-            </Pressable>
+            <InlineButton onPress={() => unlink(d.id)} tone="critical" disabled={busy} accessibilityLabel={`Unlink document: ${d.title}`}>Unlink</InlineButton>
           </View>
           <Button variant="secondary" onPress={() => open(d.id)} loading={openingId === d.id}>
             Open (copies link to clipboard)
@@ -396,7 +415,7 @@ function ExportPanel({ appointmentId }: { appointmentId: string }) {
       const manifest = await api.post(`/v1/health/export`, { appointmentId, password: withPassword });
       setPasswordPromptOpen(false);
       setPassword("");
-      await Clipboard.setStringAsync(JSON.stringify(manifest, null, 2));
+      await copyThenClear(JSON.stringify(manifest, null, 2));
       setCopied(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "PASSWORD_REQUIRED") {
@@ -435,7 +454,7 @@ function ExportPanel({ appointmentId }: { appointmentId: string }) {
           </View>
         </View>
       )}
-      {copied && <Text style={{ fontSize: 13, color: theme.colors.positive }}>Copied to clipboard.</Text>}
+      {copied && <Text style={{ fontSize: 13, color: theme.colors.positiveSubtleText }}>Copied to clipboard.</Text>}
       {error && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{error}</Text>}
     </Card>
   );

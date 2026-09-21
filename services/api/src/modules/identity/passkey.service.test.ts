@@ -39,6 +39,7 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
 });
 
 import { verifyRegistrationResponse, verifyAuthenticationResponse } from "@simplewebauthn/server";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 const stubQueue = {} as unknown as QueueProducer;
@@ -70,8 +71,7 @@ describe("PasskeyService — AUTH-001", () => {
       otherUserId = generateId("user");
       await db.insert(schema.users).values({ id: otherUserId, email: `passkey-test-other-${otherUserId}@example.com`, displayName: "Passkey Test Other" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping PasskeyService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "PasskeyService tests");
     }
   });
 

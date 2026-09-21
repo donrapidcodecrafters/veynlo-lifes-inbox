@@ -158,6 +158,19 @@ export const legacyReleaseConfigs = pgTable(
     // High-entropy redemption token, same shape as shareLinks.tokenHash — minted only at finalize time, so
     // a config sitting in "draft"/"armed"/"pending_release" has no live token to leak at all.
     releaseTokenHash: text("release_token_hash").unique(),
+    // When the redemption token stops working. Set at finalize time.
+    //
+    // Before this column a finalized release was permanent AND unrevocable: access() checked only
+    // status === "released", revoke() threw ALREADY_RELEASED, and nothing anywhere cleared
+    // releaseTokenHash. So the emailed link reached household roster, vehicles, properties, pets,
+    // identity records, documents, medications and emergency instructions — the set the emergency binder
+    // puts behind a step-up password — forever, unauthenticated, with no way for the owner to close it
+    // even while demonstrably alive and using the app.
+    //
+    // The window is deliberately long, not short: this exists for someone settling an estate, and that
+    // takes months. It is bounded rather than infinite so a forwarded email or a mailbox breached years
+    // later does not still reach live data.
+    releaseExpiresAt: timestamp("release_expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

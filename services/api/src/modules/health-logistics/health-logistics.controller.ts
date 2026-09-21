@@ -20,6 +20,8 @@ import {
   type OpenHealthDocumentDto,
   ExportHealthPacketDtoSchema,
   type ExportHealthPacketDto,
+  SetAppointmentVisibilityDtoSchema,
+  type SetAppointmentVisibilityDto,
 } from "./dto";
 
 /** §27 "Health Logistics (Non-Diagnostic)" (HLTH-001..005) — see HealthLogisticsService's own doc comment
@@ -46,8 +48,9 @@ export class HealthLogisticsController {
   }
 
   @Put("appointments/:id/visibility")
-  async setVisibility(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("visibility") visibility: "private" | "household") {
-    await this.health.setAppointmentVisibility(id, user.userId, visibility);
+  @UsePipes(new ZodValidationPipe(SetAppointmentVisibilityDtoSchema))
+  async setVisibility(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SetAppointmentVisibilityDto) {
+    await this.health.setAppointmentVisibility(id, user.userId, dto.visibility);
     return { success: true };
   }
 

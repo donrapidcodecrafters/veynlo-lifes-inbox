@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { google, type people_v1 } from "googleapis";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
@@ -10,6 +10,7 @@ import { CredentialVault } from "../../common/credential-vault";
 import { ConnectorNotConfiguredError } from "./connector-errors";
 import type { OAuthConnectorAdapter } from "./connector.interface";
 import { recordConnectorSyncFailure } from "./connection-health.util";
+import { buildContactSyncIndexes, upsertContact, type ParsedContact } from "./contact-sync";
 
 // PEO-001 "Connect Google Contacts... when permission is granted" — reuses the SAME
 // GOOGLE_OAUTH_CLIENT_ID/SECRET Gmail/Google Calendar already use (one Google Cloud OAuth app, an
@@ -18,15 +19,6 @@ import { recordConnectorSyncFailure } from "./connection-health.util";
 // write-back concept for contacts the way CAL-001 does for calendar events.
 const CONTACTS_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"];
 const PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations,metadata";
-
-interface ParsedContact {
-  providerContactId: string;
-  displayName: string;
-  emails: string[];
-  phones: string[];
-  organizationName: string | null;
-  deleted: boolean;
-}
 
 function parsePerson(person: people_v1.Schema$Person): ParsedContact | null {
   const resourceName = person.resourceName;
@@ -130,85 +122,42 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
 
   /** Upserts one Google contact into `people`/`aliases`/`contactSources` — see this class's own doc comment
    * on why this never alias-matches into an existing person at import time. */
-  private async upsertContact(connection: typeof schema.connections.$inferSelect, connectionId: string, contact: ParsedContact): Promise<boolean> {
-    const [existingSource] = await this.db
-      .select()
-      .from(schema.contactSources)
-      .where(
-        and(
-          eq(schema.contactSources.connectionId, connectionId),
-          eq(schema.contactSources.provider, "google"),
-          eq(schema.contactSources.providerContactId, contact.providerContactId),
-        ),
-      )
-      .limit(1);
-
-    if (contact.deleted) {
-      // Contact sources remain evidence of what was once synced; the canonical Person row (and any notes/
-      // relationships/history a user attached to it) is never destroyed just because it disappeared from a
-      // provider's address book — same "don't destroy user data on an external signal" stance
-      // GoogleCalendarAdapter takes for a cancelled event, applied to the more destructive case of a
-      // person's whole row. Just stop tracking it as still-synced.
-      if (existingSource) await this.db.update(schema.contactSources).set({ syncedAt: new Date() }).where(eq(schema.contactSources.id, existingSource.id));
-      return false;
-    }
-
-    let personId: string;
-    if (existingSource) {
-      personId = existingSource.personId;
-      await this.db.update(schema.contactSources).set({ syncedAt: new Date() }).where(eq(schema.contactSources.id, existingSource.id));
-      await this.db.update(schema.people).set({ displayName: contact.displayName, updatedAt: new Date() }).where(eq(schema.people.id, personId));
-    } else {
-      personId = generateId("person");
-      await this.db.insert(schema.people).values({
-        id: personId,
-        ownerUserId: connection.ownerUserId,
-        householdId: connection.householdId,
-        displayName: contact.displayName,
-        // PEO-001 "avoid sensitive identity inference beyond product need" — private by default, exactly
-        // like a manually-created person (PeopleService.create); a synced contact isn't household-visible
-        // just because it came from a household-linked connection.
-        visibility: "private",
-      });
-      await this.db.insert(schema.contactSources).values({
-        id: generateId("contactSource"),
-        personId,
-        ownerUserId: connection.ownerUserId,
-        provider: "google",
-        connectionId,
-        providerContactId: contact.providerContactId,
-        syncedAt: new Date(),
-      });
-    }
-
-    if (contact.organizationName) {
-      const [org] = await this.db
-        .select()
-        .from(schema.organizations)
-        .where(and(eq(schema.organizations.ownerUserId, connection.ownerUserId), eq(schema.organizations.name, contact.organizationName)))
-        .limit(1);
-      const organizationId = org?.id ?? generateId("organization");
-      if (!org) await this.db.insert(schema.organizations).values({ id: organizationId, ownerUserId: connection.ownerUserId, name: contact.organizationName });
-      await this.db.update(schema.people).set({ organizationId }).where(eq(schema.people.id, personId));
-    }
-
-    const existingAliases = await this.db.select().from(schema.aliases).where(eq(schema.aliases.personId, personId));
-    const existingValues = new Set(existingAliases.map((a) => `${a.kind}:${a.value}`));
-    for (const email of contact.emails) {
-      if (existingValues.has(`email:${email}`)) continue;
-      await this.db.insert(schema.aliases).values({ id: generateId("alias"), personId, ownerUserId: connection.ownerUserId, kind: "email", value: email });
-    }
-    for (const phone of contact.phones) {
-      if (existingValues.has(`phone:${phone}`)) continue;
-      await this.db.insert(schema.aliases).values({ id: generateId("alias"), personId, ownerUserId: connection.ownerUserId, kind: "phone", value: phone });
-    }
-    return !existingSource;
+  /**
+   * Both lookups, built once per sync from DECRYPTED rows — see `contact-sync.ts` for why a SQL
+   * comparison against these columns silently matches nothing, and what that cost when it shipped.
+   */
+  private async syncIndexes(connection: typeof schema.connections.$inferSelect, connectionId: string) {
+    return buildContactSyncIndexes(this.db, { ownerUserId: connection.ownerUserId, connectionId, provider: "google" });
   }
-
+  /**
+   * One Google contact into `people`/`aliases`/`contactSources`.
+   *
+   * The body of this lives in `contact-sync.ts` now, shared with CardDAV. Every semantic it carries —
+   * never destroying a person whose contact disappeared upstream, private-by-default visibility, keying
+   * identity on the provider's id rather than a matching email — is a decision that would be wrong in a
+   * different way if a second connector re-derived it.
+   */
+  private async upsertContact(
+    connection: typeof schema.connections.$inferSelect,
+    connectionId: string,
+    contact: ParsedContact,
+    indexes: Awaited<ReturnType<GoogleContactsAdapter["syncIndexes"]>>,
+  ): Promise<boolean> {
+    return upsertContact(this.db, {
+      ownerUserId: connection.ownerUserId,
+      householdId: connection.householdId,
+      connectionId,
+      provider: "google",
+      contact,
+      indexes,
+    });
+  }
   async initialSync(connectionId: string): Promise<{ itemCount: number }> {
     try {
       const { connection, people } = await this.client(connectionId);
 
+      // Built once per sync, not per contact — see syncIndexes.
+      const indexes = await this.syncIndexes(connection, connectionId);
       let itemCount = 0;
       let pageToken: string | undefined;
       let nextSyncToken: string | null | undefined;
@@ -223,7 +172,7 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
         for (const person of list.data.connections ?? []) {
           const parsed = parsePerson(person);
           if (!parsed) continue;
-          if (await this.upsertContact(connection, connectionId, parsed)) itemCount += 1;
+          if (await this.upsertContact(connection, connectionId, parsed, indexes)) itemCount += 1;
         }
         pageToken = list.data.nextPageToken ?? undefined;
         if (list.data.nextSyncToken) nextSyncToken = list.data.nextSyncToken;
@@ -251,6 +200,8 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
     const { connection, people } = await this.client(connectionId);
     if (!connection.cursor) return this.initialSync(connectionId);
 
+    // Built once per sync, not per contact — see syncIndexes.
+    const indexes = await this.syncIndexes(connection, connectionId);
     let itemCount = 0;
     let pageToken: string | undefined;
     let nextSyncToken: string | null | undefined;
@@ -266,7 +217,7 @@ export class GoogleContactsAdapter implements OAuthConnectorAdapter {
         for (const person of list.data.connections ?? []) {
           const parsed = parsePerson(person);
           if (!parsed) continue;
-          if (await this.upsertContact(connection, connectionId, parsed)) itemCount += 1;
+          if (await this.upsertContact(connection, connectionId, parsed, indexes)) itemCount += 1;
         }
         pageToken = list.data.nextPageToken ?? undefined;
         if (list.data.nextSyncToken) nextSyncToken = list.data.nextSyncToken;

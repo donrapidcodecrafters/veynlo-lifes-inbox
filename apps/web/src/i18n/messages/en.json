@@ -101,6 +101,8 @@
     "quickFilterLowConfidence": "Low confidence",
     "allCategories": "All categories",
     "filterByCategory": "Filter by category",
+    "filterByReviewState": "Filter by review state",
+    "quickFiltersLabel": "Quick filters",
     "caughtUpTitle": "You're caught up.",
     "caughtUpDescription": "New receipts, bills, appointments, and other discoveries will show up here for a quick review before they're filed.",
     "noMatchTitle": "No items match these filters.",

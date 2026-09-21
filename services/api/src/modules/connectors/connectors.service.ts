@@ -40,25 +40,70 @@ const DROPBOX_REVOKE_PROVIDERS = new Set(["dropbox"]);
  * would silently no-op or 404 — see docs/INCIDENT_RESPONSE.md §4's write-up of this same gap. The local
  * credential deletion below (unconditional, every provider) remains the real security boundary regardless.
  */
-const MICROSOFT_NO_REVOKE_PROVIDERS = new Set(["outlook", "microsoft_calendar", "onedrive", "microsoft_todo", "microsoft_contacts"]);
+const MICROSOFT_NO_REVOKE_PROVIDERS = new Set(["outlook", "microsoft_calendar", "onedrive", "sharepoint", "microsoft_todo", "microsoft_contacts"]);
 
-/** Every provider the recurring incremental-scan tick (worker-main.ts's connectorScanWorker, via
+/**
+ * Every provider the recurring incremental-scan tick (worker-main.ts's connectorScanWorker, via
  * ConnectorsService.listEligibleForIncrementalScan below) considers at all — kept here rather than
  * inlined in the worker so the eligibility query itself is unit-testable without a live BullMQ/Redis
- * worker process. */
-const INCREMENTAL_SYNC_PROVIDERS = [
+ * worker process.
+ *
+ * This list and worker-main.ts's `adaptersByProvider` map have to name the same providers, and they did
+ * not: imap, caldav and carddav were added to the map when those connectors shipped and never added here,
+ * so those three synced once on connect and then went permanently silent — a connection sitting in the
+ * user's list reporting "healthy" while nothing arrived. That is the exact failure the connectors are
+ * written to avoid, and it was invisible because nothing ever compared the two lists.
+ *
+ * It is now exported, and worker-main.ts asserts at boot that its map's keys are exactly these. A
+ * connector registered in one place and not the other stops the worker with a message naming the
+ * provider, instead of shipping a connection that quietly does nothing.
+ */
+export const INCREMENTAL_SYNC_PROVIDERS = [
   "gmail",
   "outlook",
+  "imap",
+  "caldav",
+  "carddav",
   "ics",
   "google_calendar",
   "microsoft_calendar",
   "google_drive",
   "onedrive",
+  "sharepoint",
   "dropbox",
   "google_tasks",
   "microsoft_todo",
+  "todoist",
+  "trello",
+  "asana",
   "plaid",
 ];
+
+/**
+ * Being able to sync a provider and actually being scheduled to are two separate registrations, and for
+ * imap/caldav/carddav they silently disagreed: all three had a sync adapter, none was ever on the scan
+ * list, so each ran once at connect time and then never again while reporting itself healthy.
+ *
+ * Called by worker-main.ts at boot with its adapter map's keys. A worker that would ship silent
+ * connections does not start.
+ *
+ * A pure function taking the mapped keys, rather than reaching into the worker, so the thing that runs in
+ * production is the thing the test runs — the previous version of this was a replica in a scratch file,
+ * which proves the logic I wrote twice agrees with itself and nothing more.
+ */
+export function assertConnectorRegistrationIsComplete(mappedProviders: string[]): void {
+  const mapped = [...mappedProviders].sort();
+  const scanned = [...INCREMENTAL_SYNC_PROVIDERS].sort();
+  const notScanned = mapped.filter((key) => !scanned.includes(key));
+  const notMapped = scanned.filter((key) => !mapped.includes(key));
+  if (notScanned.length === 0 && notMapped.length === 0) return;
+  throw new Error(
+    "Connector registration is inconsistent — every provider with a sync adapter must also be on the " +
+      "recurring scan list, or it will sync once and then go silent. " +
+      `Has an adapter but is never scanned: [${notScanned.join(", ") || "none"}]. ` +
+      `Is scanned but has no adapter: [${notMapped.join(", ") || "none"}].`,
+  );
+}
 
 @Injectable()
 export class ConnectorsService {
@@ -114,6 +159,12 @@ export class ConnectorsService {
       await this.plaid.revoke(connectionId);
     } else if (GOOGLE_REVOKE_PROVIDERS.has(connection.provider) || DROPBOX_REVOKE_PROVIDERS.has(connection.provider)) {
       await this.revokeProviderToken(connection);
+    } else if (connection.provider === "imap") {
+      // Nothing to revoke upstream, and that is a property of the credential rather than an omission.
+      // IMAP has no token endpoint: the app password is withdrawn by the user in their own provider's
+      // security settings, and nothing this server can call will do it for them. Deleting the stored copy
+      // below is the whole of what this side can do — listed explicitly, for the same reason
+      // MICROSOFT_NO_REVOKE_PROVIDERS is.
     } else if (MICROSOFT_NO_REVOKE_PROVIDERS.has(connection.provider)) {
       // No-op, deliberately — see MICROSOFT_NO_REVOKE_PROVIDERS' own doc comment for why there's nothing
       // to call. Listed explicitly (rather than just falling through the else-if chain unlabeled) so this
@@ -295,7 +346,11 @@ export class ConnectorsService {
           isNull(schema.connections.disconnectedAt),
           eq(schema.connections.paused, false),
         ),
-      );
+      )
+      // Least-recently-synced first. Unordered, a tick enqueued in whatever order the scan returned, so a
+      // connection could keep losing its slot to the same neighbours; this makes the rota fair and the
+      // tick reproducible. NULLs (never synced) sort first, which is the right priority anyway.
+      .orderBy(asc(schema.connections.lastSuccessfulSyncAt), asc(schema.connections.id));
   }
 
   async assertOwnership(connectionId: string, userId: string) {

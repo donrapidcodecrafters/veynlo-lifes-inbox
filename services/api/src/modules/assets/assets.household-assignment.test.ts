@@ -13,9 +13,10 @@ import type { VinDecodeService } from "./vin-decode.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubRecallMonitor = {} as unknown as RecallMonitorService;
 const stubVinDecode = {} as unknown as VinDecodeService;
@@ -79,8 +80,7 @@ describe("AssetsService — household assignment via update (vehicles & properti
         joinedAt: new Date(),
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping assets household-assignment tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "assets household-assignment tests");
     }
   });
 

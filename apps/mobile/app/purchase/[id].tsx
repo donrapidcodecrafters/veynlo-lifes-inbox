@@ -13,7 +13,11 @@ import { ScreenHeader } from "@/components/screen-header";
 import { EvidenceCard, type Evidence } from "@/components/evidence-card";
 import { ShareResourcePanel } from "@/components/share-resource-panel";
 import { FetchError } from "@/components/fetch-error";
-import { formatMoneyMinorUnits, formatTemporal, type TemporalValueLike } from "@/lib/format";
+import { formatTemporal, type TemporalValueLike } from "@/lib/format";
+import { useFinancialPrivacy, useMaskedMoney } from "@/lib/financial-privacy-context";
+
+/** What a masked payment note reads as — the same four bullets the amounts use. */
+const MASKED_PAYMENT = "••••";
 
 // Same mapping apps/web's purchase detail page uses for confidenceBand — kept in sync so a purchase
 // flagged "needs_review" or "conflicting" doesn't read as identically trustworthy as one "verified" (a
@@ -271,6 +275,7 @@ function LineItemRow({
   priceAdjustmentPolicy: PriceAdjustmentPolicy | null;
   onSaved: () => void;
 }) {
+  const maskedMoney = useMaskedMoney();
   const { theme } = useAppTheme();
   const [editing, setEditing] = useState(false);
   const [serial, setSerial] = useState(line.serialNumber ?? "");
@@ -302,7 +307,7 @@ function LineItemRow({
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           {line.giftFlag && <Badge tone="brand">Gift</Badge>}
           {line.unitPriceMinorUnits != null && (
-            <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{formatMoneyMinorUnits(line.unitPriceMinorUnits, currency)}</Text>
+            <Text style={{ fontSize: 13, color: theme.colors.textTertiary }}>{maskedMoney(line.unitPriceMinorUnits, currency)}</Text>
           )}
         </View>
       </View>
@@ -321,7 +326,7 @@ function LineItemRow({
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
             <Badge tone="warning">Price dropped</Badge>
             <Text style={{ fontSize: 12, color: theme.colors.warningSubtleText, flex: 1 }}>
-              {formatMoneyMinorUnits(line.unitPriceMinorUnits, currency)} → {formatMoneyMinorUnits(priceAdjustment.observedAmountMinorUnits, priceAdjustment.observedAmountCurrency)} — you
+              {maskedMoney(line.unitPriceMinorUnits, currency)} → {maskedMoney(priceAdjustment.observedAmountMinorUnits, priceAdjustment.observedAmountCurrency)} — you
               may be eligible for a price adjustment.
             </Text>
           </View>
@@ -484,6 +489,8 @@ function PurchaseActions({ purchase, purchaseId, onSaved }: { purchase: Purchase
 }
 
 export default function PurchaseDetailScreen() {
+  const { masked } = useFinancialPrivacy();
+  const maskedMoney = useMaskedMoney();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { theme } = useAppTheme();
@@ -537,7 +544,7 @@ export default function PurchaseDetailScreen() {
 
   const { purchase, merchantName, lines, returns, shipments, evidence, priceAdjustments, priceAdjustmentPolicy } = data;
   const date = formatTemporal(purchase.purchaseDate);
-  const total = formatMoneyMinorUnits(purchase.totalMinorUnits, purchase.totalCurrency);
+  const total = maskedMoney(purchase.totalMinorUnits, purchase.totalCurrency);
 
   return (
     <Screen>
@@ -562,12 +569,19 @@ export default function PurchaseDetailScreen() {
         <Badge tone={CONFIDENCE_TONE[purchase.confidenceBand] ?? "neutral"}>{purchase.confidenceBand.replace(/_/g, " ")}</Badge>
         <Text style={{ fontSize: 13, color: theme.colors.textTertiary, textTransform: "capitalize" }}>{purchase.state.replace(/_/g, " ")}</Text>
         {purchase.taxMinorUnits != null && (
-          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Tax: {formatMoneyMinorUnits(purchase.taxMinorUnits, purchase.totalCurrency)}</Text>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Tax: {maskedMoney(purchase.taxMinorUnits, purchase.totalCurrency)}</Text>
         )}
         {purchase.shippingMinorUnits != null && (
-          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Shipping: {formatMoneyMinorUnits(purchase.shippingMinorUnits, purchase.totalCurrency)}</Text>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Shipping: {maskedMoney(purchase.shippingMinorUnits, purchase.totalCurrency)}</Text>
         )}
-        {purchase.paymentMethodHint && <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>Payment: {purchase.paymentMethodHint}</Text>}
+        {/* Masked with the amounts: a card brand and its last four digits are exactly what this mode is
+            for, and leaving them visible under it would be the one reading on the screen that gives away
+            an account. */}
+        {purchase.paymentMethodHint && (
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            Payment: {masked ? MASKED_PAYMENT : purchase.paymentMethodHint}
+          </Text>
+        )}
         <PurchaseActions purchase={purchase} purchaseId={String(id)} onSaved={load} />
       </Card>
 

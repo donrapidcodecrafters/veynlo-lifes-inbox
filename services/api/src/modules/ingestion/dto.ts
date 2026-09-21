@@ -14,13 +14,27 @@ export type IngestManualDto = z.infer<typeof IngestManualDtoSchema>;
 
 export const IngestUrlDtoSchema = z.object({
   url: z.string().url().max(2000),
+  /**
+   * Whatever the user shared ALONGSIDE the link.
+   *
+   * A share sheet rarely hands over a bare URL. TikTok's carries a caption; a person forwarding a
+   * restaurant adds "for Saturday?". That text is the reason they saved it and is frequently the only part
+   * that says why, so it is kept with the page rather than discarded to make the URL fit this endpoint.
+   */
+  note: z.string().trim().max(4000).optional(),
+  /**
+   * Marks an OS share-sheet capture, exactly as `IngestManualDtoSchema.kind` does — the mobile share path
+   * sends a URL here now rather than to /manual, and losing that distinction would make a deliberate share
+   * indistinguishable from a link typed into the app.
+   */
+  kind: z.enum(["share_capture"]).optional(),
 });
 export type IngestUrlDto = z.infer<typeof IngestUrlDtoSchema>;
 
 /** A single EventKit/local-calendar event pushed from the mobile app — see IngestionService.ingestFeedCalendarEvent, the same "already a calendar event, no AI needed" write path the ICS/Google/Microsoft calendar connectors share. */
 export const DeviceCalendarEventDtoSchema = z.object({
   uid: z.string().min(1).max(500),
-  title: z.string().min(1).max(500),
+  title: z.string().trim().min(1).max(500),
   startIso: z.string().min(1),
   endIso: z.string().nullable(),
   isAllDay: z.boolean(),
@@ -36,7 +50,7 @@ export type IngestDeviceCalendarDto = z.infer<typeof IngestDeviceCalendarDtoSche
  * from the mobile app. See IngestionService.ingestDeviceReminder. */
 export const DeviceReminderDtoSchema = z.object({
   uid: z.string().min(1).max(500),
-  title: z.string().min(1).max(500),
+  title: z.string().trim().min(1).max(500),
   dueIso: z.string().nullable(),
   notes: z.string().max(2000).nullable(),
   completed: z.boolean(),

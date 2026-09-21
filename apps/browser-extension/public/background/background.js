@@ -1,3 +1,5 @@
+import { titleForPage } from "../shared/link-title.js";
+
 const DEFAULT_API_BASE = "http://localhost:4000";
 const CONTEXT_MENU_PAGE = "veynlo-save-page";
 const CONTEXT_MENU_SELECTION = "veynlo-save-selection";
@@ -95,6 +97,20 @@ async function captureAndSave({ url, title, bodyText }) {
     throw new Error("Not signed in to Veynlo.");
   }
 
+  // With no active tab there is no title and no URL, so both fields would be empty and the request could
+  // only ever come back 400. Refuse locally, with wording a person can act on, rather than showing them a
+  // validation error for a request they did not know they were making.
+  //
+  // `titleForPage` rather than the browser's title directly: measured in a real browser, Google Maps calls
+  // every one of its place pages "Google Maps", so saving a place from here filed it under that name. The
+  // browser's title still wins everywhere else — having already run the page's JavaScript is this
+  // extension's whole advantage over fetching the page from a server.
+  const subject = titleForPage(url, title);
+  const composedBody = [title, url, bodyText].filter(Boolean).join("\n\n");
+  if (!subject || !composedBody) {
+    throw new Error("Open a page in a tab first, then try saving it.");
+  }
+
   const response = await fetch(`${apiBase || DEFAULT_API_BASE}/v1/ingestion/manual`, {
     method: "POST",
     headers: {
@@ -103,14 +119,25 @@ async function captureAndSave({ url, title, bodyText }) {
       authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      subject: title || url,
-      bodyText: [title, url, bodyText].filter(Boolean).join("\n\n"),
+      subject,
+      bodyText: composedBody,
     }),
   });
 
   if (!response.ok) {
+    // Surface the API's own human-readable `message`, the way apps/web and apps/mobile already do. This
+    // used to interpolate the raw response body, so a validation failure showed the user the whole JSON
+    // envelope — code, fieldErrors and traceId included — inside a 320px popup. Found live during the
+    // audit: `Save failed (400): {"code":"VALIDATION_FAILED","message":"Request body failed validation.",
+    // "fieldErrors":{...},"retryable":false,"traceId":"c4fa064d-..."}`.
     const text = await response.text().catch(() => "");
-    throw new Error(`Save failed (${response.status}): ${text}`);
+    let message = "";
+    try {
+      message = JSON.parse(text)?.message ?? "";
+    } catch {
+      // Not JSON — a proxy error page, or an empty body. Fall through to the generic wording below.
+    }
+    throw new Error(message || `Couldn't save that (${response.status}). Please try again.`);
   }
 
   const body = await response.json();

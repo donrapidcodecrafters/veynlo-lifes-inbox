@@ -5,6 +5,7 @@ import { generateId } from "@veynlo/core";
 import { LocationService } from "./location.service";
 import { ResurfacingService } from "../memories/resurfacing.service";
 import type { HouseholdService } from "../household/household.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real-Postgres coverage for the buildable LOC-003/004/005 data layer (places/geofences/context-rules)
@@ -37,8 +38,7 @@ describe("LocationService", () => {
         { id: strangerUserId, email: `loc-stranger-${strangerUserId}@example.com`, displayName: "Stranger" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping LocationService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "LocationService tests");
     }
   });
 

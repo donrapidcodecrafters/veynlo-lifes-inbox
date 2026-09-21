@@ -299,7 +299,10 @@ export class SearchService {
           ? this.db.select().from(schema.savedMemories).where(and(inArray(schema.savedMemories.id, savedMemoryIds), eq(schema.savedMemories.ownerUserId, userId)))
           : Promise.resolve([]),
         petIds.length > 0
-          ? this.db.select().from(schema.petProfiles).where(and(inArray(schema.petProfiles.id, petIds), eq(schema.petProfiles.ownerUserId, userId), isNull(schema.petProfiles.deletedAt)))
+          ? this.db
+              .select()
+              .from(schema.petProfiles)
+              .where(and(inArray(schema.petProfiles.id, petIds), eq(schema.petProfiles.ownerUserId, userId), isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId)))
           : Promise.resolve([]),
         healthAppointmentIds.length > 0
           ? this.db
@@ -468,7 +471,14 @@ export class SearchService {
         // chance of a correct answer no matter how well-grounded synthesis is — the data was never fetched.
         this.db.select().from(schema.trips).where(and(eq(schema.trips.ownerUserId, userId), isNull(schema.trips.deletedAt))).limit(200),
         this.db.select().from(schema.savedMemories).where(eq(schema.savedMemories.ownerUserId, userId)).limit(200),
-        this.db.select().from(schema.petProfiles).where(and(eq(schema.petProfiles.ownerUserId, userId), isNull(schema.petProfiles.deletedAt))).limit(200),
+        // mergedIntoPetId excluded too — a merged-away duplicate is never hard-deleted (see
+        // assets.service.ts's mergeVehicles doc comment), so without this a stale duplicate pet could leak
+        // into Ask's grounding context. Same gap found and fixed in emergency-binder.service.ts.
+        this.db
+          .select()
+          .from(schema.petProfiles)
+          .where(and(eq(schema.petProfiles.ownerUserId, userId), isNull(schema.petProfiles.deletedAt), isNull(schema.petProfiles.mergedIntoPetId)))
+          .limit(200),
         this.db.select().from(schema.healthAppointments).where(and(eq(schema.healthAppointments.ownerUserId, userId), isNull(schema.healthAppointments.deletedAt))).limit(200),
       ]);
 

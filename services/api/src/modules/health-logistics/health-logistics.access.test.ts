@@ -16,6 +16,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { ObjectStorage } from "../documents/object-storage.interface";
 import type { ModelProvider } from "../intelligence/model-provider.interface";
 import type { MalwareScannerService } from "../documents/malware-scanner.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §27 "Health Logistics (Non-Diagnostic)" — the adversarial access-control matrix HealthLogisticsService's
@@ -30,7 +31,7 @@ import type { MalwareScannerService } from "../documents/malware-scanner.service
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubOnboarding = { initializeForNewUser: async () => {} } as unknown as OnboardingService;
 const stubQueue = { enqueueDocumentOcr: async () => {} } as unknown as QueueProducer;
@@ -166,8 +167,7 @@ describe("HealthLogisticsService — private-by-default access control", () => {
         sizeBytes: 1024,
       });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping HealthLogisticsService access-control tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "HealthLogisticsService access-control tests");
     }
   });
 

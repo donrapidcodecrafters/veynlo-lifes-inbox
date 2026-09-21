@@ -1,4 +1,5 @@
 import { Card, CardBody } from "@/components/ui/card";
+import { providerLabel } from "@veynlo/core";
 
 export interface Evidence {
   sourceEventId: string;
@@ -16,7 +17,6 @@ const KIND_LABEL: Record<string, string> = {
   calendar_feed_event: "Calendar feed",
 };
 
-const PROVIDER_LABEL: Record<string, string> = { gmail: "Gmail", outlook: "Outlook", ics: "Calendar feed" };
 
 /** §39.2 "evidence view" — Absolute Product Rule "Evidence before assertion": every material extracted
  * fact must retain source provenance the user can inspect ("why am I seeing this?"). Shows whatever was
@@ -59,7 +59,7 @@ export function EvidenceCard({ evidence }: { evidence: Evidence | null }) {
           <dt className="text-tertiary">Source</dt>
           <dd className="text-primary">
             {KIND_LABEL[evidence.kind] ?? evidence.kind}
-            {evidence.provider && ` · ${PROVIDER_LABEL[evidence.provider] ?? evidence.provider}`}
+            {evidence.provider && ` · ${providerLabel(evidence.provider)}`}
           </dd>
           <dt className="text-tertiary">Received</dt>
           <dd className="text-primary">{new Date(evidence.occurredAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</dd>

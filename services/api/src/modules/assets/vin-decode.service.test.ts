@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { VinDecodeService } from "./vin-decode.service";
+import { FETCH_TIMEOUT_MS } from "../ingestion/safe-url-fetcher";
+
+/**
+ * Same invariant DEF-084 fixed for the live-CPSC tests: a test must be allowed to outlast the call it
+ * makes. These hit the real vPIC service through SafeUrlFetcher, which allows FETCH_TIMEOUT_MS (10s) —
+ * while vitest's default test timeout is 5s, so a vPIC response slower than five seconds killed the test
+ * before the fetcher's own timeout, and before the try/catch these tests use to skip when the API is
+ * unreachable could run. Derived rather than hardcoded so the two cannot drift apart.
+ */
+const NETWORK_TEST_TIMEOUT_MS = FETCH_TIMEOUT_MS + 10_000;
 import { SafeUrlFetcher } from "../ingestion/safe-url-fetcher";
 
 /**
@@ -34,7 +44,7 @@ describe("VinDecodeService — live NHTSA vPIC integration", () => {
     expect(result.attributes.bodyClass).toBe("Coupe");
     expect(result.attributes.trim).toBe("EX-V6");
     expect(result.attributes.fuelTypePrimary).toBe("Gasoline");
-  });
+  }, NETWORK_TEST_TIMEOUT_MS);
 
   it("lowercases/whitespace VINs are normalized to uppercase before decoding", async () => {
     let result: Awaited<ReturnType<typeof service.decodeVin>>;
@@ -46,7 +56,7 @@ describe("VinDecodeService — live NHTSA vPIC integration", () => {
     }
     expect(result.vin).toBe("1HGCM82633A004352");
     expect(result.make).toBe("HONDA");
-  });
+  }, NETWORK_TEST_TIMEOUT_MS);
 
   it("reports success: false with an honest error message for a garbled/incomplete VIN — never fabricates make/model", async () => {
     let result: Awaited<ReturnType<typeof service.decodeVin>>;
@@ -60,9 +70,9 @@ describe("VinDecodeService — live NHTSA vPIC integration", () => {
     expect(result.model).toBeNull();
     expect(result.modelYear).toBeNull();
     expect(result.errorText).toBeTruthy();
-  });
+  }, NETWORK_TEST_TIMEOUT_MS);
 
   it("rejects an empty VIN before making any network call", async () => {
     await expect(service.decodeVin("   ")).rejects.toThrow();
-  });
+  }, NETWORK_TEST_TIMEOUT_MS);
 });

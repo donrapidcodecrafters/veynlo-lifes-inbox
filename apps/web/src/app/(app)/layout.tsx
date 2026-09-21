@@ -8,6 +8,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { api, ApiError, swrFetcher } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { ActionFailureBanner } from "@/components/ui/action-failure-banner";
 import { FinancialPrivacyProvider } from "@/lib/financial-privacy-context";
 
 // ONB-001 "after sign-up (or on first sign-in if no onboarding has been completed)" — checked once here,
@@ -62,6 +63,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <FinancialPrivacyProvider>
       <AppShell>{children}</AppShell>
+      {/* Mounted for the whole authenticated shell, because the handlers it covers are spread across every
+          page in it — see the component's own note on why this is one listener and not 42 try/catches. */}
+      <ActionFailureBanner />
     </FinancialPrivacyProvider>
   );
 }

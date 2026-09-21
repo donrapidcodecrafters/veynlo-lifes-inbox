@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createOnboardedUser, API_BASE_URL } from "./support/api";
+import { API_BASE_URL, createSignedInUser } from "./support/api";
 import { seedCandidatePurchase } from "./support/db";
 
 /**
@@ -12,21 +12,16 @@ import { seedCandidatePurchase } from "./support/db";
  * subscription-cancel actions actually work end-to-end through the UI, not just at the service layer.
  */
 test.describe("Commerce lifecycle actions", () => {
-  test("confirming a candidate purchase moves it to confirmed, then it can be marked disposed", async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "purchase-confirm");
+  test("confirming a candidate purchase moves it to confirmed, then it can be marked disposed", async ({ page }) => {
+    await createSignedInUser(page, "purchase-confirm");
 
-    const meRes = await request.fetch(`${API_BASE_URL}/v1/auth/me`, { headers: { "x-veynlo-csrf": "1" } });
+    const meRes = await page.request.fetch(`${API_BASE_URL}/v1/auth/me`, { headers: { "x-veynlo-csrf": "1" } });
     expect(meRes.ok()).toBe(true);
     const me = (await meRes.json()) as { id: string };
 
     const purchaseId = `pur_e2e_${Date.now()}`;
     seedCandidatePurchase(me.id, purchaseId, `E2E-CONFIRM-${Date.now()}`);
 
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
 
     await page.goto(`/life/purchases/${purchaseId}`);
     await expect(page.getByText("Status")).toBeVisible();
@@ -53,13 +48,13 @@ test.describe("Commerce lifecycle actions", () => {
     await expect(disposeButton).not.toBeVisible();
   });
 
-  test("canceling a subscription moves it to cancellation_pending and shows the submitted-cancellation banner", async ({ page, request }) => {
-    const user = await createOnboardedUser(request, "sub-cancel");
+  test("canceling a subscription moves it to cancellation_pending and shows the submitted-cancellation banner", async ({ page }) => {
+    await createSignedInUser(page, "sub-cancel");
 
     // §40.3 SUB-001 "manual add" — the one real API path to create a subscription outside of AI
     // extraction; lands it in state "active" (CreateSubscriptionDto's own confidenceBand: "verified" /
     // state: "active" reasoning), one of submitSubscriptionCancellation's real cancelable states.
-    const createRes = await request.fetch(`${API_BASE_URL}/v1/subscriptions`, {
+    const createRes = await page.request.fetch(`${API_BASE_URL}/v1/subscriptions`, {
       method: "POST",
       headers: { "x-veynlo-csrf": "1" },
       data: { serviceLabel: `E2E Cancel Test ${Date.now()}`, merchantName: "E2E Cancel Test Merchant", amountMinorUnits: 999, currency: "USD" },
@@ -67,11 +62,6 @@ test.describe("Commerce lifecycle actions", () => {
     expect(createRes.ok()).toBe(true);
     const { id: subscriptionId } = (await createRes.json()) as { id: string };
 
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("Password", { exact: true }).fill(user.password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/home$/);
 
     await page.goto(`/life/subscriptions/${subscriptionId}`);
     await expect(page.getByRole("heading", { name: /E2E Cancel Test/ })).toBeVisible();

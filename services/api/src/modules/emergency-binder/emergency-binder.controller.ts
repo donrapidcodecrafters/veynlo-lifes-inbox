@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, UseGuards, UsePipes } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
@@ -26,6 +27,10 @@ export class EmergencyBinderController {
   // POST, not GET, deliberately: unlocking the full aggregated packet takes a password in the body (§28.9
   // step-up), same shape as data-export's requestExport/connectors' disconnect — a GET can't cleanly carry
   // a request body across every client/proxy this app runs behind.
+  // §28.9 step-up gate. Per-IP ceiling on top of IdentityService.verifyStepUpPassword's own per-account
+  // counter — the same belt-and-braces shape data-export.controller.ts already had, and this endpoint had
+  // neither until now.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post(":householdId/unlock")
   @UsePipes(new ZodValidationPipe(UnlockEmergencyBinderDtoSchema))
   unlock(@CurrentUser() user: AuthenticatedUser, @Param("householdId") householdId: string, @Body() dto: UnlockEmergencyBinderDto) {

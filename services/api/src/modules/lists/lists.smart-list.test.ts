@@ -9,6 +9,7 @@ import type { HouseholdService } from "../household/household.service";
 import { FakeModelProvider } from "../intelligence/fake-model-provider";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { DocumentsService } from "../documents/documents.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §29.1 SAVE-003 "Smart lists" end to end: a real ListsService wired to a real MemoriesService (not the
@@ -40,8 +41,7 @@ describe("ListsService smart lists", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `smart-list-owner-${ownerUserId}@example.com`, displayName: "Owner" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping smart list tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "smart list tests");
     }
   });
 

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
-import type { PushProvider } from "./notification-provider.interface";
+import type { PushDeepLink, PushProvider } from "./notification-provider.interface";
 
 /**
  * Expo's push service accepts classic sends with no API credential at all — unlike Gmail/Outlook/Stripe,
@@ -12,12 +12,15 @@ export class PushService implements PushProvider {
   private readonly logger = new Logger(PushService.name);
   private readonly expo = new Expo();
 
-  async send(pushToken: string, title: string, body: string): Promise<boolean> {
+  async send(pushToken: string, title: string, body: string, data?: PushDeepLink): Promise<boolean> {
     if (!Expo.isExpoPushToken(pushToken)) {
       this.logger.warn("Skipping push delivery to a malformed Expo push token");
       return false;
     }
-    const message: ExpoPushMessage = { to: pushToken, title, body, sound: "default" };
+    // `data` is what makes a tap land somewhere useful — expo-notifications hands it to the app's
+    // response listener for both a warm tap and a cold launch. Omitted entirely when there is no target,
+    // rather than sent as an empty object, so the device can tell "no destination" from "bad payload".
+    const message: ExpoPushMessage = { to: pushToken, title, body, sound: "default", ...(data ? { data } : {}) };
     try {
       const tickets = await this.expo.sendPushNotificationsAsync([message]);
       const ticket = tickets[0];

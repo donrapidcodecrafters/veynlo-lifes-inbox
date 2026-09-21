@@ -68,6 +68,16 @@ export const notifications = pgTable(
     title: encryptedText("title").notNull(),
     body: encryptedText("body").notNull(),
     linkedAttentionItemId: text("linked_attention_item_id"),
+    // Deep-link target for a push tap. Without these, tapping any notification cold-launches the app to
+    // the generic Home tab no matter what it was about, because the resource is not recoverable from the
+    // row: dedupeKey follows "<category>:<resource-id>", which carries the id but never the TYPE, and the
+    // attention scanner (AttentionService.notifyIfUrgent) does not set linkedAttentionItemId at all. The
+    // scanner does already know both — AttentionItem carries linkedResourceType and linkedResourceId — so
+    // this stores them at enqueue time rather than making the device reverse-engineer a route from ~25
+    // reason codes. Nullable: briefs (daily-brief/weekly-brief) genuinely have no single target resource
+    // and correctly open Home.
+    linkedResourceType: text("linked_resource_type"),
+    linkedResourceId: text("linked_resource_id"),
     state: text("state").notNull().default("queued"),
     suppressionReason: text("suppression_reason"),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),

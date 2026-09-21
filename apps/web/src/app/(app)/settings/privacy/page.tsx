@@ -12,6 +12,7 @@ import { Input, Label } from "@/components/ui/input";
 import { FetchError } from "@/components/ui/fetch-error";
 import { usePersonalizationPreferences } from "@/hooks/use-personalization";
 import { useFinancialPrivacy } from "@/lib/financial-privacy-context";
+import { providerLabel } from "@veynlo/core";
 
 interface Me {
   id: string;
@@ -26,18 +27,6 @@ interface Connection {
   lastSuccessfulSyncAt: string | null;
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  ics: "Calendar feed",
-  google_calendar: "Google Calendar",
-  microsoft_calendar: "Microsoft Calendar",
-  google_drive: "Google Drive",
-  onedrive: "OneDrive",
-  dropbox: "Dropbox",
-  google_tasks: "Google Tasks",
-  microsoft_todo: "Microsoft To Do",
-};
 
 // Same mapping the Connections page uses for connector health — this page's own three-way ternary
 // (healthy/disconnected/else) previously lumped "reauth_required" in with ordinary transient states like
@@ -258,7 +247,7 @@ export default function PrivacyPage() {
               <ul className="space-y-2">
                 {connections.map((c) => (
                   <li key={c.id} className="flex items-center justify-between text-sm">
-                    <span className="text-primary">{PROVIDER_LABEL[c.provider] ?? c.provider}</span>
+                    <span className="text-primary">{providerLabel(c.provider)}</span>
                     <span className="flex items-center gap-2 text-tertiary">
                       <Badge tone={HEALTH_TONE[c.health] ?? "warning"}>{c.health.replace(/_/g, " ")}</Badge>
                       {c.lastSuccessfulSyncAt && <span>Synced {new Date(c.lastSuccessfulSyncAt).toLocaleDateString()}</span>}

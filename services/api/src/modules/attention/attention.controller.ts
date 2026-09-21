@@ -22,6 +22,10 @@ import {
   type AddSenderRuleDto,
   AddSenderRuleFromInboxItemDtoSchema,
   type AddSenderRuleFromInboxItemDto,
+  DismissAttentionItemDtoSchema,
+  type DismissAttentionItemDto,
+  SnoozeInboxItemDtoSchema,
+  type SnoozeInboxItemDto,
 } from "./dto";
 
 @Controller()
@@ -49,13 +53,23 @@ export class AttentionController {
   }
 
   @Post("v1/attention/:id/dismiss")
-  dismiss(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("reason") reason?: string) {
-    return this.attention.dismiss(id, user.userId, reason ?? "not_relevant");
+  @UsePipes(new ZodValidationPipe(DismissAttentionItemDtoSchema))
+  dismiss(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: DismissAttentionItemDto) {
+    return this.attention.dismiss(id, user.userId, dto.reason ?? "not_relevant");
   }
 
   @Get("v1/inbox")
-  list(@CurrentUser() user: AuthenticatedUser, @Query("reviewState") reviewState?: string, @Query("category") category?: string) {
-    return this.inbox.list(user.userId, { reviewState, category });
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query("reviewState") reviewState?: string,
+    @Query("category") category?: string,
+    @Query("limit") limit?: string,
+    @Query("cursor") cursor?: string,
+  ) {
+    // Query strings are strings. Number("") is 0 and Number("abc") is NaN, either of which would be a
+    // silently wrong page size, so the parse is explicit and the service clamps whatever comes out.
+    const parsedLimit = limit === undefined || limit === "" ? undefined : Number(limit);
+    return this.inbox.list(user.userId, { reviewState, category, limit: parsedLimit, cursor });
   }
 
   // CAL-004 trusted-reschedule-rule settings surface — registered before the `:id/...` routes below for
@@ -161,7 +175,8 @@ export class AttentionController {
   }
 
   @Post("v1/inbox/:id/snooze")
-  snooze(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body("until") until: string) {
-    return this.inbox.snooze(id, user.userId, new Date(until));
+  @UsePipes(new ZodValidationPipe(SnoozeInboxItemDtoSchema))
+  snooze(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string, @Body() dto: SnoozeInboxItemDto) {
+    return this.inbox.snooze(id, user.userId, new Date(dto.until));
   }
 }

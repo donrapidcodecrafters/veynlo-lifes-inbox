@@ -7,6 +7,7 @@ import { AssetsModule } from "../assets/assets.module";
 import { PetsModule } from "../pets/pets.module";
 import { TripsModule } from "../trips/trips.module";
 import { MemoriesModule } from "../memories/memories.module";
+import { LocationModule } from "../location/location.module";
 import { PublicShareController } from "./public-share.controller";
 import { PublicShareService } from "./public-share.service";
 import { SharingHubController } from "./sharing-hub.controller";
@@ -21,7 +22,7 @@ import { SharingHubService } from "./sharing-hub.service";
  * being the one thing that depends on everything, with nothing depending on it back.
  */
 @Module({
-  imports: [SharingModule, DocumentsModule, ListsModule, CommerceModule, AssetsModule, PetsModule, TripsModule, MemoriesModule],
+  imports: [SharingModule, DocumentsModule, ListsModule, CommerceModule, AssetsModule, PetsModule, TripsModule, MemoriesModule, LocationModule],
   controllers: [PublicShareController, SharingHubController],
   providers: [PublicShareService, SharingHubService],
 })

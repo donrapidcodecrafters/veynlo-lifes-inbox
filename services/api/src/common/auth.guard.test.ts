@@ -7,6 +7,7 @@ import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { loadEnv } from "../config/env";
 import { AuthGuard } from "./auth.guard";
+import { skipIfDatabaseUnreachable } from "../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -45,8 +46,7 @@ describe("AuthGuard — suspended account rejection", () => {
         .setExpirationTime(expiresAt)
         .sign(new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AuthGuard suspended-account tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AuthGuard suspended-account tests");
     }
   });
 
@@ -126,8 +126,7 @@ describe("AuthGuard — users.lastActiveAt activity tracking", () => {
         .setExpirationTime(expiresAt)
         .sign(new TextEncoder().encode(loadEnv().SESSION_JWT_SECRET));
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AuthGuard activity-tracking tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AuthGuard activity-tracking tests");
     }
   });
 

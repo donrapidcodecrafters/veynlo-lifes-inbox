@@ -15,6 +15,7 @@ import type { RecallMonitorService } from "../assets/recall-monitor.service";
 import type { VinDecodeService } from "../assets/vin-decode.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { MemoriesService } from "../memories/memories.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Security audit of the generalized object-sharing refactor (Phase 2 §52.2 — see
@@ -37,7 +38,7 @@ import type { MemoriesService } from "../memories/memories.service";
  * resourceType precisely so callers dispatch on it rather than guessing).
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 // This audit exercises access control, not recall monitoring — stubbed the same way noopMailer/noopCache
 // are, rather than pulling in real Redis/BullMQ or a real outbound NHTSA/CPSC call.
@@ -93,8 +94,7 @@ describe("Object sharing refactor — cross-cutting access-control audit", () =>
         { id: generateId("membership"), householdId, userId: memberD, role: "adult_member", status: "active", joinedAt: new Date() },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping sharing-refactor audit tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "sharing-refactor audit tests");
     }
   });
 

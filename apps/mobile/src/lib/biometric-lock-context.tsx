@@ -87,6 +87,9 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({ ready, supported, enabled, isLocked, setEnabled, unlock }),
+    // `setEnabled`/`unlock` are redeclared each render; depending on them would rebuild this context
+    // value every render and re-render every consumer, which is what this useMemo exists to prevent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [ready, supported, enabled, isLocked],
   );
 

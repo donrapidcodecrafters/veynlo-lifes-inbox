@@ -2,6 +2,9 @@ export * from "./util/ids";
 export * from "./util/money";
 export * from "./util/time";
 export * from "./util/locale";
+export * from "./util/collapse-runs";
+export * from "./util/payment-method-hint";
+export * from "./util/group-nested";
 // util/token is deliberately NOT re-exported here (unlike every sibling util/* module) — it does a bare
 // `import ... from "node:crypto"`, a real server-only Node built-in with no browser equivalent, and this
 // barrel is imported by client-side app code (e.g. apps/web's Next.js client components) alongside every
@@ -14,6 +17,7 @@ export * from "./util/locale";
 // (see packages/core/package.json's "./util/token" export) — never through this main barrel.
 export * from "./util/recurrence";
 export * from "./util/geo";
+export * from "./util/carrier";
 export * from "./util/place-extraction";
 
 export * from "./permissions/sensitivity";
@@ -30,6 +34,7 @@ export * from "./entities/automation";
 export * from "./entities/pipeline";
 
 export * from "./connectors/types";
+export * from "./connectors/provider-labels";
 export * from "./entitlements/plans";
 export * from "./entitlements/category-preferences";
 export * from "./events/taxonomy";

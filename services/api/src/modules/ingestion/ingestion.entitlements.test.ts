@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * §46 "plan gates purchases/returns and subscriptions/bills tracking" — real integration test against the
@@ -44,8 +45,7 @@ describe("IngestionService entitlement gating (purchases_returns_tracking / subs
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `entitlement-gate-test-${ownerUserId}@example.com`, displayName: "Entitlement Gate Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping entitlement-gating tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "entitlement-gating tests");
     }
   });
 

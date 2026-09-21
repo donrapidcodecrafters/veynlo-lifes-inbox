@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
+import { InlineButton } from "@/components/inline-button";
 import { Card } from "@/components/card";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
@@ -111,7 +112,7 @@ function LinkAssetPanel({ warranty, onLinked }: { warranty: WarrantyDetail["warr
           <Text style={{ fontSize: 13, color: theme.colors.textTertiary, flexShrink: 1 }}>
             Currently linked to <Text style={{ color: theme.colors.textPrimary }}>{currentlyLinkedLabel}</Text>.
           </Text>
-          <Pressable accessibilityRole="button" onPress={clearLink} disabled={submitting}>
+          <Pressable accessibilityRole="button" accessibilityState={{ disabled: submitting, busy: submitting }} onPress={clearLink} disabled={submitting}>
             <Text style={{ fontSize: 13, color: theme.colors.critical }}>{submitting ? "Clearing…" : "Clear"}</Text>
           </Pressable>
         </View>
@@ -191,7 +192,7 @@ export default function WarrantyDetailScreen() {
           case for this exact purchase line resolves. */}
       {warranty.voidedAt && (
         <Card style={{ backgroundColor: theme.colors.warningSubtleBg, borderColor: theme.colors.warning }}>
-          <Text style={{ fontSize: 13, color: theme.colors.warning }}>
+          <Text style={{ fontSize: 13, color: theme.colors.warningSubtleText }}>
             This product was returned on {new Date(warranty.voidedAt).toLocaleDateString()} — this warranty may no longer apply.
           </Text>
         </Card>
@@ -208,14 +209,10 @@ export default function WarrantyDetailScreen() {
             no way back — mirrors the web fix at life/warranties/[id]/page.tsx (§644 "detail pages include
             History" implies this should be navigable in both directions). */}
         {warranty.propertyProfileId && (
-          <Pressable accessibilityRole="button" onPress={() => router.push(`/property/${warranty.propertyProfileId}`)}>
-            <Text style={{ fontSize: 13, color: theme.colors.brandDefault }}>View property →</Text>
-          </Pressable>
+          <InlineButton onPress={() => router.push(`/property/${warranty.propertyProfileId}`)}>View property →</InlineButton>
         )}
         {warranty.vehicleProfileId && (
-          <Pressable accessibilityRole="button" onPress={() => router.push(`/vehicle/${warranty.vehicleProfileId}`)}>
-            <Text style={{ fontSize: 13, color: theme.colors.brandDefault }}>View vehicle →</Text>
-          </Pressable>
+          <InlineButton onPress={() => router.push(`/vehicle/${warranty.vehicleProfileId}`)}>View vehicle →</InlineButton>
         )}
       </Card>
       <LinkAssetPanel warranty={warranty} onLinked={load} />

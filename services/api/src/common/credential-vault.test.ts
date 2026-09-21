@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { CredentialVault } from "./credential-vault";
+import { skipIfDatabaseUnreachable } from "../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -32,8 +33,7 @@ describe("CredentialVault — key rotation", () => {
       connectionId = generateId("connection");
       await db.insert(schema.connections).values({ id: connectionId, ownerUserId, provider: "gmail", feasibilityClass: "direct_api", scopes: [] });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping CredentialVault rotation tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "CredentialVault rotation tests");
     }
   });
 

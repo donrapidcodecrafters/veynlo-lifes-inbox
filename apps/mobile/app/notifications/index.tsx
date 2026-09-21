@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import { api, ApiError } from "@/lib/api-client";
+import { resolvePushRoute } from "@/lib/push-deep-link";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { Card } from "@/components/card";
@@ -19,6 +21,9 @@ interface NotificationRecord {
   scheduledFor: string;
   sentAt: string | null;
   openedAt: string | null;
+  // Stored at enqueue time so a client never has to reverse-engineer a destination from the reason code.
+  linkedResourceType: string | null;
+  linkedResourceId: string | null;
 }
 
 // Kept in sync with apps/web's settings/notifications page: a bare 3-state map made "opened", "actioned",
@@ -65,8 +70,10 @@ export default function NotificationHistoryScreen() {
 
       {items && items.length > 0 && (
         <View style={{ gap: 12 }}>
-          {items.map((n) => (
-            <Card key={n.id} style={{ gap: 6 }}>
+          {items.map((n) => {
+            const route = resolvePushRoute({ resourceType: n.linkedResourceType ?? undefined, resourceId: n.linkedResourceId ?? undefined });
+            const card = (
+              <Card style={{ gap: 6 }}>
               <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
                 <Badge tone={STATE_TONE[n.state] ?? "neutral"}>{n.state}</Badge>
                 <Badge tone="neutral">{n.priority}</Badge>
@@ -89,8 +96,27 @@ export default function NotificationHistoryScreen() {
                     : `Scheduled for ${formatWhen(n.scheduledFor)}`}
                 {n.openedAt ? ` · Opened ${formatWhen(n.openedAt)}` : ""}
               </Text>
-            </Card>
-          ))}
+              </Card>
+            );
+            // A notification that names something opens it, and reports the open on the way. Briefs name
+            // no single resource, so their rows stay inert rather than being sent somewhere arbitrary.
+            // Fire-and-forget: a failed write must not stand between the user and what they tapped.
+            return route ? (
+              <Pressable
+                key={n.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open: ${n.title}`}
+                onPress={() => {
+                  void api.post(`/v1/notifications/${encodeURIComponent(n.id)}/opened`, {}).catch(() => {});
+                  router.push(route as never);
+                }}
+              >
+                {card}
+              </Pressable>
+            ) : (
+              <View key={n.id}>{card}</View>
+            );
+          })}
         </View>
       )}
     </Screen>

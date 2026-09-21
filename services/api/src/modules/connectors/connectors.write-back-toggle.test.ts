@@ -7,6 +7,7 @@ import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { IdentityService } from "../identity/identity.service";
 import type { PlaidAdapter } from "./plaid.adapter";
 import type { CredentialVault } from "../../common/credential-vault";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const stubQueue = { enqueueConnectorSync: async () => {}, enqueueConnectionDataDeletion: async () => {} } as unknown as QueueProducer;
 
@@ -34,8 +35,7 @@ describe("ConnectorsService.setWriteBack", () => {
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `write-back-toggle-${ownerUserId}@example.com`, displayName: "Toggle Test User" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping ConnectorsService.setWriteBack tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "ConnectorsService.setWriteBack tests");
     }
   });
 

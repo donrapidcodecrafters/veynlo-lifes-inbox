@@ -12,6 +12,7 @@ import type { AutomationService } from "../automation/automation.service";
 import type { ConflictService } from "../schedule/conflict.service";
 import type { TripsService } from "../trips/trips.service";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real-DB coverage for Chapter 28 "Pets" ingestion (PET-002 vet/grooming appointments, PET-004 vaccination/
@@ -50,8 +51,7 @@ describe("IngestionService pet extraction", () => {
       await db.insert(schema.households).values({ id: householdId, name: "Pet Ingest Household", billingOwnerUserId: ownerUserId });
       await db.insert(schema.householdMemberships).values({ id: generateId("membership"), householdId, userId: ownerUserId, role: "household_owner", status: "active", joinedAt: new Date() });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping pet ingestion tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "pet ingestion tests");
     }
   });
 

@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sum } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { generateId, type TemporalValue } from "@veynlo/core";
+import { generateId, trackingUrlFor, type TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -666,13 +666,29 @@ export class CommerceService {
    * directly on the row rather than only being reachable through a purchase join, and a shipment can
    * arrive with no matched purchase at all (`purchaseId` is nullable).
    */
+  /**
+   * Shipments, each with a link straight to its carrier's tracking page.
+   *
+   * `trackingUrl` is computed rather than stored: it is derived entirely from the carrier and tracking
+   * number already on the row, and storing it would mean every existing shipment kept a null until
+   * something backfilled it. Computed, it works for the whole table immediately, and a carrier whose
+   * URL format changes is one edit rather than a migration.
+   *
+   * Null whenever the carrier cannot be established — see `trackingUrlFor`. A link to the wrong
+   * carrier is worse than no link: it reports "not found" for a parcel that is perfectly fine.
+   */
   async shipments(userId: string) {
-    return this.db
+    const rows = await this.db
       .select({ shipment: schema.shipments, purchase: schema.purchases })
       .from(schema.shipments)
       .leftJoin(schema.purchases, eq(schema.purchases.id, schema.shipments.purchaseId))
       .where(eq(schema.shipments.ownerUserId, userId))
       .orderBy(desc(schema.shipments.createdAt));
+
+    return rows.map((row) => ({
+      ...row,
+      shipment: { ...row.shipment, trackingUrl: trackingUrlFor(row.shipment.carrier, row.shipment.trackingNumber) },
+    }));
   }
 
   async shipmentDetail(shipmentId: string, userId: string) {
@@ -683,7 +699,11 @@ export class CommerceService {
       .where(eq(schema.shipments.id, shipmentId))
       .limit(1);
     if (!row || row.shipment.ownerUserId !== userId) return null;
-    return { shipment: row.shipment, purchase: row.purchase, evidence: await this.evidenceViaInboxItem("shipment", shipmentId) };
+    return {
+      shipment: { ...row.shipment, trackingUrl: trackingUrlFor(row.shipment.carrier, row.shipment.trackingNumber) },
+      purchase: row.purchase,
+      evidence: await this.evidenceViaInboxItem("shipment", shipmentId),
+    };
   }
 
   async subscriptions(userId: string) {

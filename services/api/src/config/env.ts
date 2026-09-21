@@ -196,9 +196,37 @@ export function isConnectorConfigured(provider: "google" | "microsoft" | "dropbo
   return Boolean(env.MICROSOFT_OAUTH_CLIENT_ID && env.MICROSOFT_OAUTH_CLIENT_SECRET);
 }
 
+/**
+ * A PKCS#8 PEM, at least well-formed enough to be worth attempting.
+ *
+ * Checks SHAPE, not just presence, and the difference is not academic. Found on the Mac's environment:
+ * `APPLE_PRIVATE_KEY` was 27 characters — exactly `-----BEGIN PRIVATE KEY-----` with no body. A real
+ * ES256 .p8 is several hundred. That placeholder passed the old `Boolean(...)` check, so the API
+ * advertised Apple sign-in as configured, the client rendered the "Sign in with Apple" button, and
+ * pressing it reached `importPKCS8()`, which throws — verified directly against jose: "Failed to read
+ * private key" for that exact value, and `TypeError: "pkcs8" must be PKCS#8 formatted string` for
+ * shorter junk. Unhandled, that becomes 500 INTERNAL_ERROR with `retryable: true`, which is wrong twice:
+ * it is a configuration fault, not a transient one, and retrying can never resolve it.
+ *
+ * Not a full key parse — that is async, and this is a synchronous predicate. It rejects the failure that
+ * actually happened (a header with nothing after it). `generateAppleClientSecret` separately catches a
+ * real import failure, so a well-shaped but invalid key degrades instead of 500ing.
+ */
+const APPLE_PEM_MIN_LENGTH = 200;
+export function looksLikePkcs8(key: string | undefined): boolean {
+  if (!key) return false;
+  const trimmed = key.trim();
+  return (
+    trimmed.length >= APPLE_PEM_MIN_LENGTH &&
+    trimmed.includes("-----BEGIN") &&
+    trimmed.includes("PRIVATE KEY-----") &&
+    trimmed.includes("-----END")
+  );
+}
+
 export function isAppleSignInConfigured(): boolean {
   const env = loadEnv();
-  return Boolean(env.APPLE_CLIENT_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY);
+  return Boolean(env.APPLE_CLIENT_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && looksLikePkcs8(env.APPLE_PRIVATE_KEY));
 }
 
 export function isInboundEmailConfigured(): boolean {

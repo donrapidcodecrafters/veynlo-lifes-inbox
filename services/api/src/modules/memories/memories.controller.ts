@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, Req, UseGuards, UsePipes } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, Req, UseGuards, UsePipes } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { FastifyRequest } from "fastify";
 import type { DocumentType } from "@veynlo/core";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
+import { readMultipartFile } from "../../common/multipart";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { CreateResourceGrantDtoSchema, type CreateResourceGrantDto, CreateShareLinkDtoSchema, type CreateShareLinkDto } from "../sharing/dto";
@@ -55,8 +56,7 @@ export class MemoriesController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("upload")
   async upload(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
-    const file = await req.file();
-    if (!file) throw new BadRequestException({ code: "NO_FILE", message: "No file was uploaded." });
+    const file = await readMultipartFile(req, "No file was uploaded.");
 
     const sourceKindField = file.fields.sourceKind;
     const sourceKindRaw = sourceKindField && "value" in sourceKindField ? String(sourceKindField.value) : "image";

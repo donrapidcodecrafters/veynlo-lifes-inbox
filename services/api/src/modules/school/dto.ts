@@ -5,7 +5,7 @@ import { z } from "zod";
  * discovered event/form at a different school, not creating one). */
 export const CreateSchoolDtoSchema = z.object({
   householdId: z.string().min(1),
-  name: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
   address: z.string().max(400).nullable().optional(),
 });
 export type CreateSchoolDto = z.infer<typeof CreateSchoolDtoSchema>;
@@ -19,11 +19,21 @@ export const CreateSchoolSourceDtoSchema = z
   .object({
     householdId: z.string().min(1),
     schoolId: z.string().nullable().optional(),
-    label: z.string().min(1).max(200),
-    kind: z.enum(["ics", "forwarding_email"]).default("ics"),
+    label: z.string().trim().min(1).max(200),
+    kind: z.enum(["ics", "forwarding_email", "canvas"]).default("ics"),
     icsUrl: z.string().url().max(2000).nullable().optional(),
+    /**
+     * Canvas only. Not `z.string().url()`: a parent pastes "myschool.instructure.com" far more often than
+     * a full URL, and rejecting that on a technicality would be the form being pedantic rather than
+     * helpful. `canvasOrigin` adds the scheme, refuses anything that is not https, and reduces it to an
+     * origin so a pasted deep link cannot smuggle a path into every request.
+     */
+    canvasBaseUrl: z.string().trim().min(4).max(253).nullable().optional(),
+    canvasToken: z.string().min(1).max(1024).nullable().optional(),
   })
-  .refine((v) => v.kind !== "ics" || Boolean(v.icsUrl), { message: "An ICS feed URL is required.", path: ["icsUrl"] });
+  .refine((v) => v.kind !== "ics" || Boolean(v.icsUrl), { message: "An ICS feed URL is required.", path: ["icsUrl"] })
+  .refine((v) => v.kind !== "canvas" || Boolean(v.canvasBaseUrl), { message: "Your school's Canvas address is required.", path: ["canvasBaseUrl"] })
+  .refine((v) => v.kind !== "canvas" || Boolean(v.canvasToken), { message: "A Canvas access token is required.", path: ["canvasToken"] });
 export type CreateSchoolSourceDto = z.infer<typeof CreateSchoolSourceDtoSchema>;
 
 /** SCH-001 "assign child" — dependentId: null explicitly clears a (possibly wrong) prior assignment. */
@@ -46,7 +56,7 @@ export type AdvanceFormStateDto = z.infer<typeof AdvanceFormStateDtoSchema>;
 /** Manual permission-form add — for a form the user knows about before any email ever mentions it (e.g. a paper form sent home). */
 export const CreatePermissionFormDtoSchema = z.object({
   householdId: z.string().min(1),
-  title: z.string().min(1).max(300),
+  title: z.string().trim().min(1).max(300),
   dependentId: z.string().nullable().optional(),
   schoolId: z.string().nullable().optional(),
   dueIso: z.string().nullable().optional(),

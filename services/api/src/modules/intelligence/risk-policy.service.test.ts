@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { createDbClient, schema, type Database } from "@veynlo/db";
 import { generateId } from "@veynlo/core";
 import { DEFAULT_RISK_THRESHOLDS, DOMAIN_WILDCARD_FIELD, RiskPolicyService } from "./risk-policy.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real integration test against a real Postgres (same convention as the rest of this session's tests) —
@@ -25,8 +26,7 @@ describe("RiskPolicyService", () => {
       await db.select().from(schema.riskPolicies).limit(1);
       service = new RiskPolicyService(db);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping RiskPolicyService tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "RiskPolicyService tests");
     }
   });
 

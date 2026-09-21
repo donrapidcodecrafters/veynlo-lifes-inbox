@@ -509,6 +509,8 @@ export class ScheduleService {
     await this.notifications.createAndEnqueue({
       ownerUserId: assigneeUserId,
       dedupeKey: `task-assigned:${taskId}`,
+      linkedResourceType: "task",
+      linkedResourceId: taskId,
       priority: "useful",
       title: "You've been assigned a task",
       body: `"${title}" — accept or decline it in Veynlo.`,
@@ -627,6 +629,8 @@ export class ScheduleService {
     await this.notifications.createAndEnqueue({
       ownerUserId: task.ownerUserId,
       dedupeKey: `task-declined:${taskId}`,
+      linkedResourceType: "task",
+      linkedResourceId: taskId,
       priority: "useful",
       title: "An assignment was declined",
       body: `"${task.title}" was declined — reassign it or take it back yourself.`,

@@ -11,6 +11,7 @@ import type { Cache } from "../../cache/cache.interface";
 import type { MailerService } from "../notifications/mailer.service";
 import type { MemoriesService } from "../memories/memories.service";
 import type { ScheduleService } from "../schedule/schedule.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 /**
  * Real HouseholdService against real dev Postgres, unlike trips.service.test.ts (which stubs
@@ -24,7 +25,7 @@ import type { ScheduleService } from "../schedule/schedule.service";
  *    than the action" inconsistency `CommerceService.redeemStoreCredit` avoids. Fixed to match.
  */
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
-const noopCache: Cache = { incr: async () => 1, expire: async () => {} };
+const noopCache: Cache = { incr: async () => 1, expire: async () => {}, del: async () => {} };
 const noopMailer = { send: async () => {} } as unknown as MailerService;
 const stubMemories = { evaluateSmartQuery: async () => [] } as unknown as MemoriesService;
 // Not exercising "Add to calendar" here (see trips.segment-actions.test.ts) — a minimal stub satisfies
@@ -70,8 +71,7 @@ describe("TripsService — real household membership", () => {
         { id: generateId("membership"), householdId, userId: memberD, role: "adult_member", status: "active", joinedAt: new Date() },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping TripsService household-scope tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "TripsService household-scope tests");
     }
   });
 

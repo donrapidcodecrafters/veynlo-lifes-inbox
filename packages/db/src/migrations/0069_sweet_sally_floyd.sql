@@ -1,0 +1,1 @@
+ALTER TABLE "bills" ADD COLUMN "account_label" text;

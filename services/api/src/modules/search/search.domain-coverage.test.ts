@@ -13,6 +13,7 @@ import type { DocumentsService } from "../documents/documents.service";
 import type { HouseholdService } from "../household/household.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
 import type { PreferencesService } from "../preferences/preferences.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -76,8 +77,7 @@ describe("SearchService.structuredSearch — domain coverage", () => {
         { id: otherUserId, email: `search-cov-other-${otherUserId}@example.com`, displayName: "Other User" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping SearchService domain-coverage tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "SearchService domain-coverage tests");
       return;
     }
 

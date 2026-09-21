@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { and, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 // Server-only Node util — see packages/core/src/index.ts's own doc comment for why this comes from its
 // own subpath rather than the main barrel.
@@ -62,8 +62,17 @@ export class AdminService {
     await this.recordAccess(actingAdminId, "admin.user_lookup", "user", user?.id ?? email);
     if (!user) return null;
 
-    const connections = await this.db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, user.id));
-    const entitlements = await this.db.select().from(schema.entitlements).where(eq(schema.entitlements.userId, user.id));
+    // Ordered so a support agent reading this screen twice sees the same thing twice.
+    const connections = await this.db
+      .select()
+      .from(schema.connections)
+      .where(eq(schema.connections.ownerUserId, user.id))
+      .orderBy(asc(schema.connections.createdAt), asc(schema.connections.id));
+    const entitlements = await this.db
+      .select()
+      .from(schema.entitlements)
+      .where(eq(schema.entitlements.userId, user.id))
+      .orderBy(asc(schema.entitlements.effectiveFrom), asc(schema.entitlements.id));
     const [recentFailures, exportJobs, automation] = await Promise.all([
       this.recentExtractionFailuresForUser(user.id),
       this.db
@@ -77,7 +86,7 @@ export class AdminService {
         })
         .from(schema.exportJobs)
         .where(eq(schema.exportJobs.ownerUserId, user.id))
-        .orderBy(desc(schema.exportJobs.requestedAt))
+        .orderBy(desc(schema.exportJobs.requestedAt), asc(schema.exportJobs.id))
         .limit(10),
       this.automationSummaryForUser(user.id),
     ]);

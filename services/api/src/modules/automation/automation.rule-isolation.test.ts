@@ -7,6 +7,7 @@ import { FakeModelProvider, fakeExtraction } from "../intelligence/fake-model-pr
 import type { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 import type { ScheduleService } from "../schedule/schedule.service";
 import type { CalendarWriteBackService } from "../connectors/calendar-write-back.service";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 // This test only ever exercises `notify` actions — neither ScheduleService nor CalendarWriteBackService is
@@ -32,8 +33,7 @@ describe("AutomationService.evaluateEvent — one rule's failure doesn't skip th
       ownerUserId = generateId("user");
       await db.insert(schema.users).values({ id: ownerUserId, email: `automation-isolation-${ownerUserId}@example.com`, displayName: "Automation Isolation Test" });
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping AutomationService rule-isolation test — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "AutomationService rule-isolation test");
     }
   });
 

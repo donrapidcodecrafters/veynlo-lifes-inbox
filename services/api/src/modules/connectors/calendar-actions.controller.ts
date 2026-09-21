@@ -1,8 +1,10 @@
-import { Body, Controller, Delete, Inject, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Inject, Param, Post, UseGuards, UsePipes } from "@nestjs/common";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import type { AuthenticatedUser } from "../../common/auth.guard";
 import { CalendarWriteBackService } from "./calendar-write-back.service";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { PushCalendarEventDtoSchema, type PushCalendarEventDto } from "./dto";
 
 /**
  * CAL-001 write-back — the manual-event-creation half of the flow (a discovered event's destination choice
@@ -18,8 +20,9 @@ export class CalendarActionsController {
   constructor(@Inject(CalendarWriteBackService) private readonly writeBack: CalendarWriteBackService) {}
 
   @Post(":eventId/push")
-  push(@CurrentUser() user: AuthenticatedUser, @Param("eventId") eventId: string, @Body("connectionId") connectionId: string) {
-    return this.writeBack.pushEvent({ eventId, ownerUserId: user.userId, connectionId });
+  @UsePipes(new ZodValidationPipe(PushCalendarEventDtoSchema))
+  push(@CurrentUser() user: AuthenticatedUser, @Param("eventId") eventId: string, @Body() dto: PushCalendarEventDto) {
+    return this.writeBack.pushEvent({ eventId, ownerUserId: user.userId, connectionId: dto.connectionId });
   }
 
   /**

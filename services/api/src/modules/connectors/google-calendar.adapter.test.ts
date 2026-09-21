@@ -7,6 +7,7 @@ import type { CredentialVault } from "../../common/credential-vault";
 import type { IngestionService } from "../ingestion/ingestion.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
+import { skipIfDatabaseUnreachable } from "../../test-support/db-availability";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://veynlo:veynlo_dev_password@localhost:5433/veynlo";
 
@@ -43,8 +44,7 @@ describe("GoogleCalendarAdapter — cancel-on-sync delete is owner-scoped", () =
         { id: ownerBUserId, email: `gcal-owner-b-${ownerBUserId}@example.com`, displayName: "Owner B" },
       ]);
     } catch (err) {
-      dbAvailable = false;
-      console.warn("Skipping GoogleCalendarAdapter tests — no reachable dev Postgres:", (err as Error).message);
+      dbAvailable = skipIfDatabaseUnreachable(err, "GoogleCalendarAdapter tests");
     }
   });
 

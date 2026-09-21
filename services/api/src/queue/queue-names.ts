@@ -25,6 +25,10 @@ export const QUEUE_NAMES = {
   caregiverDayPassScan: "caregiver-day-pass-scan",
   legacyReleaseInactivityScan: "legacy-release-inactivity-scan",
   dataIntegrityScan: "data-integrity-scan",
+  expectedEventScan: "expected-event-scan",
+  searchIndexBackfill: "search-index-backfill",
+  smartHomeSync: "smart-home-sync",
+  smartHomeScan: "smart-home-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -141,6 +145,22 @@ export interface SchoolSourceSyncJobData {
 export type SchoolSourceScanJobData = Record<string, never>;
 
 /**
+ * §31 SMART-001/002 — one smart-home connection's sync (HomeAssistantService.sync), mirroring
+ * SchoolSourceSyncJobData's shape.
+ *
+ * A polled connector that is only ever synced from the screen that created it is the defect `imap`,
+ * `caldav` and `carddav` all had: they synced once on connect and then sat healthy and silent forever.
+ * For a leak sensor that failure mode is worse than for a mailbox — the whole value of the connector is
+ * that it notices something while nobody is looking at it.
+ */
+export interface SmartHomeSyncJobData {
+  smartConnectionId: string;
+}
+
+/** Recurring tick with no payload — its processor finds every still-connected smart_connections row itself, mirroring SchoolSourceScanJobData's identical shape. */
+export type SmartHomeScanJobData = Record<string, never>;
+
+/**
  * VEH-006/HOMEOS-008 — one vehicle or home asset's recall check against NHTSA/CPSC, off the request that
  * created/asked for it, mirroring MemoryClassificationJobData's identical "persist synchronously, classify
  * in the background" shape: AssetsService.createVehicle/createHomeAsset return immediately after the
@@ -175,6 +195,16 @@ export type CaregiverDayPassScanJobData = Record<string, never>;
  * waiting period once the full threshold is crossed). */
 export type LegacyReleaseInactivityScanJobData = Record<string, never>;
 
+/** Recurring tick with no payload — its processor (AttentionService.scanForMissingExpectedEvents) finds
+ * overdue essential recurring streams itself. Restored with the monitor; see PROJECT_AUDIT.md DEF-082. */
+export type ExpectedEventScanJobData = Record<string, never>;
+
 /** §Operations "data-integrity/orphan-check job" — recurring tick with no payload; its processor
  * (DataIntegrityService.scanForOrphans) finds every orphaned cross-table link itself. */
 export type DataIntegrityScanJobData = Record<string, never>;
+
+/** §44.3 "search documents ... deleted/reindexed with canonical data" — recurring tick with no payload;
+ * its processor (SearchBackfillService) reconciles every user's search_documents against the canonical
+ * tables itself. The index is otherwise written forward-only, so anything that skips a domain service
+ * (a seed, an importer, a failed upsert, a newly added resource type) stays permanently unfindable. */
+export type SearchIndexBackfillJobData = Record<string, never>;
