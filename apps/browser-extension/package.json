@@ -2,8 +2,10 @@
   "name": "@veynlo/browser-extension",
   "version": "1.0.0",
   "private": true,
-  "description": "MV3 extension. This package.json exists so the workspace's lint gate actually covers it — see the lint script's note.",
+  "description": "MV3 extension, built for Chromium from public/ and for Firefox via scripts/build-firefox.js. This package.json exists so the workspace lint gate actually covers it — see the lint script note.",
   "scripts": {
-    "lint": "eslint public --max-warnings 0"
+    "lint": "eslint public scripts --max-warnings 0",
+    "build:firefox": "node scripts/build-firefox.mjs",
+    "lint:firefox": "node scripts/build-firefox.mjs && web-ext lint --source-dir dist/firefox"
   }
 }
