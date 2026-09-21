@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, BadRequestException } from "@nestjs/common"
 import { eq } from "drizzle-orm";
 import { DAVClient } from "tsdav";
 import * as ical from "node-ical";
+import { calendarEventsFrom } from "../ingestion/ics-events";
 import { generateId } from "@veynlo/core";
-import type { TemporalValue } from "@veynlo/core";
 import type { Database } from "@veynlo/db";
 import { schema } from "@veynlo/db";
 import { DATABASE } from "../../database/database.module";
@@ -246,29 +246,21 @@ export class CalDavAdapter implements ConnectorAdapter {
             continue;
           }
 
-          for (const component of Object.values(parsed)) {
-            if (!component || component.type !== "VEVENT" || !component.start) continue;
-            const isAllDay = component.datetype === "date";
-            const start: TemporalValue = isAllDay
-              ? { precision: "date", instantUtc: null, date: component.start.toISOString().slice(0, 10), timezone: null, sourceText: null }
-              : { precision: "instant", instantUtc: component.start.toISOString(), date: null, timezone: component.start.tz ?? null, sourceText: null };
-            const end: TemporalValue | null = component.end
-              ? isAllDay
-                ? { precision: "date", instantUtc: null, date: component.end.toISOString().slice(0, 10), timezone: null, sourceText: null }
-                : { precision: "instant", instantUtc: component.end.toISOString(), date: null, timezone: component.end.tz ?? null, sourceText: null }
-              : null;
-
+          // Through the shared reader rather than a copy of the mapping. The copy that used to be here
+          // read a summary only when node-ical handed back a bare string, so every `SUMMARY;LANGUAGE=en:`
+          // event — which is what a calendar in any other language sends — was filed as "Untitled event".
+          for (const event of calendarEventsFrom(parsed, Math.max(MAX_EVENTS_PER_SYNC - itemCount, 0))) {
             const filed = await this.ingestion.ingestFeedCalendarEvent({
               provider: "caldav",
               ownerUserId: connection.ownerUserId,
               householdId: connection.householdId,
               connectionId,
-              uid: component.uid,
-              title: typeof component.summary === "string" ? component.summary : "Untitled event",
-              start,
-              end,
-              isAllDay,
-              location: typeof component.location === "string" ? component.location : null,
+              uid: event.uid,
+              title: event.title,
+              start: event.start,
+              end: event.end,
+              isAllDay: event.isAllDay,
+              location: event.location,
             });
             if (filed) itemCount += 1;
           }

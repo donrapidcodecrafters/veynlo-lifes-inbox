@@ -44,6 +44,7 @@ import {
 import { evaluateRelevance, matchKnownSender, normalizeSenderDomain, extractEmailAddress, KNOWN_SENDER_PARSER_VERSION } from "../intelligence/deterministic-prefilter";
 import { extractSchemaOrgFromHtml, hasUsableMarkup, EMPTY_FINDINGS, type SchemaOrgFindings } from "./schema-org-email";
 import { receiptResultFromMarkup, shipmentResultFromMarkup, tripSegmentResultFromMarkup, billResultFromMarkup, domainsFromMarkup } from "./schema-org-extraction";
+import { calendarEventsFromText } from "./ics-events";
 import { parseGmailMessage, type ParsedEmail, type EmailAttachmentInput } from "./gmail-message-parser";
 import { parseOutlookMessage, type GraphMessage } from "./outlook-message-parser";
 import { toTemporalValue, toTemporalValueWithTime, temporalToSortDate, temporalCalendarDate, defaultReminderMinutes } from "./temporal.util";
@@ -198,6 +199,19 @@ const ALLOWED_SHARE_SCREENSHOT_MIME_TYPES = new Set(["image/jpeg", "image/png", 
  * + InboxItem creation. Stage 5 "rules/state logic" (deadlines, attention
  * scoring) is handled by the attention module once a candidate is filed.
  */
+/**
+ * Is this attachment a calendar file?
+ *
+ * Both halves matter. Some senders label it `application/ics` or `application/octet-stream` and rely on
+ * the filename; others send `text/calendar` with a filename like `invite.dat`. Checking only the declared
+ * type misses the first group, and checking only the extension misses the second.
+ */
+function isCalendarAttachment(attachment: { filename?: string | null; mimeType?: string | null }): boolean {
+  const mime = (attachment.mimeType ?? "").toLowerCase();
+  if (mime.startsWith("text/calendar") || mime === "application/ics") return true;
+  return /\.ics$/i.test(attachment.filename ?? "");
+}
+
 @Injectable()
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
@@ -419,6 +433,10 @@ export class IngestionService {
       snippet: parsed.snippet,
       headers: parsed.headers,
       hasPublishedMarkup: hasUsableMarkup(markup),
+      // A message carrying a calendar invite is about a specific thing at a specific time, whatever its
+      // subject line looks like — see this parameter's own doc comment for why it has to be checked here
+      // rather than left to the attachment step, which this gate returns before ever reaching.
+      hasCalendarAttachment: (params.attachments ?? []).some(isCalendarAttachment),
     });
 
     if (!relevance.relevant) {
@@ -1039,10 +1057,60 @@ export class IngestionService {
    * is would need its own OCR-then-classify pass, a larger follow-up, not "attachment becomes a real linked
    * document" (this pass's actual scope).
    */
+/** One invite is one event; a subscription file attached to a message is not what this path is for. */
+  private static readonly ATTACHED_CALENDAR_EVENT_LIMIT = 25;
+
   private async processEmailAttachments(ctx: { sourceEventId: string; ownerUserId: string; householdId: string | null; parsed: { attachments?: EmailAttachmentInput[] } }): Promise<void> {
     const attachments = ctx.parsed.attachments ?? [];
-    if (attachments.length === 0 || !this.documents) return;
+    if (attachments.length === 0) return;
+
+    /**
+     * A calendar invite is a calendar event, not a document.
+     *
+     * Every attachment used to go one way: uploaded as a generic `documentType: "other"` and queued for
+     * OCR. For a PDF or a photo that is right. For the `.ics` that an airline, a hotel, a restaurant, a
+     * school and every single meeting invite attaches, it meant running optical character recognition over
+     * a text file and filing the result as a document nobody would look at — while the event it describes,
+     * with an exact start time and timezone already stated, never reached the calendar at all.
+     *
+     * Read here rather than left to the model: a VEVENT states its time. Nothing needs inferring, so this
+     * works with AI processing turned off, and it cannot be misread the way prose can.
+     */
     for (const attachment of attachments) {
+      if (!isCalendarAttachment(attachment)) continue;
+      try {
+        const events = calendarEventsFromText(attachment.buffer.toString("utf8"), IngestionService.ATTACHED_CALENDAR_EVENT_LIMIT);
+        for (const event of events) {
+          // A CANCEL invite states STATUS:CANCELLED. Filing it as an ordinary event would put a meeting on
+          // somebody's calendar that the organiser had just called off — worse than filing nothing.
+          if (event.status === "CANCELLED") continue;
+          await this.ingestFeedCalendarEvent({
+            provider: "email_attachment",
+            ownerUserId: ctx.ownerUserId,
+            householdId: ctx.householdId,
+            // No `connections` row: this arrived as a file on a message, not from a subscribed feed. The
+            // idempotency key falls back to scoping by owner, which is what that path is for.
+            connectionId: null,
+            uid: event.uid,
+            title: event.title,
+            start: event.start,
+            end: event.end,
+            isAllDay: event.isAllDay,
+            location: event.location,
+          });
+        }
+      } catch (err) {
+        // Best-effort per attachment, exactly as the document path below is: one unreadable calendar file
+        // must not cost the message its other attachments or its ingestion.
+        this.logger.warn(`Failed to read calendar attachment "${attachment.filename}" for source event ${ctx.sourceEventId}: ${String(err)}`);
+      }
+    }
+
+    if (!this.documents) return;
+    for (const attachment of attachments) {
+      // A calendar file has already been read as events above. Uploading it as a document too would OCR a
+      // text file and leave a duplicate nobody asked for in the Documents vault.
+      if (isCalendarAttachment(attachment)) continue;
       try {
         await this.documents.upload({
           ownerUserId: ctx.ownerUserId,
@@ -1140,7 +1208,13 @@ export class IngestionService {
       //
       // Every non-AI gate still applies in full: a paused connection, an excluded sender and an "ignore"
       // sender rule all still stop this message dead, below.
-      if (!markupUsable) {
+      //
+      // An attached calendar invite is here for exactly the same reason as the markup: reading a VEVENT
+      // runs no model, infers nothing and sends nothing anywhere. Without this the invite was dropped for
+      // every AI-off household — which is the group that most needs a source of truth that is simply
+      // stated rather than inferred.
+      const hasCalendarInvite = (ctx.parsed.attachments ?? []).some(isCalendarAttachment);
+      if (!markupUsable && !hasCalendarInvite) {
         await this.markProcessed(ctx.sourceEventId, "filed");
         return;
       }

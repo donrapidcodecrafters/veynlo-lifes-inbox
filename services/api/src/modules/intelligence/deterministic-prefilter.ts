@@ -46,9 +46,26 @@ export function evaluateRelevance(params: {
    * failed because the message never reached the extractor.
    */
   hasPublishedMarkup?: boolean;
+  /**
+   * True when this message carries an `.ics` attachment.
+   *
+   * Outranks the other signals for the same reason `hasPublishedMarkup` does, and was found the same way:
+   * the pipeline test for reading attached calendar invites failed because the message never reached the
+   * attachment step at all. An airline's "Your booking is confirmed", a school's "Parents evening" and a
+   * plain meeting invite match no keyword on this function and routinely carry list headers — so every one
+   * of them was dropped here, and the invite attached to it, with an exact start time already stated in a
+   * machine-readable file, was never read.
+   *
+   * Somebody attaching a calendar file is stating that this message is about a specific thing at a specific
+   * time. That is not a guess made from a subject line.
+   */
+  hasCalendarAttachment?: boolean;
 }): RelevanceResult {
   if (params.hasPublishedMarkup) {
     return { relevant: true, reason: "schema_org_markup" };
+  }
+  if (params.hasCalendarAttachment) {
+    return { relevant: true, reason: "calendar_attachment" };
   }
   const hasListHeader = IRRELEVANT_LIST_HEADERS.some((h) => Boolean(params.headers[h]));
   const text = `${params.subject}\n${params.snippet}`;
