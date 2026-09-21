@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { api } from "./api-client";
+import type { CapturedNotification, InstalledApp } from "../../modules/veynlo-notification-capture/src/VeynloNotificationCapture.types";
 
 const OPT_IN_KEY = "veynlo_notification_capture_opt_in";
 
@@ -49,9 +50,44 @@ function nativeModule() {
   return require("../../modules/veynlo-notification-capture/src/VeynloNotificationCaptureModule").default as {
     isListenerEnabled(): boolean;
     openNotificationAccessSettings(): void;
-    getPendingCaptures(): Array<{ title: string; text: string; postedAt: number }>;
+    getPendingCaptures(): CapturedNotification[];
     clearCaptures(): void;
+    getInstalledApps(): InstalledApp[];
+    getAllowedPackages(): string[];
+    setAllowedPackages(packages: string[]): void;
+    getDefaultAllowedPackages(): string[];
   };
+}
+
+/**
+ * Which apps Veynlo may read notifications from.
+ *
+ * The OS grant is all-or-nothing — turning on Notification Access exposes every notification on the
+ * device — so it is not the authorization. This list is. Nothing is read from an app the user has not
+ * named here, and removing one takes effect on the very next notification.
+ *
+ * SMS/RCS messaging apps are read regardless (`defaultAllowedPackages`), because that is what this
+ * feature shipped as and someone who already had bill and appointment texts working should not lose them
+ * the moment a per-app list appears and starts out empty.
+ */
+export function listInstalledApps(): InstalledApp[] {
+  if (Platform.OS !== "android") return [];
+  return nativeModule().getInstalledApps();
+}
+
+export function getAllowedPackages(): string[] {
+  if (Platform.OS !== "android") return [];
+  return nativeModule().getAllowedPackages();
+}
+
+export function setAllowedPackages(packages: string[]): void {
+  if (Platform.OS !== "android") return;
+  nativeModule().setAllowedPackages(packages);
+}
+
+export function defaultAllowedPackages(): string[] {
+  if (Platform.OS !== "android") return [];
+  return nativeModule().getDefaultAllowedPackages();
 }
 
 export function isListenerEnabled(): boolean {

@@ -238,7 +238,7 @@ export default function SettingsScreen() {
         </Button>
         {messageCaptureAvailable && (
           <Button variant="secondary" onPress={() => router.push("/message-capture")}>
-            Message capture
+            Notification capture
           </Button>
         )}
         <Button variant="secondary" onPress={() => router.push("/connections")}>

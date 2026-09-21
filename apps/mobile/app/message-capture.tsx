@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useAppTheme } from "@/lib/theme-context";
 import { Screen } from "@/components/screen";
 import { ScreenHeader } from "@/components/screen-header";
@@ -11,6 +11,7 @@ import {
   isListenerEnabled,
   openNotificationAccessSettings,
   drainPendingCaptures,
+  getAllowedPackages,
 } from "@/lib/notification-capture";
 
 /**
@@ -24,6 +25,7 @@ export default function MessageCaptureScreen() {
   const { theme } = useAppTheme();
   const [optedIn, setOptedIn] = useState(false);
   const [listenerGranted, setListenerGranted] = useState(false);
+  const [chosenAppCount, setChosenAppCount] = useState(0);
   const [draining, setDraining] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
 
@@ -31,6 +33,7 @@ export default function MessageCaptureScreen() {
     try {
       setOptedIn(await notificationCaptureStore.isOptedIn());
       setListenerGranted(isListenerEnabled());
+      setChosenAppCount(getAllowedPackages().length);
     } catch {
       // Same "fire-and-forget mount-time call" crash class already fixed on privacy/data-export/billing —
       // useFocusEffect below calls this without awaiting or catching it itself, so a rejection here would
@@ -68,23 +71,29 @@ export default function MessageCaptureScreen() {
   return (
     <Screen>
       <ScreenHeader
-        title="Message capture"
-        subtitle="Let Veynlo notice bills and appointments that arrive as a text message."
+        title="Notification capture"
+        subtitle="Let Veynlo notice appointments, deliveries and bills that arrive as a text or an app notification."
       />
 
       <Card style={{ gap: 8 }}>
         <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>What this actually does</Text>
         <Text style={{ fontSize: 13, color: theme.colors.textTertiary, lineHeight: 19 }}>
-          When this is on, Veynlo reads notifications only from your phone's SMS/RCS messaging app — never
-          WhatsApp, Signal, Telegram, or anything else. Only the notification's title and preview text are
-          used, only to check for the same kind of bill or appointment reminder already found in email —
-          nothing is stored beyond that, and nothing is ever read if this toggle is off.
+          When this is on, Veynlo reads notifications from your phone&apos;s SMS/RCS messaging app, plus any
+          other apps you choose below — and nothing else. Chat apps like WhatsApp, Signal, Telegram and
+          Messenger are never read and cannot be chosen.
+        </Text>
+        <Text style={{ fontSize: 13, color: theme.colors.textTertiary, lineHeight: 19 }}>
+          Only the notification&apos;s title and preview text are used, to spot the same appointments,
+          deliveries and bills Veynlo already finds in email. Nothing is stored beyond that, and nothing is
+          read at all while this is off.
         </Text>
       </Card>
 
       <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Turn on message capture</Text>
+          {/* A state, not an instruction. This read "Turn on notification capture" whatever the state was, so
+              with capture already on the row said "Turn on" directly above a button saying "Turn off". */}
+          <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Notification capture</Text>
           <Text style={{ fontSize: 12, color: theme.colors.textTertiary, marginTop: 2 }}>
             {optedIn
               ? listenerGranted
@@ -100,6 +109,24 @@ export default function MessageCaptureScreen() {
         </View>
       </Card>
       {toggleError && <Text style={{ fontSize: 13, color: theme.colors.critical }}>{toggleError}</Text>}
+
+      {optedIn && listenerGranted && (
+        <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>Apps Veynlo reads</Text>
+            <Text style={{ fontSize: 12, color: theme.colors.textTertiary, marginTop: 2 }}>
+              {chosenAppCount === 0
+                ? "Text messages only. Choose apps to catch airline, pharmacy and delivery alerts too."
+                : `Text messages, plus ${chosenAppCount} app${chosenAppCount === 1 ? "" : "s"} you chose.`}
+            </Text>
+          </View>
+          <View style={{ minWidth: 90 }}>
+            <Button variant="secondary" onPress={() => router.push("/notification-apps")}>
+              Choose apps
+            </Button>
+          </View>
+        </Card>
+      )}
 
       {optedIn && !listenerGranted && (
         <Card style={{ gap: 8 }}>
