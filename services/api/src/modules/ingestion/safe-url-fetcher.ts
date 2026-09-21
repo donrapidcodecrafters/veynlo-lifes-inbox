@@ -189,12 +189,14 @@ async function readBodyCapped(response: Response, maxBytes: number): Promise<str
   return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8");
 }
 
-function extractTitle(html: string): string | null {
+// Exported so LinkPreviewService can derive a title, readable text AND the Open Graph tags from ONE
+// fetched body rather than requesting the same page twice.
+export function extractTitle(html: string): string | null {
   const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
   return match?.[1] ? decodeHtmlEntities(match[1]).trim().slice(0, 500) || null : null;
 }
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
   return decodeHtmlEntities(withoutScripts.replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")

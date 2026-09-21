@@ -11,6 +11,7 @@ import { detectPlatform } from "../../common/platform";
 import { toAnalyticsPlatform } from "../analytics/analytics.service";
 import { IngestionService } from "./ingestion.service";
 import { SafeUrlFetcher } from "./safe-url-fetcher";
+import { LinkPreviewService } from "./link-preview.service";
 import {
   IngestManualDtoSchema,
   IngestDeviceCalendarDtoSchema,
@@ -38,6 +39,7 @@ export class IngestionController {
   constructor(
     @Inject(IngestionService) private readonly ingestion: IngestionService,
     @Inject(SafeUrlFetcher) private readonly urlFetcher: SafeUrlFetcher,
+    @Inject(LinkPreviewService) private readonly linkPreview: LinkPreviewService,
   ) {}
 
   @Post("manual")
@@ -65,7 +67,11 @@ export class IngestionController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @UsePipes(new ZodValidationPipe(IngestUrlDtoSchema))
   async ingestUrl(@CurrentUser() user: AuthenticatedUser, @Body() dto: IngestUrlDto, @Req() req: FastifyRequest) {
-    const { title, text, finalUrl } = await this.urlFetcher.fetchReadableText(dto.url);
+    // Through LinkPreviewService rather than straight to the fetcher: for a link shared out of YouTube,
+    // TikTok, Pinterest, Reddit, Instagram, Facebook or a maps app, reading the page's text produces a
+    // login wall or an empty JavaScript shell. Measured before this changed: one of ten such links
+    // produced a title that named the thing shared rather than the site it came from.
+    const { title, text, finalUrl } = await this.linkPreview.describe(dto.url);
     return this.ingestion.ingestManualText({
       ownerUserId: user.userId,
       householdId: null,

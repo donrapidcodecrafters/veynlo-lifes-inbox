@@ -17,6 +17,7 @@ import { IngestionController } from "./ingestion.controller";
 import { InboundEmailController } from "./inbound-email.controller";
 import { IngestionService } from "./ingestion.service";
 import { SafeUrlFetcher } from "./safe-url-fetcher";
+import { LinkPreviewService } from "./link-preview.service";
 
 // MemoriesModule imported here (not the reverse), same one-directional shape LocationModule already uses
 // for the same reason (see that module's own doc comment) — MemoriesModule/MemoriesService never import
@@ -27,7 +28,7 @@ import { SafeUrlFetcher } from "./safe-url-fetcher";
 @Module({
   imports: [IntelligenceModule, IdentityModule, NotificationsModule, DocumentsModule, EntitlementsModule, AutomationModule, ScheduleModule, TripsModule, PreferencesModule, MemoriesModule, FeatureFlagsModule, SearchIndexModule, SpeechModule, AnalyticsModule],
   controllers: [IngestionController, InboundEmailController],
-  providers: [IngestionService, SafeUrlFetcher],
-  exports: [IngestionService, SafeUrlFetcher],
+  providers: [IngestionService, SafeUrlFetcher, LinkPreviewService],
+  exports: [IngestionService, SafeUrlFetcher, LinkPreviewService],
 })
 export class IngestionModule {}
