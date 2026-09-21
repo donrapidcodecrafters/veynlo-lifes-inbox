@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { decodeEntities, extractOpenGraph, oembedEndpointFor, placeFromMapUrl } from "./link-preview.service";
 
 /**
@@ -112,6 +114,35 @@ describe("decoding entities", () => {
 
   it("leaves ordinary text alone", () => {
     expect(decodeEntities("Statue of Liberty")).toBe("Statue of Liberty");
+  });
+});
+
+describe("the place a maps link points at, against the shared fixture", () => {
+  /**
+   * The same rule exists in the browser extension, in plain JavaScript, because that extension has no
+   * bundler and cannot import this module. Two copies of one rule is how the provider-label map ended up
+   * wrong in six places at once, with "plaid" rendering raw on the privacy screen.
+   *
+   * So neither copy owns the truth. This fixture does, and the extension's own suite reads the same file —
+   * a case added there has to be satisfied on both sides or one of the two builds goes red.
+   */
+  const FIXTURE = path.join(__dirname, "..", "..", "..", "..", "..", "packages", "core", "src", "link", "map-url-cases.json");
+
+  it("can find the shared fixture, and it is not empty", () => {
+    // Guarding the guard: if this file moved, every case below would silently stop running and this suite
+    // would pass while measuring nothing.
+    expect(fs.existsSync(FIXTURE), `shared fixture missing at ${FIXTURE}`).toBe(true);
+    const { cases } = JSON.parse(fs.readFileSync(FIXTURE, "utf8")) as { cases: unknown[] };
+    expect(cases.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("behaves the same here as it does in the browser extension", () => {
+    const { cases } = JSON.parse(fs.readFileSync(FIXTURE, "utf8")) as {
+      cases: { url: string; place: string | null; note?: string }[];
+    };
+    for (const c of cases) {
+      expect(placeFromMapUrl(c.url), `${c.url}${c.note ? ` — ${c.note}` : ""}`).toBe(c.place);
+    }
   });
 });
 

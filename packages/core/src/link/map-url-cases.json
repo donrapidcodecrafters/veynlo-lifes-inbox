@@ -1,0 +1,34 @@
+{
+  "why": [
+    "The place-name-from-a-maps-URL rule exists TWICE and cannot be shared as code.",
+    "",
+    "services/api/src/modules/ingestion/link-preview.service.ts has it in TypeScript, for a link shared",
+    "from a phone. apps/browser-extension/public/shared/link-title.js has it in plain JavaScript, for a",
+    "page saved from the desktop browser — that extension has no bundler and cannot import from a package.",
+    "",
+    "Two copies of one rule is how the provider-label map ended up wrong in six places at once, with",
+    "'plaid' rendering raw on the privacy screen because one of the six was never updated. So neither copy",
+    "owns the truth: this file does, and BOTH test suites read it and fail if their implementation",
+    "disagrees. A case added here has to be satisfied on both sides or the build goes red.",
+    "",
+    "Why the rule is needed at all: Google Maps serves an empty JavaScript shell to a server fetch AND",
+    "titles its own place pages 'Google Maps' in a real browser — measured in Chromium, document.title for",
+    "a Statue of Liberty place page is the literal string 'Google Maps'. So neither fetching the page nor",
+    "reading the browser's title finds the place. The URL does."
+  ],
+  "cases": [
+    { "url": "https://www.google.com/maps/place/Statue+of+Liberty", "place": "Statue of Liberty" },
+    { "url": "https://www.google.com/maps/place/Blue+Bottle+Coffee/@37.7,-122.4,17z", "place": "Blue Bottle Coffee" },
+    { "url": "https://www.google.com/maps/place/Caf%C3%A9+Grumpy", "place": "Café Grumpy" },
+    { "url": "https://maps.google.com/maps/place/Tartine+Bakery", "place": "Tartine Bakery" },
+    { "url": "https://maps.apple.com/?q=Statue+of+Liberty", "place": "Statue of Liberty" },
+    { "url": "https://maps.apple.com/?address=1+Infinite+Loop", "place": "1 Infinite Loop" },
+
+    { "url": "https://maps.apple.com/?q=40.6892,-74.0445", "place": null, "note": "a coordinate is not a name, and saving it records where somebody was looking" },
+    { "url": "https://www.google.com/maps?q=40.6892,-74.0445", "place": null, "note": "same, on the other map" },
+    { "url": "https://www.google.com/maps", "place": null, "note": "names nothing" },
+    { "url": "https://maps.apple.com/", "place": null, "note": "names nothing" },
+    { "url": "https://example.com/maps/place/Nowhere", "place": null, "note": "not a maps host" },
+    { "url": "not a url", "place": null, "note": "not a URL at all" }
+  ]
+}

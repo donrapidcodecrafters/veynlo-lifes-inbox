@@ -6,6 +6,7 @@
   "scripts": {
     "lint": "eslint public scripts --max-warnings 0",
     "build:firefox": "node scripts/build-firefox.mjs",
-    "lint:firefox": "node scripts/build-firefox.mjs && web-ext lint --source-dir dist/firefox"
+    "lint:firefox": "node scripts/build-firefox.mjs && web-ext lint --source-dir dist/firefox",
+    "test": "node --test test/"
   }
 }

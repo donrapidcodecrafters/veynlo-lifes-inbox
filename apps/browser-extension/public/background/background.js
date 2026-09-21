@@ -1,3 +1,5 @@
+import { titleForPage } from "../shared/link-title.js";
+
 const DEFAULT_API_BASE = "http://localhost:4000";
 const CONTEXT_MENU_PAGE = "veynlo-save-page";
 const CONTEXT_MENU_SELECTION = "veynlo-save-selection";
@@ -98,7 +100,12 @@ async function captureAndSave({ url, title, bodyText }) {
   // With no active tab there is no title and no URL, so both fields would be empty and the request could
   // only ever come back 400. Refuse locally, with wording a person can act on, rather than showing them a
   // validation error for a request they did not know they were making.
-  const subject = title || url;
+  //
+  // `titleForPage` rather than the browser's title directly: measured in a real browser, Google Maps calls
+  // every one of its place pages "Google Maps", so saving a place from here filed it under that name. The
+  // browser's title still wins everywhere else — having already run the page's JavaScript is this
+  // extension's whole advantage over fetching the page from a server.
+  const subject = titleForPage(url, title);
   const composedBody = [title, url, bodyText].filter(Boolean).join("\n\n");
   if (!subject || !composedBody) {
     throw new Error("Open a page in a tab first, then try saving it.");
