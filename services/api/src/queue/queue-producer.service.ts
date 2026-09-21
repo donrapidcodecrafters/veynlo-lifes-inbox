@@ -20,6 +20,8 @@ import {
   type ResurfacingScanJobData,
   type SchoolSourceSyncJobData,
   type SchoolSourceScanJobData,
+  type SmartHomeSyncJobData,
+  type SmartHomeScanJobData,
   type RecallCheckJobData,
   type RecallScanJobData,
   type CaregiverDayPassScanJobData,
@@ -85,6 +87,12 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     connection: getRedisConnection(),
   });
   private readonly schoolSourceScanQueue = new Queue<SchoolSourceScanJobData>(QUEUE_NAMES.schoolSourceScan, {
+    connection: getRedisConnection(),
+  });
+  private readonly smartHomeSyncQueue = new Queue<SmartHomeSyncJobData>(QUEUE_NAMES.smartHomeSync, {
+    connection: getRedisConnection(),
+  });
+  private readonly smartHomeScanQueue = new Queue<SmartHomeScanJobData>(QUEUE_NAMES.smartHomeScan, {
     connection: getRedisConnection(),
   });
   private readonly recallCheckQueue = new Queue<RecallCheckJobData>(QUEUE_NAMES.recallCheck, {
@@ -408,6 +416,30 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
     await this.schoolSourceScanQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "school-source-scan" });
   }
 
+  /** §31 SMART-001 — one smart-home connection's sync, jobId'd by connection so an overlapping scan tick cannot double-sync the same home server. */
+  async enqueueSmartHomeSync(data: SmartHomeSyncJobData): Promise<void> {
+    await this.addWithReusableJobId(this.smartHomeSyncQueue, "sync", data, {
+      jobId: data.smartConnectionId,
+      attempts: 5,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: { count: 200 },
+      removeOnFail: { count: 500 },
+    });
+  }
+
+  /**
+   * Every fifteen minutes, same cadence as the school and connector scans.
+   *
+   * Worth saying why it is not slower: a leak sensor's value is entirely in how soon somebody hears about
+   * it, and a wet basement discovered the next morning is a different event from one discovered at once.
+   * Worth saying why it is not faster: this is one `GET /api/states` against a server in someone's house,
+   * and hammering a Raspberry Pi every thirty seconds to catch a leak four minutes earlier is not a trade
+   * this should make on the user's behalf.
+   */
+  async scheduleRecurringSmartHomeScan(): Promise<void> {
+    await this.smartHomeScanQueue.add("scan", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "smart-home-scan" });
+  }
+
   /** VEH-006/HOMEOS-008 — see queue-names.ts's RecallCheckJobData doc comment. jobId'd by subject so a
    * duplicate enqueue (e.g. creating the vehicle, then immediately hitting "check for recalls" before the
    * first check finishes) can't run two overlapping checks for the same subject. */
@@ -494,6 +526,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       [QUEUE_NAMES.memoryClassification]: this.memoryClassificationQueue,
       [QUEUE_NAMES.resurfacingScan]: this.resurfacingScanQueue,
       [QUEUE_NAMES.schoolSourceSync]: this.schoolSourceSyncQueue,
+      [QUEUE_NAMES.smartHomeSync]: this.smartHomeSyncQueue,
+      [QUEUE_NAMES.smartHomeScan]: this.smartHomeScanQueue,
       [QUEUE_NAMES.schoolSourceScan]: this.schoolSourceScanQueue,
       [QUEUE_NAMES.recallCheck]: this.recallCheckQueue,
       [QUEUE_NAMES.recallScan]: this.recallScanQueue,
@@ -544,6 +578,8 @@ export class QueueProducerService implements QueueProducer, OnModuleDestroy {
       this.documentOcrQueue.close(),
       this.voiceTranscriptionQueue.close(),
       this.schoolSourceSyncQueue.close(),
+      this.smartHomeSyncQueue.close(),
+      this.smartHomeScanQueue.close(),
       this.schoolSourceScanQueue.close(),
       this.memoryClassificationQueue.close(),
       this.resurfacingScanQueue.close(),

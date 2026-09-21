@@ -36,6 +36,7 @@ import { PublicShareModule } from "./modules/sharing/public-share.module";
 import { LocationModule } from "./modules/location/location.module";
 import { TripsModule } from "./modules/trips/trips.module";
 import { SchoolModule } from "./modules/school/school.module";
+import { SmartHomeModule } from "./modules/smart-home/smart-home.module";
 import { HealthLogisticsModule } from "./modules/health-logistics/health-logistics.module";
 import { PreferencesModule } from "./modules/preferences/preferences.module";
 import { PeopleModule } from "./modules/people/people.module";
@@ -91,6 +92,7 @@ import { MaintenanceModeGuard } from "./common/maintenance-mode.guard";
     LocationModule,
     TripsModule,
     SchoolModule,
+    SmartHomeModule,
     HealthLogisticsModule,
     PreferencesModule,
     PeopleModule,

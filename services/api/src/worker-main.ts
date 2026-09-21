@@ -27,6 +27,8 @@ import {
   type VoiceTranscriptionJobData,
   type SchoolSourceSyncJobData,
   type SchoolSourceScanJobData,
+  type SmartHomeSyncJobData,
+  type SmartHomeScanJobData,
   type RecallCheckJobData,
   type RecallScanJobData,
   type CaregiverDayPassScanJobData,
@@ -63,6 +65,8 @@ import { DataExportService } from "./modules/data-export/data-export.service";
 import { IngestionService } from "./modules/ingestion/ingestion.service";
 import { DocumentsService } from "./modules/documents/documents.service";
 import { SchoolService, SYNCABLE_SCHOOL_SOURCE_KINDS } from "./modules/school/school.service";
+import { HomeAssistantService } from "./modules/smart-home/home-assistant.service";
+import { SYNCABLE_SMART_HOME_PROVIDERS } from "./modules/smart-home/smart-home.service";
 import { RecallMonitorService } from "./modules/assets/recall-monitor.service";
 import { MemoriesService } from "./modules/memories/memories.service";
 import { ResurfacingService } from "./modules/memories/resurfacing.service";
@@ -116,6 +120,7 @@ async function bootstrap() {
   const ingestion = appContext.get(IngestionService);
   const documents = appContext.get(DocumentsService);
   const school = appContext.get(SchoolService);
+  const homeAssistant = appContext.get(HomeAssistantService);
   const recallMonitor = appContext.get(RecallMonitorService);
   const memories = appContext.get(MemoriesService);
   const resurfacing = appContext.get(ResurfacingService);
@@ -464,6 +469,46 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 1 },
   );
 
+  /**
+   * §31 SMART-001/002 — one smart-home connection's sync (HomeAssistantService.sync).
+   *
+   * A failed sync already records WHY on the connection row before rethrowing, so a retry storm against a
+   * home server that is simply offline still leaves the household a message they can act on rather than a
+   * card that silently stops updating.
+   */
+  const smartHomeSyncWorker = new Worker<SmartHomeSyncJobData>(
+    QUEUE_NAMES.smartHomeSync,
+    async (job) => {
+      await homeAssistant.sync(job.data.smartConnectionId);
+    },
+    { connection: getRedisConnection(), concurrency: 4 },
+  );
+
+  // Recurring tick (see QueueProducerService.scheduleRecurringSmartHomeScan): finds every still-connected
+  // smart_connections row and enqueues a sync for each — mirrors schoolSourceScanWorker's identical shape,
+  // deduplicated by enqueueSmartHomeSync's jobId.
+  //
+  // The provider filter comes from the same list the sync dispatches on rather than a literal
+  // "home_assistant", which is exactly how a Canvas source once synced one time and then went silent.
+  const smartHomeScanWorker = new Worker<SmartHomeScanJobData>(
+    QUEUE_NAMES.smartHomeScan,
+    async () => {
+      const eligible = await db
+        .select({ id: schema.smartConnections.id })
+        .from(schema.smartConnections)
+        .where(
+          and(
+            inArray(schema.smartConnections.provider, [...SYNCABLE_SMART_HOME_PROVIDERS]),
+            isNull(schema.smartConnections.disconnectedAt),
+          ),
+        );
+      for (const connection of eligible) {
+        await queueProducer.enqueueSmartHomeSync({ smartConnectionId: connection.id });
+      }
+    },
+    { connection: getRedisConnection(), concurrency: 1 },
+  );
+
   /** VEH-006/HOMEOS-008 — one vehicle or home asset's recall check (RecallMonitorService.checkVehicle/
    * checkHomeAsset), off the request that created it — see queue-names.ts's RecallCheckJobData doc
    * comment. */
@@ -583,6 +628,8 @@ async function bootstrap() {
     voiceTranscriptionWorker,
     schoolSourceSyncWorker,
     schoolSourceScanWorker,
+    smartHomeSyncWorker,
+    smartHomeScanWorker,
     recallCheckWorker,
     recallScanWorker,
     caregiverDayPassScanWorker,
@@ -606,6 +653,7 @@ async function bootstrap() {
   await queueProducer.scheduleRecurringInboxUnsnooze();
   await queueProducer.scheduleRecurringAttentionScan();
   await queueProducer.scheduleRecurringSchoolSourceScan();
+  await queueProducer.scheduleRecurringSmartHomeScan();
   await queueProducer.scheduleRecurringRecallScan();
   await queueProducer.scheduleRecurringResurfacingScan();
   await queueProducer.scheduleRecurringCaregiverDayPassScan();

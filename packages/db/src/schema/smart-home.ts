@@ -11,12 +11,19 @@ import { encryptedText } from "./encrypted-type";
  * Philips Hue) needs its own OAuth app registration or partner API agreement that does not exist in this
  * dev environment. See docs/PHASE3_PENDING_CREDENTIALS.md for exactly what each one would need.
  *
- * This file is DATA MODEL ONLY, with zero live connectors — the same "reserve the shape before the
- * feature exists" move `packages/core/src/util/ids.ts` already made once for `lists` (table/id prefixes
- * committed ahead of the feature being built). Nothing anywhere in this codebase writes a `smartConnections`
- * row with `status: "connected"`, and no UI presents one as available — see `services/api/src/modules/
- * smart-home/smart-home-adapter.interface.ts` for the adapter shape a future real connector would
- * implement, and the Connections page for the "coming soon" copy this scaffolding backs.
+ * This WAS data model only, with zero live connectors. One now exists: Home Assistant, whose rows do reach
+ * `status: "connected"` and are presented in the UI as connected, because a user can genuinely connect it.
+ *
+ * Home Assistant is the exception to the paragraph above for a specific reason rather than a lucky one: it
+ * is self-hosted, so the credential belongs to the user and there is no app registration or partner
+ * agreement standing between this code and a working connection. The other named vendors still have
+ * exactly that standing in their way and still have no adapter — see
+ * `services/api/src/modules/smart-home/smart-home-adapter.interface.ts` and
+ * docs/PHASE3_PENDING_CREDENTIALS.md.
+ *
+ * It is also the one that reaches furthest: Home Assistant already speaks to Z-Wave, Zigbee, Matter, Hue,
+ * Ecobee, Nest and SmartThings locally. A household running it can surface devices here that this codebase
+ * could never integrate with directly, through a connector that needs no permission from anyone.
  */
 export const smartConnections = pgTable(
   "smart_connections",
@@ -34,7 +41,29 @@ export const smartConnections = pgTable(
     // provider. A future real adapter is what would introduce "connected"/"error"/etc.
     status: text("status").notNull().default("not_configured"),
     selectedSignalKinds: jsonb("selected_signal_kinds").$type<string[]>().notNull().default([]), // SMART-001 "device-level selection"
+    /**
+     * For a provider this deployment holds an OAuth client for. Still unused: no such provider is built,
+     * because every one of them (SmartThings, Nest, Ring, Ecobee, Hue) needs an app registration or a
+     * partner agreement. Kept rather than removed because it is the right home for those when they exist.
+     */
     credentialRef: text("credential_ref"), // opaque pointer into CredentialVault, same pattern as connections.credentialRef
+    /**
+     * For a provider the USER holds the credential for, which is the only kind that can be built here.
+     *
+     * Home Assistant is self-hosted: the address is the user's own server and the token is a Long-Lived
+     * Access Token they generate in their own profile. There is no client secret for this deployment to
+     * hold and no application to register, which is exactly why this is the one §31 provider that is
+     * buildable rather than partnership-gated.
+     *
+     * The token cannot live in `connection_credentials` — that table's `connection_id` is a hard foreign
+     * key to `connections`, and a smart connection is not one. So it is stored the way `school_sources`
+     * already stores a Canvas token: encrypted on the row that owns it.
+     */
+    apiBaseUrl: text("api_base_url"),
+    apiToken: encryptedText("api_token"),
+    /** Why a connection is in `error`, in words a person can act on. Null whenever it is not. */
+    healthDetail: text("health_detail"),
+    lastSuccessfulSyncAt: timestamp("last_successful_sync_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),

@@ -27,6 +27,8 @@ export const QUEUE_NAMES = {
   dataIntegrityScan: "data-integrity-scan",
   expectedEventScan: "expected-event-scan",
   searchIndexBackfill: "search-index-backfill",
+  smartHomeSync: "smart-home-sync",
+  smartHomeScan: "smart-home-scan",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -141,6 +143,22 @@ export interface SchoolSourceSyncJobData {
 
 /** Recurring tick with no payload — its processor finds eligible (still-subscribed) school_sources itself, mirroring ConnectorScanJobData's identical shape. */
 export type SchoolSourceScanJobData = Record<string, never>;
+
+/**
+ * §31 SMART-001/002 — one smart-home connection's sync (HomeAssistantService.sync), mirroring
+ * SchoolSourceSyncJobData's shape.
+ *
+ * A polled connector that is only ever synced from the screen that created it is the defect `imap`,
+ * `caldav` and `carddav` all had: they synced once on connect and then sat healthy and silent forever.
+ * For a leak sensor that failure mode is worse than for a mailbox — the whole value of the connector is
+ * that it notices something while nobody is looking at it.
+ */
+export interface SmartHomeSyncJobData {
+  smartConnectionId: string;
+}
+
+/** Recurring tick with no payload — its processor finds every still-connected smart_connections row itself, mirroring SchoolSourceScanJobData's identical shape. */
+export type SmartHomeScanJobData = Record<string, never>;
 
 /**
  * VEH-006/HOMEOS-008 — one vehicle or home asset's recall check against NHTSA/CPSC, off the request that
