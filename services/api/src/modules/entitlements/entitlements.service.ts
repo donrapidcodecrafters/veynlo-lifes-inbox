@@ -16,7 +16,7 @@ function startOfCurrentBillingMonthUtc(now: Date = new Date()): Date {
 
 const EMAIL_PROVIDERS = new Set(["gmail", "outlook"]);
 const CALENDAR_PROVIDERS = new Set(["google_calendar", "microsoft_calendar", "ics", "google_tasks", "microsoft_todo"]);
-const STORAGE_PROVIDERS = new Set(["google_drive", "onedrive", "dropbox"]);
+const STORAGE_PROVIDERS = new Set(["google_drive", "onedrive", "sharepoint", "dropbox"]);
 const FINANCIAL_PROVIDERS = new Set(["plaid"]);
 
 const CONNECTOR_QUOTA_CAPABILITY: Record<"email" | "calendar" | "storage" | "financial", CapabilityKey> = {

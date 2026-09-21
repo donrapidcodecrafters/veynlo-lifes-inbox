@@ -25,6 +25,7 @@ import { GoogleContactsAdapter } from "./google-contacts.adapter";
 import { MicrosoftContactsAdapter } from "./microsoft-contacts.adapter";
 import { GoogleDriveAdapter } from "./google-drive.adapter";
 import { OneDriveAdapter } from "./onedrive.adapter";
+import { SharePointAdapter } from "./sharepoint.adapter";
 import { DropboxAdapter } from "./dropbox.adapter";
 import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./microsoft-todo.adapter";
@@ -81,6 +82,7 @@ export class ConnectorsController {
     @Inject(MicrosoftContactsAdapter) private readonly microsoftContacts: MicrosoftContactsAdapter,
     @Inject(GoogleDriveAdapter) private readonly googleDrive: GoogleDriveAdapter,
     @Inject(OneDriveAdapter) private readonly oneDrive: OneDriveAdapter,
+    @Inject(SharePointAdapter) private readonly sharePoint: SharePointAdapter,
     @Inject(DropboxAdapter) private readonly dropbox: DropboxAdapter,
     @Inject(GoogleTasksAdapter) private readonly googleTasks: GoogleTasksAdapter,
     @Inject(MicrosoftToDoAdapter) private readonly microsoftToDo: MicrosoftToDoAdapter,
@@ -454,6 +456,52 @@ export class ConnectorsController {
         householdId: null,
       });
       return res.redirect(connectorRedirectUrl(env, platform, "connected=onedrive"), 302);
+    } catch (err) {
+      return res.redirect(connectorErrorRedirect(env, platform, err), 302);
+    }
+  }
+
+  /**
+   * SharePoint — the same Microsoft application as Outlook, Calendar, To Do and OneDrive, so this needs no
+   * credential of its own; it is available wherever Microsoft OAuth is configured at all.
+   *
+   * Reads only the sites the user FOLLOWS in SharePoint. See SharePointAdapter's own doc comment for why:
+   * `Sites.Read.All` can reach everything the user can reach, which in a real tenant is hundreds of sites
+   * belonging to their employer, and syncing all of that would be a privacy problem wearing a feature's
+   * clothes.
+   */
+  @Get("sharepoint/authorize")
+  @UseGuards(AuthGuard)
+  async sharePointAuthorize(@CurrentUser() user: AuthenticatedUser, @Req() req: FastifyRequest) {
+    if (!this.sharePoint.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: "CONNECTOR_NOT_CONFIGURED",
+        message: "SharePoint isn't configured on this deployment yet. Set MICROSOFT_OAUTH_CLIENT_ID and MICROSOFT_OAUTH_CLIENT_SECRET to enable it.",
+      });
+    }
+    await this.entitlements.assertConnectorQuota(user.userId, "storage");
+    const env = loadEnv();
+    const redirectUri = `${env.API_PUBLIC_URL}/v1/connectors/sharepoint/callback`;
+    const state = await signConnectState(user.userId, detectPlatform(req));
+    const authorizationUrl = this.sharePoint.authorizationUrl({ redirectUri, state });
+    return { authorizationUrl };
+  }
+
+  @Get("sharepoint/callback")
+  async sharePointCallback(@Query("code") code: string, @Query("state") state: string, @Res() res: FastifyReply) {
+    const env = loadEnv();
+    let platform: ClientPlatform = "web";
+    try {
+      if (!code || !state) throw new BadRequestException({ code: "MISSING_OAUTH_PARAMS", message: "Missing code or state." });
+      const verified = await verifyConnectState(state);
+      platform = verified.platform;
+      await this.sharePoint.handleCallback({
+        code,
+        redirectUri: `${env.API_PUBLIC_URL}/v1/connectors/sharepoint/callback`,
+        ownerUserId: verified.userId,
+        householdId: null,
+      });
+      return res.redirect(connectorRedirectUrl(env, platform, "connected=sharepoint"), 302);
     } catch (err) {
       return res.redirect(connectorErrorRedirect(env, platform, err), 302);
     }

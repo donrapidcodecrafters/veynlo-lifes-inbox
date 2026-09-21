@@ -34,6 +34,7 @@ export * from "./entities/automation";
 export * from "./entities/pipeline";
 
 export * from "./connectors/types";
+export * from "./connectors/provider-labels";
 export * from "./entitlements/plans";
 export * from "./entitlements/category-preferences";
 export * from "./events/taxonomy";

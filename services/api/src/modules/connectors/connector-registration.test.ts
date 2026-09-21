@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INCREMENTAL_SYNC_PROVIDERS, assertConnectorRegistrationIsComplete } from "./connectors.service";
+import { KNOWN_CONNECTION_PROVIDERS, PROVIDER_LABEL, providerLabel } from "@veynlo/core";
 
 /**
  * The check that stops a connector from shipping silent.
@@ -64,6 +65,7 @@ describe("connector registration completeness", () => {
       "microsoft_calendar",
       "google_drive",
       "onedrive",
+      "sharepoint",
       "dropbox",
       "google_tasks",
       "microsoft_todo",
@@ -74,5 +76,44 @@ describe("connector registration completeness", () => {
     ]) {
       expect(INCREMENTAL_SYNC_PROVIDERS).toContain(provider);
     }
+  });
+
+  /**
+   * Every provider this API can store must have a name a person would recognise.
+   *
+   * Three screens each kept their own copy of the provider-label map and all three had drifted: a
+   * connected bank read "Bank accounts" on Connections and raw "plaid" on the privacy screen, one click
+   * apart. Every copy ended in `?? provider`, so a missing entry never failed — it quietly rendered the
+   * database string, which looks enough like a label to survive review.
+   *
+   * The map now lives in @veynlo/core and this is what keeps it complete: add a connector to the API
+   * without naming it, and this fails here rather than on someone's screen.
+   */
+  it("every provider the API can store has a human label", () => {
+    for (const provider of INCREMENTAL_SYNC_PROVIDERS) {
+      expect(KNOWN_CONNECTION_PROVIDERS as readonly string[]).toContain(provider);
+      expect(PROVIDER_LABEL[provider], `no display label for "${provider}"`).toBeTruthy();
+    }
+  });
+
+  it("the shared provider list does not claim providers the API cannot store", () => {
+    // The contacts connectors are real connections but are not on the incremental-scan list (they sync on
+    // their own schedule), so they are expected extras rather than drift. Anything ELSE here would mean
+    // the shared list has grown a provider the API never writes.
+    const scanned = new Set<string>(INCREMENTAL_SYNC_PROVIDERS);
+    const expectedExtras = new Set(["google_contacts", "microsoft_contacts"]);
+    for (const provider of KNOWN_CONNECTION_PROVIDERS) {
+      if (scanned.has(provider) || expectedExtras.has(provider)) continue;
+      throw new Error(`"${provider}" is in KNOWN_CONNECTION_PROVIDERS but the API never stores it`);
+    }
+  });
+
+  it("never shows a raw database string, even for a provider it has never heard of", () => {
+    // The floor beneath the map. A provider added to the API ahead of the label map reads as words rather
+    // than as an identifier — not a substitute for a real entry, which the test above enforces.
+    expect(providerLabel("some_new_provider")).toBe("Some New Provider");
+    expect(providerLabel("plaid")).toBe("Bank accounts");
+    expect(providerLabel(null)).toBe("Connection");
+    expect(providerLabel("")).toBe("Connection");
   });
 });

@@ -11,6 +11,7 @@ import { ScreenHeader } from "@/components/screen-header";
 import { TextField } from "@/components/text-field";
 import { usePersonalizationPreferences } from "@/lib/use-personalization";
 import { useFinancialPrivacy } from "@/lib/financial-privacy-context";
+import { providerLabel } from "@veynlo/core";
 
 interface Me {
   id: string;
@@ -25,13 +26,6 @@ interface Connection {
   lastSuccessfulSyncAt: string | null;
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  ics: "Calendar feed",
-  google_calendar: "Google Calendar",
-  microsoft_calendar: "Microsoft Calendar",
-};
 
 /**
  * FIN-007 "Allow amounts and account names to be hidden on Home, widgets, household surfaces and
@@ -240,7 +234,7 @@ export default function PrivacyScreen() {
           )}
           {connections?.map((c) => (
             <View key={c.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>{PROVIDER_LABEL[c.provider] ?? c.provider}</Text>
+              <Text style={{ fontSize: 13, color: theme.colors.textPrimary }}>{providerLabel(c.provider)}</Text>
               <Badge tone={c.health === "healthy" ? "positive" : c.health === "disconnected" ? "neutral" : "warning"}>
                 {c.health.replace(/_/g, " ")}
               </Badge>

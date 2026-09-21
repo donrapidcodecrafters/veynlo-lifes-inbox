@@ -40,7 +40,7 @@ const DROPBOX_REVOKE_PROVIDERS = new Set(["dropbox"]);
  * would silently no-op or 404 — see docs/INCIDENT_RESPONSE.md §4's write-up of this same gap. The local
  * credential deletion below (unconditional, every provider) remains the real security boundary regardless.
  */
-const MICROSOFT_NO_REVOKE_PROVIDERS = new Set(["outlook", "microsoft_calendar", "onedrive", "microsoft_todo", "microsoft_contacts"]);
+const MICROSOFT_NO_REVOKE_PROVIDERS = new Set(["outlook", "microsoft_calendar", "onedrive", "sharepoint", "microsoft_todo", "microsoft_contacts"]);
 
 /**
  * Every provider the recurring incremental-scan tick (worker-main.ts's connectorScanWorker, via
@@ -69,6 +69,7 @@ export const INCREMENTAL_SYNC_PROVIDERS = [
   "microsoft_calendar",
   "google_drive",
   "onedrive",
+  "sharepoint",
   "dropbox",
   "google_tasks",
   "microsoft_todo",

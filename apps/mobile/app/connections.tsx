@@ -15,27 +15,8 @@ import { EmptyState } from "@/components/empty-state";
 import { FetchError } from "@/components/fetch-error";
 import { ScreenHeader } from "@/components/screen-header";
 import { TextField } from "@/components/text-field";
+import { providerLabel } from "@veynlo/core";
 
-const PROVIDER_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  ics: "Calendar feed",
-  google_calendar: "Google Calendar",
-  microsoft_calendar: "Microsoft Calendar",
-  google_drive: "Google Drive",
-  onedrive: "OneDrive",
-  dropbox: "Dropbox",
-  google_tasks: "Google Tasks",
-  microsoft_todo: "Microsoft To Do",
-  todoist: "Todoist",
-  trello: "Trello",
-  asana: "Asana",
-  google_contacts: "Google Contacts",
-  microsoft_contacts: "Microsoft Contacts",
-  // Mirrors the same fix on apps/web's connections page — missing here left a connected Plaid connection
-  // falling through to the raw provider string "plaid" instead of a real display name.
-  plaid: "Bank accounts",
-};
 
 const CONNECT_ERROR_MESSAGE: Record<string, string> = {
   connector_not_configured: "That connector isn't configured on this deployment yet.",
@@ -258,6 +239,8 @@ const AVAILABLE_CONNECTORS = [
   { provider: "microsoft-calendar", name: "Microsoft Calendar", description: "Sync your Outlook/Microsoft 365 calendar events directly." },
   { provider: "google-drive", name: "Google Drive", description: "Find receipts, warranties, and contracts saved in your Drive." },
   { provider: "onedrive", name: "OneDrive", description: "The same file scan — for documents saved in OneDrive." },
+  // The scope limit is stated up front rather than discovered later — see the web page's own note.
+  { provider: "sharepoint", name: "SharePoint", description: "Scans the SharePoint sites you follow for documents — not every site you can reach." },
   { provider: "dropbox", name: "Dropbox", description: "The same file scan — for documents saved in Dropbox." },
   { provider: "google-tasks", name: "Google Tasks", description: "Bring your Google Tasks lists in as tasks you can assign and track." },
   { provider: "microsoft-todo", name: "Microsoft To Do", description: "The same task sync — for lists in Microsoft To Do." },
@@ -368,7 +351,7 @@ export default function ConnectionsScreen() {
   useEffect(() => {
     if (!rootNavigationState?.key) return; // root navigator not mounted yet — wait for the next render
     const { connected, error } = params;
-    if (connected) setConnectedMessage(`${PROVIDER_LABEL[connected] ?? connected} connected.`);
+    if (connected) setConnectedMessage(`${providerLabel(connected)} connected.`);
     if (error) setConnectError(CONNECT_ERROR_MESSAGE[error] ?? "Couldn't complete that connection. Please try again.");
     if (!connected && !error) return;
     const timeoutId = setTimeout(() => router.setParams({ connected: undefined, error: undefined }), 0);
@@ -1133,7 +1116,7 @@ export default function ConnectionsScreen() {
                   one row three or four ways. */}
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.textPrimary }}>
-                  {PROVIDER_LABEL[c.provider] ?? c.provider}
+                  {providerLabel(c.provider)}
                 </Text>
                 <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace(/_/g, " ")}</Badge>
                 {/* PRIV-001 "pause a connection's processing without fully disconnecting it" — distinct

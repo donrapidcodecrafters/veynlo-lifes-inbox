@@ -162,7 +162,7 @@ export function classifyConnectorError(err: unknown, providerFamily: ProviderFam
 export function providerFamilyFor(provider: string | null | undefined): ProviderFamily {
   if (!provider) return "generic";
   if (provider.startsWith("google")) return "google";
-  if (provider.startsWith("microsoft") || provider === "outlook" || provider === "onedrive") return "microsoft";
+  if (provider.startsWith("microsoft") || provider === "outlook" || provider === "onedrive" || provider === "sharepoint") return "microsoft";
   if (provider === "dropbox") return "dropbox";
   if (provider === "plaid") return "plaid";
   return "generic";

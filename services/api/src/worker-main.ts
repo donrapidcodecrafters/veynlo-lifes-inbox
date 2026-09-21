@@ -44,6 +44,7 @@ import { GoogleCalendarAdapter } from "./modules/connectors/google-calendar.adap
 import { MicrosoftCalendarAdapter } from "./modules/connectors/microsoft-calendar.adapter";
 import { GoogleDriveAdapter } from "./modules/connectors/google-drive.adapter";
 import { OneDriveAdapter } from "./modules/connectors/onedrive.adapter";
+import { SharePointAdapter } from "./modules/connectors/sharepoint.adapter";
 import { DropboxAdapter } from "./modules/connectors/dropbox.adapter";
 import { GoogleTasksAdapter } from "./modules/connectors/google-tasks.adapter";
 import { TokenTaskAdapter } from "./modules/connectors/token-task.adapter";
@@ -96,6 +97,7 @@ async function bootstrap() {
   const microsoftCalendarAdapter = appContext.get(MicrosoftCalendarAdapter);
   const googleDriveAdapter = appContext.get(GoogleDriveAdapter);
   const oneDriveAdapter = appContext.get(OneDriveAdapter);
+  const sharePointAdapter = appContext.get(SharePointAdapter);
   const dropboxAdapter = appContext.get(DropboxAdapter);
   const googleTasksAdapter = appContext.get(GoogleTasksAdapter);
   const microsoftToDoAdapter = appContext.get(MicrosoftToDoAdapter);
@@ -147,6 +149,7 @@ async function bootstrap() {
     microsoft_calendar: microsoftCalendarAdapter,
     google_drive: googleDriveAdapter,
     onedrive: oneDriveAdapter,
+    sharepoint: sharePointAdapter,
     dropbox: dropboxAdapter,
     google_tasks: googleTasksAdapter,
     microsoft_todo: microsoftToDoAdapter,

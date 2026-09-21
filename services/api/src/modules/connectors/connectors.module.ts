@@ -23,6 +23,7 @@ import { GoogleContactsAdapter } from "./google-contacts.adapter";
 import { MicrosoftContactsAdapter } from "./microsoft-contacts.adapter";
 import { GoogleDriveAdapter } from "./google-drive.adapter";
 import { OneDriveAdapter } from "./onedrive.adapter";
+import { SharePointAdapter } from "./sharepoint.adapter";
 import { DropboxAdapter } from "./dropbox.adapter";
 import { GoogleTasksAdapter } from "./google-tasks.adapter";
 import { MicrosoftToDoAdapter } from "./microsoft-todo.adapter";
@@ -42,6 +43,7 @@ const ADAPTERS = [
   MicrosoftContactsAdapter,
   GoogleDriveAdapter,
   OneDriveAdapter,
+  SharePointAdapter,
   DropboxAdapter,
   GoogleTasksAdapter,
   MicrosoftToDoAdapter,

@@ -12,6 +12,7 @@ import { FetchError } from "@/components/ui/fetch-error";
 import { Input, Label, FieldError } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState, type FormEvent } from "react";
+import { providerLabel } from "@veynlo/core";
 
 interface InboundAliasInfo {
   configured: boolean;
@@ -246,28 +247,6 @@ function TransactionHistoryDisclosure({ transactionId, currency }: { transaction
   );
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  ics: "Calendar feed",
-  google_calendar: "Google Calendar",
-  microsoft_calendar: "Microsoft Calendar",
-  google_drive: "Google Drive",
-  onedrive: "OneDrive",
-  dropbox: "Dropbox",
-  google_tasks: "Google Tasks",
-  microsoft_todo: "Microsoft To Do",
-  todoist: "Todoist",
-  trello: "Trello",
-  asana: "Asana",
-  google_contacts: "Google Contacts",
-  microsoft_contacts: "Microsoft Contacts",
-  // Found live: missing here, so a connected Plaid connection fell through to the `?? c.provider` raw-
-  // string fallback below and rendered as lowercase "plaid" — the only connected card on this page not
-  // showing a proper display name — and the disconnect confirm dialog read "Disconnect plaid?" instead of
-  // a real name. Matches the "Bank accounts" heading its own not-yet-connected card already uses.
-  plaid: "Bank accounts",
-};
 
 const HEALTH_TONE: Record<string, "positive" | "warning" | "critical" | "neutral"> = {
   healthy: "positive",
@@ -316,6 +295,15 @@ const AVAILABLE_CONNECTORS = [
     name: "OneDrive",
     description: "The same file scan — for documents saved in a Microsoft OneDrive.",
     notConfiguredMessage: "OneDrive isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
+  },
+  {
+    provider: "sharepoint",
+    name: "SharePoint",
+    // The scope limit is stated up front, not discovered later. SharePoint can reach every site the user
+    // can reach — usually hundreds belonging to their employer — and this deliberately reads only the ones
+    // they follow. Someone whose file never appears deserves to know why before they connect, not after.
+    description: "Scans the SharePoint sites you follow for documents — not every site you can reach.",
+    notConfiguredMessage: "SharePoint isn't configured on this deployment yet. An administrator needs to add Microsoft OAuth credentials.",
   },
   {
     provider: "dropbox",
@@ -407,7 +395,7 @@ export default function ConnectionsPage() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected) setConnectedMessage(`${PROVIDER_LABEL[connected] ?? connected} connected.`);
+    if (connected) setConnectedMessage(`${providerLabel(connected)} connected.`);
     if (error) setConnectError(CONNECT_ERROR_MESSAGE[error] ?? "Couldn't complete that connection. Please try again.");
     if (connected || error) window.history.replaceState(null, "", window.location.pathname);
   }, []);
@@ -944,7 +932,7 @@ export default function ConnectionsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-[0.9375rem] font-medium text-primary">{PROVIDER_LABEL[c.provider] ?? c.provider}</p>
+                      <p className="text-[0.9375rem] font-medium text-primary">{providerLabel(c.provider)}</p>
                       <Badge tone={HEALTH_TONE[c.health] ?? "neutral"}>{c.health.replace("_", " ")}</Badge>
                       {/* PRIV-001 "pause a connection's processing without fully disconnecting it" —
                           distinct from `health`, so a paused-but-healthy connection still needs its own
@@ -987,7 +975,7 @@ export default function ConnectionsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => disconnect(c.id, false, undefined, PROVIDER_LABEL[c.provider] ?? c.provider)}
+                        onClick={() => disconnect(c.id, false, undefined, providerLabel(c.provider))}
                       >
                         Disconnect
                       </Button>
