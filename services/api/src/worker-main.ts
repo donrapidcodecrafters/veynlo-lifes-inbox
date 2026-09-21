@@ -4,7 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { Logger as PinoLogger } from "nestjs-pino";
 import { Worker } from "bullmq";
-import { and, eq, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, ne } from "drizzle-orm";
 import { generateId } from "@veynlo/core";
 import { schema, type Database } from "@veynlo/db";
 import { deleteConnectionData } from "./modules/connectors/connection-data-deletion";
@@ -61,7 +61,7 @@ import { QueueProducerService } from "./queue/queue-producer.service";
 import { DataExportService } from "./modules/data-export/data-export.service";
 import { IngestionService } from "./modules/ingestion/ingestion.service";
 import { DocumentsService } from "./modules/documents/documents.service";
-import { SchoolIcsService } from "./modules/school/school-ics.service";
+import { SchoolService, SYNCABLE_SCHOOL_SOURCE_KINDS } from "./modules/school/school.service";
 import { RecallMonitorService } from "./modules/assets/recall-monitor.service";
 import { MemoriesService } from "./modules/memories/memories.service";
 import { ResurfacingService } from "./modules/memories/resurfacing.service";
@@ -113,7 +113,7 @@ async function bootstrap() {
   const dataExport = appContext.get(DataExportService);
   const ingestion = appContext.get(IngestionService);
   const documents = appContext.get(DocumentsService);
-  const schoolIcs = appContext.get(SchoolIcsService);
+  const school = appContext.get(SchoolService);
   const recallMonitor = appContext.get(RecallMonitorService);
   const memories = appContext.get(MemoriesService);
   const resurfacing = appContext.get(ResurfacingService);
@@ -432,11 +432,11 @@ async function bootstrap() {
     { connection: getRedisConnection(), concurrency: 2 },
   );
 
-  /** §25 SCH-002 — one school/team ICS feed's sync (SchoolIcsService.sync). */
+  /** §25 SCH-002 — one school source's sync, whichever kind it is (SchoolService.syncSchoolSource). */
   const schoolSourceSyncWorker = new Worker<SchoolSourceSyncJobData>(
     QUEUE_NAMES.schoolSourceSync,
     async (job) => {
-      await schoolIcs.sync(job.data.schoolSourceId);
+      await school.syncSchoolSource(job.data.schoolSourceId);
     },
     { connection: getRedisConnection(), concurrency: 4 },
   );
@@ -451,7 +451,9 @@ async function bootstrap() {
       const eligible = await db
         .select({ id: schema.schoolSources.id })
         .from(schema.schoolSources)
-        .where(and(eq(schema.schoolSources.kind, "ics"), isNull(schema.schoolSources.disconnectedAt)));
+        // Every kind that is polled, from the one list SchoolService.syncSchoolSource dispatches on —
+        // not a literal "ics", which is how a Canvas source would have synced once and then gone silent.
+        .where(and(inArray(schema.schoolSources.kind, [...SYNCABLE_SCHOOL_SOURCE_KINDS]), isNull(schema.schoolSources.disconnectedAt)));
       for (const source of eligible) {
         await queueProducer.enqueueSchoolSourceSync({ schoolSourceId: source.id });
       }

@@ -498,6 +498,13 @@
       "when": 1789921243941,
       "tag": "0070_damp_molly_hayes",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1789947316704,
+      "tag": "0071_silky_caretaker",
+      "breakpoints": true
     }
   ]
 }

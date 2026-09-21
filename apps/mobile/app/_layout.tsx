@@ -21,6 +21,31 @@ import { OfflineMutationQueueDrain } from "@/components/offline-mutation-queue-d
 // geofencing.web.ts's no-op stub instead (see that file's doc comment) — importing it there is harmless.
 import "@/lib/geofencing";
 
+/**
+ * Proof that the device is running a freshly loaded bundle, emitted once per bundle evaluation.
+ *
+ * This exists because of a verification that lied. The Android harness only called `launchApp` when the
+ * app was NOT already running, so a second run inherited whatever bundle the first one left in memory. A
+ * Connections card's heading was deliberately changed to prove the mobile verifier could fail, and the
+ * verifier reported 48 passed, 0 failed — against the OLD card, still rendered by the OLD bundle. Every
+ * assertion in that run was true about code that was no longer on disk. That is the worst failure shape
+ * this audit keeps finding: a green result that measured nothing.
+ *
+ * It goes to the log rather than into the view tree. The first attempt was a zero-size `accessible` View,
+ * which never appeared: Android does not report a 0x0 node to the accessibility tree at all, so the
+ * harness saw nothing and (correctly) refused. A log line has no layout, no theming and no chance of being
+ * filtered out by a screen that happens to be scrolled elsewhere.
+ *
+ * The harness clears logcat, force-stops the app and relaunches; a stamp appearing after that point can
+ * only have come from a fresh evaluation of the bundle now on disk. If none appears, the run is refused
+ * rather than reported.
+ *
+ * Dev-only — `__DEV__` is false in any release build, so this never ships.
+ */
+if (__DEV__) {
+  console.log(`veynlo-bundle-stamp:${Date.now()}`);
+}
+
 function ThemedStack() {
   const { theme } = useAppTheme();
   return (

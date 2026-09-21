@@ -543,6 +543,9 @@ const SCHOOL_KIND_LABELS: Record<string, string> = {
   game: "Game",
   practice: "Practice",
   announcement: "Announcement",
+  // Canvas. Without an entry here the badge falls through to the raw lowercase enum — the same leak the
+  // income-cadence phrasing had.
+  assignment: "Assignment",
   other: "School",
 };
 
@@ -567,48 +570,159 @@ const SUGGESTED_PREP_ITEMS: Record<string, string[]> = {
   picture_day: ["Picture-day outfit"],
 };
 
+/**
+ * Subscribe to a school source — a calendar feed, or a Canvas account.
+ *
+ * Two kinds behind one control rather than two separate "+ add" rows, because from a parent's point of
+ * view these are the same errand: get this school's stuff into the app. What differs is only what has to
+ * be pasted, so the form asks for that and nothing else.
+ *
+ * Canvas needs an address as well as a token because Canvas is per-institution — every district runs its
+ * own.
+ */
 function AddSchoolSourceRow({ householdId, onAdded }: { householdId: string; onAdded: () => void }) {
   const { theme } = useAppTheme();
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<"ics" | "canvas">("ics");
   const [label, setLabel] = useState("");
   const [icsUrl, setIcsUrl] = useState("");
+  const [canvasBaseUrl, setCanvasBaseUrl] = useState("");
+  const [canvasToken, setCanvasToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!open) {
     return (
-      <Pressable onPress={() => setOpen(true)} accessibilityRole="button">
-        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.brandDefault }}>+ Subscribe to a school/team calendar feed</Text>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        // `accessible` merges the inner Text into this node, so the control that is clickable is also the
+        // one that carries the label. Without it Android reports two separate nodes — a clickable ViewGroup
+        // with no text, and a TextView with the text and clickable: false — which is what a screen reader
+        // and a voice-control user actually run into.
+        accessible
+        // Exactly the visible text. It previously read "Add a school calendar feed or Canvas account"
+        // while the button showed "+ Add a feed or Canvas account": a screen-reader user would hear one
+        // thing and see another, and "tap Add a feed" would find nothing.
+        accessibilityLabel="+ Add a feed or Canvas account"
+        hitSlop={6}
+        style={{
+          alignSelf: "flex-start",
+          minHeight: 36,
+          justifyContent: "center",
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: theme.radius.md,
+          // This was bare text with no border — nothing told a user it was a control. Every button in this
+          // app carries a visible outline.
+          borderWidth: 1,
+          borderColor: theme.colors.borderDefault,
+        }}
+      >
+        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.brandDefault }}>+ Add a feed or Canvas account</Text>
       </Pressable>
     );
   }
 
+  const ready = kind === "ics" ? Boolean(label.trim() && icsUrl.trim()) : Boolean(label.trim() && canvasBaseUrl.trim() && canvasToken.trim());
+
   async function submit() {
-    if (!label.trim() || !icsUrl.trim()) return;
+    if (!ready) return;
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/v1/school/sources", { householdId, label, kind: "ics", icsUrl });
+      await api.post(
+        "/v1/school/sources",
+        kind === "ics"
+          ? { householdId, label, kind: "ics", icsUrl }
+          : { householdId, label, kind: "canvas", canvasBaseUrl, canvasToken },
+      );
       setLabel("");
       setIcsUrl("");
+      setCanvasBaseUrl("");
+      setCanvasToken("");
       setOpen(false);
       onAdded();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't subscribe to that feed. Check the URL and try again.");
+      // The API answers with its own guidance — "that address has to start with https" and "Canvas
+      // rejected that token" need different fixes, so it is shown as sent rather than flattened.
+      setError(err instanceof ApiError ? err.message : "Couldn't add that source. Check the details and try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Card style={{ gap: 8 }}>
-      <TextField label="Name" placeholder="e.g. Travel soccer team" value={label} onChangeText={setLabel} />
-      <TextField label="ICS feed URL" value={icsUrl} onChangeText={setIcsUrl} autoCapitalize="none" keyboardType="url" />
+    <Card style={{ gap: 10 }}>
+      <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textSecondary }}>What are you adding?</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {(
+          [
+            { key: "ics" as const, label: "Calendar feed" },
+            { key: "canvas" as const, label: "Canvas" },
+          ]
+        ).map((option) => {
+          const active = option.key === kind;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => setKind(option.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={option.label}
+              hitSlop={6}
+              style={{
+                minHeight: 36,
+                justifyContent: "center",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: theme.radius.md,
+                // Always outlined — a control with no border is not visibly a control.
+                borderWidth: 1,
+                borderColor: active ? theme.colors.brandDefault : theme.colors.borderDefault,
+                backgroundColor: active ? theme.colors.brandSubtleBg : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? "600" : "400", color: active ? theme.colors.brandDefault : theme.colors.textPrimary }}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <TextField
+        label="Name"
+        placeholder={kind === "ics" ? "e.g. Travel soccer team" : "e.g. Maya's school work"}
+        value={label}
+        onChangeText={setLabel}
+      />
+
+      {kind === "ics" ? (
+        <TextField label="Calendar feed URL" value={icsUrl} onChangeText={setIcsUrl} autoCapitalize="none" keyboardType="url" />
+      ) : (
+        <>
+          <Text style={{ fontSize: 12, color: theme.colors.textTertiary }}>
+            Canvas issues an access token under Account, Settings, New Access Token. Assignment due dates and announcements come across — grades
+            are never read.
+          </Text>
+          <TextField
+            label="Your school's Canvas address"
+            placeholder="yourschool.instructure.com"
+            value={canvasBaseUrl}
+            onChangeText={setCanvasBaseUrl}
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+          <TextField label="Access token" value={canvasToken} onChangeText={setCanvasToken} secureTextEntry autoCapitalize="none" />
+        </>
+      )}
+
       {error && <Text style={{ fontSize: 12, color: theme.colors.critical }}>{error}</Text>}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <Button onPress={submit} loading={submitting} disabled={!label.trim() || !icsUrl.trim()}>
-            Subscribe
+          <Button onPress={submit} loading={submitting} disabled={!ready}>
+            {kind === "ics" ? "Subscribe" : "Connect Canvas"}
           </Button>
         </View>
         <View style={{ flex: 1 }}>

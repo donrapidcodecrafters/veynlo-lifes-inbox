@@ -3813,11 +3813,30 @@ export class IngestionService {
     /** VEVENT STATUS:CANCELLED — reconciled onto the existing row's `status`, never a silent delete (an
      * evidence trail should show a cancellation happened, not make the row vanish). */
     canceled: boolean;
+    /**
+     * Which kind of school source this came from.
+     *
+     * An ICS feed and a Canvas course can both hand over an item with the id "12345", and the dedup key
+     * below is scoped by source id, so they would never actually collide — but the prefix is what makes a
+     * stored idempotency key readable when someone is working out why a row did or did not appear, and it
+     * keeps the wording of the inbox item honest. A Canvas assignment did not come from "your synced
+     * school calendar".
+     */
+    feedKind?: "ics" | "canvas";
+    /**
+     * The `school_events.kind` to file under.
+     *
+     * An ICS VEVENT carries no structured kind, which is why this defaults to "other". Canvas does carry
+     * one — an assignment is not an announcement — so it says which, rather than throwing that away and
+     * filing everything as "other" the way a shared path would if it only spoke ICS.
+     */
+    eventKind?: string;
   }): Promise<boolean> {
+    const feedKind = params.feedKind ?? "ics";
     const contentHash = createHash("sha256")
       .update(JSON.stringify({ title: params.title, start: params.start, location: params.location, isAllDay: params.isAllDay, canceled: params.canceled, description: params.description }))
       .digest("hex");
-    const idempotencyKey = `school_ics:${params.schoolSourceId}:${params.uid}:${contentHash}`;
+    const idempotencyKey = `school_${feedKind}:${params.schoolSourceId}:${params.uid}:${contentHash}`;
 
     const [existingSourceEvent] = await this.db
       .select({ id: schema.sourceEvents.id })
@@ -3861,7 +3880,7 @@ export class IngestionService {
         householdId: params.householdId,
         schoolId: params.schoolId,
         schoolSourceId: params.schoolSourceId,
-        kind: "other", // an ICS VEVENT carries no structured "kind" the way an AI-classified email does — see SchoolIcsService's own doc comment
+        kind: params.eventKind ?? "other", // an ICS VEVENT carries no structured "kind" the way an AI-classified email does — see SchoolIcsService's own doc comment
         title: params.title,
         description: params.description,
         start: params.start,
@@ -3887,11 +3906,11 @@ export class IngestionService {
       ownerUserId: params.ownerUserId,
       householdId: params.householdId,
       category: "school",
-      summary: params.canceled
-        ? `${params.title} was canceled on your synced school calendar`
-        : existingEvent
-          ? `${params.title} updated on your synced school calendar`
-          : `${params.title} added from your synced school calendar`,
+      summary: (() => {
+        const where = feedKind === "canvas" ? "Canvas" : "your synced school calendar";
+        if (params.canceled) return `${params.title} was canceled on ${where}`;
+        return existingEvent ? `${params.title} updated on ${where}` : `${params.title} added from ${where}`;
+      })(),
       linkedResourceType: "school_event",
       linkedResourceId: eventId,
       sourceEventId,

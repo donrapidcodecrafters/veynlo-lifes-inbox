@@ -6,6 +6,7 @@ import { SchoolService } from "./school.service";
 import { HouseholdService } from "../household/household.service";
 import { ConflictService } from "../schedule/conflict.service";
 import type { SchoolIcsService } from "./school-ics.service";
+import type { CanvasService } from "./canvas.service";
 import type { EntitlementsService } from "../entitlements/entitlements.service";
 import type { MailerService } from "../notifications/mailer.service";
 import type { QueueProducer } from "../../queue/queue-producer.interface";
@@ -44,7 +45,10 @@ describe("SchoolService + ConflictService.schoolTransportConflicts", () => {
     db = createDbClient(DATABASE_URL);
     households = new HouseholdService(db, stubEntitlements, stubMailer);
     conflicts = new ConflictService(db, households);
-    school = new SchoolService(db, households, conflicts, stubSchoolIcs, stubQueue);
+    // CanvasService is stubbed empty: nothing in these tests creates a Canvas source, so an empty object
+    // is the accurate stand-in — if that changes, the test fails on a missing method rather than quietly
+    // exercising a fake.
+    school = new SchoolService(db, households, conflicts, stubSchoolIcs, {} as unknown as CanvasService, stubQueue);
     try {
       ownerUserId = generateId("user");
       outsiderUserId = generateId("user");
